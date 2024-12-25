@@ -1,6 +1,6 @@
 # SearxNG MCP Server
 
-An MCP server implementation that integrates the SearxNG API, providing web search capabilities.
+An [MCP server](https://modelcontextprotocol.io/introduction) implementation that integrates the SearxNG API, providing web search capabilities.
 
 ## Features
 
