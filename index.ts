@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { NodeHtmlMarkdown } from 'node-html-markdown';
 
 const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
@@ -32,6 +33,23 @@ const WEB_SEARCH_TOOL: Tool = {
       },
     },
     required: ["query"],
+  },
+};
+
+const READ_URL_TOOL: Tool = {
+  name: "web_url_read",
+  description:
+    "Read the content from an URL" +
+    "Use this for further information retrieving to understand the content of each URL.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description: "URL",
+      },
+    },
+    required: ["url"],
   },
 };
 
@@ -105,9 +123,30 @@ async function performWebSearch(
     .join("\n\n");
 }
 
+async function fetchAndConvertToMarkdown(url: string) {
+  try {
+    // Fetch the URL
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch the URL: ${response.statusText}`);
+    }
+
+    // Retrieve HTML content
+    const htmlContent = await response.text();
+
+    // Convert HTML to Markdown
+    const markdownContent = NodeHtmlMarkdown.translate(htmlContent);
+
+    return markdownContent;
+  } catch (error: any) {
+    console.error('Error:', error.message);
+    throw error;
+  }
+}
+
 // Tool handlers
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [WEB_SEARCH_TOOL],
+  tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -128,6 +167,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [{ type: "text", text: results }],
         isError: false,
       };
+    }
+
+    if (name === "web_url_read") {
+        const { url } = args;
+        const result = await fetchAndConvertToMarkdown(url as string);
+        return {
+            content: [{ type: "text", text: result }],
+            isError: false,
+        }
     }
 
     return {
