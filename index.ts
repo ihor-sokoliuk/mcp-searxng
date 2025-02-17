@@ -39,7 +39,7 @@ const WEB_SEARCH_TOOL: Tool = {
 const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:
-    "Read the content from an URL" +
+    "Read the content from an URL. " +
     "Use this for further information retrieving to understand the content of each URL.",
   inputSchema: {
     type: "object",
@@ -123,10 +123,17 @@ async function performWebSearch(
     .join("\n\n");
 }
 
-async function fetchAndConvertToMarkdown(url: string) {
+async function fetchAndConvertToMarkdown(url: string, timeoutMs: number = 10000) {
+  // Create an AbortController instance
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    // Fetch the URL
-    const response = await fetch(url);
+    // Fetch the URL with the abort signal
+    const response = await fetch(url, {
+      signal: controller.signal
+    });
+
     if (!response.ok) {
       throw new Error(`Failed to fetch the URL: ${response.statusText}`);
     }
@@ -139,11 +146,16 @@ async function fetchAndConvertToMarkdown(url: string) {
 
     return markdownContent;
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
     console.error('Error:', error.message);
     throw error;
+  } finally {
+    // Clean up the timeout to prevent memory leaks
+    clearTimeout(timeoutId);
   }
 }
-
 // Tool handlers
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
