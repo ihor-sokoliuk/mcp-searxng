@@ -9,11 +9,15 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { readFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Read package.json to get the version
 const packageJson = JSON.parse(
-  readFileSync(join(process.cwd(), "package.json"), "utf-8")
+  readFileSync(join(__dirname, "package.json"), "utf-8")
 );
 const packageVersion = packageJson.version;
 
