@@ -33,8 +33,8 @@ const WEB_SEARCH_TOOL: Tool = {
       time_range: {
         type: "string",
         description: "Time range of search (day, month, year)",
-        enum: ["", "day", "month", "year"],
-        default: "",
+        enum: ["day", "month", "year"],
+        default: "month",
       },
       language: {
         type: "string",
@@ -43,11 +43,11 @@ const WEB_SEARCH_TOOL: Tool = {
         default: "all",
       },
       safesearch: {
-        type: "number",
+        type: "string",
         description:
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
-        enum: [0, 1, 2],
-        default: undefined,
+        enum: ["0", "1", "2"],
+        default: "0",
       },
     },
     required: ["query"],
@@ -105,9 +105,9 @@ interface SearXNGWeb {
 function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
   pageno?: number;
-  time_range?: string;
+  time_range: string;
   language?: string;
-  safesearch?: number;
+  safesearch: string;
 } {
   return (
     typeof args === "object" &&
@@ -120,9 +120,9 @@ function isSearXNGWebSearchArgs(args: unknown): args is {
 async function performWebSearch(
   query: string,
   pageno: number = 1,
-  time_range: string = "",
+  time_range: string = "month",
   language: string = "all",
-  safesearch?: number
+  safesearch: string = "0"
 ) {
   const searxngUrl = process.env.SEARXNG_URL || "http://localhost:8080";
   const url = new URL(`${searxngUrl}/search`);
@@ -138,9 +138,7 @@ async function performWebSearch(
     url.searchParams.set("language", language);
   }
 
-  if (safesearch !== undefined && [0, 1, 2].includes(safesearch)) {
-    url.searchParams.set("safesearch", safesearch.toString());
-  }
+  url.searchParams.set("safesearch", safesearch);
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -223,7 +221,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const {
         query,
         pageno = 1,
-        time_range = "",
+        time_range = "month",
         language = "all",
         safesearch,
       } = args;
