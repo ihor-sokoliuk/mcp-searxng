@@ -14,4 +14,4 @@ startCommand:
   commandFunction:
     # A function that produces the CLI command to start the MCP on stdio.
     |-
-    (config) => ({command: 'docker', args: ['run', '-i', '--rm', '-e', `SEARXNG_URL=${config.searxngUrl}`, 'mcp-server-searxng:latest']})
+    (config) => ({command: 'docker', args: ['run', '-i', '--rm', '-e', `SEARXNG_URL=${config.searxngUrl}`, 'mcp-searxng:latest']})
