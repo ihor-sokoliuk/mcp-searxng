@@ -34,7 +34,7 @@ const WEB_SEARCH_TOOL: Tool = {
         type: "string",
         description: "Time range of search (day, month, year)",
         enum: ["day", "month", "year"],
-        default: "month",
+        default: "",
       },
       language: {
         type: "string",
@@ -105,9 +105,9 @@ interface SearXNGWeb {
 function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
   pageno?: number;
-  time_range: string;
+  time_range?: string;
   language?: string;
-  safesearch: string;
+  safesearch?: string;
 } {
   return (
     typeof args === "object" &&
@@ -118,11 +118,11 @@ function isSearXNGWebSearchArgs(args: unknown): args is {
 }
 
 async function performWebSearch(
-  query: string,
-  pageno: number = 1,
-  time_range: string = "month",
-  language: string = "all",
-  safesearch: string = "0"
+    query: string,
+    pageno: number = 1,
+    time_range?: string,
+    language: string = "all",
+    safesearch?: string,
 ) {
   const searxngUrl = process.env.SEARXNG_URL || "http://localhost:8080";
   const url = new URL(`${searxngUrl}/search`);
@@ -130,15 +130,20 @@ async function performWebSearch(
   url.searchParams.set("format", "json");
   url.searchParams.set("pageno", pageno.toString());
 
-  if (time_range && ["day", "month", "year"].includes(time_range)) {
-    url.searchParams.set("time_range", time_range);
+  if (
+      time_range !== undefined &&
+      ["day", "month", "year"].includes(time_range)
+  ) {
+      url.searchParams.set("time_range", time_range);
   }
 
   if (language && language !== "all") {
     url.searchParams.set("language", language);
   }
 
-  url.searchParams.set("safesearch", safesearch);
+  if (safesearch !== undefined && ["0", "1", "2"].includes(safesearch)) {
+      url.searchParams.set("safesearch", safesearch);
+  }
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -221,7 +226,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const {
         query,
         pageno = 1,
-        time_range = "month",
+        time_range,
         language = "all",
         safesearch,
       } = args;
