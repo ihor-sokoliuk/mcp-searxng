@@ -38,6 +38,13 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 2. Set the `SEARXNG_URL` environment variable to the instance URL.
 3. The default `SEARXNG_URL` value is `http://localhost:8080`.
 
+### Using Authentication
+
+If you are using a password protected SearxNG instance you can set a username and password for HTTP Basic Auth:
+
+- Set the `AUTH_USERNAME` environmental variable to your username
+- Set the `AUTH_PASSWORD` environmental variable to your password
+
 ### Usage with Claude Desktop
 
 ### Installing via Smithery
