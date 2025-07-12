@@ -40,6 +40,8 @@
         "postversion": "node scripts/update-version.js && git add index.ts && git commit --amend --no-edit"
     },
     "dependencies": {
+        "@modelcontextprotocol/sdk": "1.10.1",
+        "mcp-evals": "^1.0.18",
         "@modelcontextprotocol/sdk": "1.15.0",
         "node-html-markdown": "^1.3.0"
     },
