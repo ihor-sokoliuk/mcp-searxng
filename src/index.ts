@@ -30,13 +30,47 @@ export { packageVersion };
 let currentLogLevel: LoggingLevel = "info";
 
 // Type guard for URL reading args
-export function isWebUrlReadArgs(args: unknown): args is { url: string } {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "url" in args &&
-    typeof (args as { url: string }).url === "string"
-  );
+export function isWebUrlReadArgs(args: unknown): args is {
+  url: string;
+  startChar?: number;
+  maxLength?: number;
+  section?: string;
+  paragraphRange?: string;
+  readHeadings?: boolean;
+} {
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("url" in args) ||
+    typeof (args as { url: string }).url !== "string"
+  ) {
+    return false;
+  }
+
+  const urlArgs = args as any;
+
+  // Convert empty strings to undefined for optional string parameters
+  if (urlArgs.section === "") urlArgs.section = undefined;
+  if (urlArgs.paragraphRange === "") urlArgs.paragraphRange = undefined;
+
+  // Validate optional parameters
+  if (urlArgs.startChar !== undefined && (typeof urlArgs.startChar !== "number" || urlArgs.startChar < 0)) {
+    return false;
+  }
+  if (urlArgs.maxLength !== undefined && (typeof urlArgs.maxLength !== "number" || urlArgs.maxLength < 1)) {
+    return false;
+  }
+  if (urlArgs.section !== undefined && typeof urlArgs.section !== "string") {
+    return false;
+  }
+  if (urlArgs.paragraphRange !== undefined && typeof urlArgs.paragraphRange !== "string") {
+    return false;
+  }
+  if (urlArgs.readHeadings !== undefined && typeof urlArgs.readHeadings !== "boolean") {
+    return false;
+  }
+
+  return true;
 }
 
 // Server implementation
@@ -104,7 +138,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error("Invalid arguments for URL reading");
       }
 
-      const result = await fetchAndConvertToMarkdown(server, args.url);
+      const paginationOptions = {
+        startChar: args.startChar,
+        maxLength: args.maxLength,
+        section: args.section,
+        paragraphRange: args.paragraphRange,
+        readHeadings: args.readHeadings,
+      };
+
+      const result = await fetchAndConvertToMarkdown(server, args.url, 10000, paginationOptions);
 
       return {
         content: [
