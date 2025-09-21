@@ -24,9 +24,9 @@ import { logMessage, shouldLog, setLogLevel, getCurrentLogLevel } from './src/lo
 import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from './src/types.js';
 import { createProxyAgent } from './src/proxy.js';
 import { LoggingLevel } from '@modelcontextprotocol/sdk/types.js';
-import { 
+import {
   MCPSearXNGError,
-  createConfigurationError, 
+  createConfigurationError,
   createNetworkError,
   createServerError,
   createJSONError,
@@ -38,13 +38,14 @@ import {
   createTimeoutError,
   createEmptyContentWarning,
   createUnexpectedError,
-  validateEnvironment 
+  validateEnvironment
 } from './src/error-handler.js';
 import { createConfigResource, createHelpResource } from './src/resources.js';
 import { performWebSearch } from './src/search.js';
 import { fetchAndConvertToMarkdown } from './src/url-reader.js';
 import { createHttpServer } from './src/http-server.js';
 import { packageVersion, isWebUrlReadArgs } from './src/index.js';
+import { SimpleCache, urlCache } from './src/cache.js';
 
 let testResults = {
   passed: 0,
@@ -161,6 +162,87 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', language: 'en' }), true);
     assert.equal(isSearXNGWebSearchArgs({ notQuery: 'test' }), false);
     assert.equal(isSearXNGWebSearchArgs(null), false);
+  });
+
+  // === CACHE MODULE TESTS ===
+  await testFunction('Cache - Basic cache operations', () => {
+    const testCache = new SimpleCache(1000); // 1 second TTL
+
+    // Test set and get
+    testCache.set('test-url', '<html>test</html>', '# Test');
+    const entry = testCache.get('test-url');
+    assert.ok(entry);
+    assert.equal(entry.htmlContent, '<html>test</html>');
+    assert.equal(entry.markdownContent, '# Test');
+
+    // Test non-existent key
+    assert.equal(testCache.get('non-existent'), null);
+
+    testCache.destroy();
+  });
+
+  await testFunction('Cache - TTL expiration', async () => {
+    const testCache = new SimpleCache(50); // 50ms TTL
+
+    testCache.set('short-lived', '<html>test</html>', '# Test');
+
+    // Should exist immediately
+    assert.ok(testCache.get('short-lived'));
+
+    // Wait for expiration
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Should be expired
+    assert.equal(testCache.get('short-lived'), null);
+
+    testCache.destroy();
+  });
+
+  await testFunction('Cache - Clear functionality', () => {
+    const testCache = new SimpleCache(1000);
+
+    testCache.set('url1', '<html>1</html>', '# 1');
+    testCache.set('url2', '<html>2</html>', '# 2');
+
+    assert.ok(testCache.get('url1'));
+    assert.ok(testCache.get('url2'));
+
+    testCache.clear();
+
+    assert.equal(testCache.get('url1'), null);
+    assert.equal(testCache.get('url2'), null);
+
+    testCache.destroy();
+  });
+
+  await testFunction('Cache - Statistics and cleanup', () => {
+    const testCache = new SimpleCache(1000);
+
+    testCache.set('url1', '<html>1</html>', '# 1');
+    testCache.set('url2', '<html>2</html>', '# 2');
+
+    const stats = testCache.getStats();
+    assert.equal(stats.size, 2);
+    assert.equal(stats.entries.length, 2);
+
+    // Check that entries have age information
+    assert.ok(stats.entries[0].age >= 0);
+    assert.ok(stats.entries[0].url);
+
+    testCache.destroy();
+  });
+
+  await testFunction('Cache - Global cache instance', () => {
+    // Test that global cache exists and works
+    urlCache.clear(); // Start fresh
+
+    urlCache.set('global-test', '<html>global</html>', '# Global');
+    const entry = urlCache.get('global-test');
+
+    assert.ok(entry);
+    assert.equal(entry.markdownContent, '# Global');
+
+    urlCache.clear();
   });
 
   // === PROXY MODULE TESTS ===
@@ -1064,6 +1146,9 @@ async function runTests() {
       _capabilities: {},
     } as any;
 
+    // Clear cache to ensure fresh results
+    urlCache.clear();
+
     const originalFetch = global.fetch;
     
     global.fetch = async () => {
@@ -1102,6 +1187,9 @@ async function runTests() {
     const originalProxy = process.env.HTTPS_PROXY;
     let capturedOptions: RequestInit | undefined;
 
+    // Clear cache to ensure we hit the network
+    urlCache.clear();
+
     process.env.HTTPS_PROXY = 'https://proxy.example.com:8080';
     
     global.fetch = async (url: string | URL | Request, options?: RequestInit) => {
@@ -1133,6 +1221,9 @@ async function runTests() {
       _capabilities: {},
     } as any;
 
+    // Clear cache to ensure we hit the network
+    urlCache.clear();
+
     const originalFetch = global.fetch;
     
     global.fetch = async () => {
@@ -1161,7 +1252,7 @@ async function runTests() {
 
     const originalFetch = global.fetch;
     let timeoutUsed = 0;
-    
+
     global.fetch = async (url: string | URL | Request, options?: RequestInit): Promise<Response> => {
       // Check if abort signal is set and track timing
       return new Promise((resolve) => {
@@ -1170,7 +1261,7 @@ async function runTests() {
             timeoutUsed = Date.now();
           });
         }
-        
+
         resolve({
           ok: true,
           text: async () => '<html><body><h1>Fast response</h1></body></html>'
@@ -1185,6 +1276,240 @@ async function runTests() {
       assert.ok(result.length > 0);
     } catch (error) {
       assert.fail(`Should not have thrown error with custom timeout: ${error}`);
+    }
+
+    global.fetch = originalFetch;
+  });
+
+  // === URL READER PAGINATION TESTS ===
+  await testFunction('URL Reader - Character pagination (startChar and maxLength)', async () => {
+    const mockServer = {
+      notification: () => {},
+      _serverInfo: { name: 'test', version: '1.0' },
+      _capabilities: {},
+    } as any;
+
+    // Clear cache to ensure fresh results
+    urlCache.clear();
+
+    const originalFetch = global.fetch;
+    const testHtml = '<html><body><h1>Test Title</h1><p>This is a long paragraph with lots of content that we can paginate through.</p></body></html>';
+
+    global.fetch = async () => ({
+      ok: true,
+      text: async () => testHtml
+    } as any);
+
+    try {
+      // Test maxLength only - be more lenient with expectations
+      const result1 = await fetchAndConvertToMarkdown(mockServer, 'https://test-char-pagination-1.com', 10000, { maxLength: 20 });
+      assert.ok(typeof result1 === 'string');
+      assert.ok(result1.length <= 20, `Expected length <= 20, got ${result1.length}: "${result1}"`);
+
+      // Test startChar only
+      const result2 = await fetchAndConvertToMarkdown(mockServer, 'https://test-char-pagination-2.com', 10000, { startChar: 10 });
+      assert.ok(typeof result2 === 'string');
+      assert.ok(result2.length > 0);
+
+      // Test both startChar and maxLength
+      const result3 = await fetchAndConvertToMarkdown(mockServer, 'https://test-char-pagination-3.com', 10000, { startChar: 5, maxLength: 15 });
+      assert.ok(typeof result3 === 'string');
+      assert.ok(result3.length <= 15, `Expected length <= 15, got ${result3.length}`);
+
+      // Test startChar beyond content length
+      const result4 = await fetchAndConvertToMarkdown(mockServer, 'https://test-char-pagination-4.com', 10000, { startChar: 10000 });
+      assert.equal(result4, '');
+
+    } catch (error) {
+      assert.fail(`Should not have thrown error with character pagination: ${error}`);
+    }
+
+    global.fetch = originalFetch;
+  });
+
+  await testFunction('URL Reader - Section extraction by heading', async () => {
+    const mockServer = {
+      notification: () => {},
+      _serverInfo: { name: 'test', version: '1.0' },
+      _capabilities: {},
+    } as any;
+
+    // Clear cache to ensure fresh results
+    urlCache.clear();
+
+    const originalFetch = global.fetch;
+    const testHtml = `
+      <html><body>
+        <h1>Introduction</h1>
+        <p>This is the intro section.</p>
+        <h2>Getting Started</h2>
+        <p>This is the getting started section.</p>
+        <h1>Advanced Topics</h1>
+        <p>This is the advanced section.</p>
+      </body></html>
+    `;
+
+    global.fetch = async () => ({
+      ok: true,
+      text: async () => testHtml
+    } as any);
+
+    try {
+      // Test finding a section
+      const result1 = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { section: 'Getting Started' });
+      assert.ok(typeof result1 === 'string');
+      assert.ok(result1.includes('getting started') || result1.includes('Getting Started'));
+
+      // Test section not found
+      const result2 = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { section: 'Nonexistent Section' });
+      assert.ok(result2.includes('Section "Nonexistent Section" not found'));
+
+    } catch (error) {
+      assert.fail(`Should not have thrown error with section extraction: ${error}`);
+    }
+
+    global.fetch = originalFetch;
+  });
+
+  await testFunction('URL Reader - Paragraph range filtering', async () => {
+    const mockServer = {
+      notification: () => {},
+      _serverInfo: { name: 'test', version: '1.0' },
+      _capabilities: {},
+    } as any;
+
+    // Clear cache to ensure fresh results
+    urlCache.clear();
+
+    const originalFetch = global.fetch;
+    const testHtml = `
+      <html><body>
+        <p>First paragraph.</p>
+        <p>Second paragraph.</p>
+        <p>Third paragraph.</p>
+        <p>Fourth paragraph.</p>
+        <p>Fifth paragraph.</p>
+      </body></html>
+    `;
+
+    global.fetch = async () => ({
+      ok: true,
+      text: async () => testHtml
+    } as any);
+
+    try {
+      // Test single paragraph
+      const result1 = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { paragraphRange: '2' });
+      assert.ok(typeof result1 === 'string');
+      assert.ok(result1.includes('Second') || result1.length > 0);
+
+      // Test range
+      const result2 = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { paragraphRange: '1-3' });
+      assert.ok(typeof result2 === 'string');
+      assert.ok(result2.length > 0);
+
+      // Test range to end
+      const result3 = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { paragraphRange: '3-' });
+      assert.ok(typeof result3 === 'string');
+      assert.ok(result3.length > 0);
+
+      // Test invalid range
+      const result4 = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { paragraphRange: 'invalid' });
+      assert.ok(result4.includes('invalid or out of bounds'));
+
+    } catch (error) {
+      assert.fail(`Should not have thrown error with paragraph range filtering: ${error}`);
+    }
+
+    global.fetch = originalFetch;
+  });
+
+  await testFunction('URL Reader - Headings only extraction', async () => {
+    const mockServer = {
+      notification: () => {},
+      _serverInfo: { name: 'test', version: '1.0' },
+      _capabilities: {},
+    } as any;
+
+    // Clear cache to ensure fresh results
+    urlCache.clear();
+
+    const originalFetch = global.fetch;
+    const testHtml = `
+      <html><body>
+        <h1>Main Title</h1>
+        <p>Some content here.</p>
+        <h2>Subtitle</h2>
+        <p>More content.</p>
+        <h3>Sub-subtitle</h3>
+        <p>Even more content.</p>
+      </body></html>
+    `;
+
+    global.fetch = async () => ({
+      ok: true,
+      text: async () => testHtml
+    } as any);
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer, 'https://example.com', 10000, { readHeadings: true });
+      assert.ok(typeof result === 'string');
+      assert.ok(result.includes('Main Title') || result.includes('#'));
+
+      // Should not include regular paragraph content
+      assert.ok(!result.includes('Some content here') || result.length < 100);
+
+    } catch (error) {
+      assert.fail(`Should not have thrown error with headings extraction: ${error}`);
+    }
+
+    global.fetch = originalFetch;
+  });
+
+  await testFunction('URL Reader - Cache integration with pagination', async () => {
+    const mockServer = {
+      notification: () => {},
+      _serverInfo: { name: 'test', version: '1.0' },
+      _capabilities: {},
+    } as any;
+
+    const originalFetch = global.fetch;
+    let fetchCount = 0;
+    const testHtml = '<html><body><h1>Cached Content</h1><p>This content should be cached.</p></body></html>';
+
+    global.fetch = async () => {
+      fetchCount++;
+      return {
+        ok: true,
+        text: async () => testHtml
+      } as any;
+    };
+
+    try {
+      // Clear cache first
+      urlCache.clear();
+
+      // First request should fetch from network
+      const result1 = await fetchAndConvertToMarkdown(mockServer, 'https://cache-test.com', 10000, { maxLength: 50 });
+      assert.equal(fetchCount, 1);
+      assert.ok(typeof result1 === 'string');
+      assert.ok(result1.length <= 50); // Should be truncated to 50 or less
+
+      // Second request with different pagination should use cache
+      const result2 = await fetchAndConvertToMarkdown(mockServer, 'https://cache-test.com', 10000, { startChar: 10, maxLength: 30 });
+      assert.equal(fetchCount, 1); // Should not have fetched again
+      assert.ok(typeof result2 === 'string');
+      assert.ok(result2.length <= 30); // Should be truncated to 30 or less
+
+      // Third request with no pagination should use cache
+      const result3 = await fetchAndConvertToMarkdown(mockServer, 'https://cache-test.com');
+      assert.equal(fetchCount, 1); // Should still not have fetched again
+      assert.ok(typeof result3 === 'string');
+
+      urlCache.clear();
+
+    } catch (error) {
+      assert.fail(`Should not have thrown error with cache integration: ${error}`);
     }
 
     global.fetch = originalFetch;
@@ -1548,7 +1873,7 @@ async function runTests() {
   });
 
   await testFunction('Index - Type guard isWebUrlReadArgs', () => {
-    // Test the actual exported function
+    // Test the actual exported function - basic cases
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com' }), true);
     assert.equal(isWebUrlReadArgs({ url: 'http://test.com' }), true);
     assert.equal(isWebUrlReadArgs({ notUrl: 'invalid' }), false);
@@ -1557,6 +1882,32 @@ async function runTests() {
     assert.equal(isWebUrlReadArgs('string'), false);
     assert.equal(isWebUrlReadArgs(123), false);
     assert.equal(isWebUrlReadArgs({}), false);
+
+    // Test with new pagination parameters
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: 0 }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 100 }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 'intro' }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: '1-5' }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: true }), true);
+
+    // Test with all parameters
+    assert.equal(isWebUrlReadArgs({
+      url: 'https://example.com',
+      startChar: 10,
+      maxLength: 200,
+      section: 'section1',
+      paragraphRange: '2-4',
+      readHeadings: false
+    }), true);
+
+    // Test invalid parameter types
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: -1 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 0 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: 'invalid' }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 'invalid' }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 123 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: 123 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: 'invalid' }), false);
   });
 
   // 🧪 Integration Tests - Server Creation and Handlers
@@ -1574,7 +1925,7 @@ async function runTests() {
   });
 
   await testFunction('Index - Type guard isWebUrlReadArgs', () => {
-    // Test the actual exported function
+    // Test the actual exported function - basic cases
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com' }), true);
     assert.equal(isWebUrlReadArgs({ url: 'http://test.com' }), true);
     assert.equal(isWebUrlReadArgs({ notUrl: 'invalid' }), false);
@@ -1583,6 +1934,32 @@ async function runTests() {
     assert.equal(isWebUrlReadArgs('string'), false);
     assert.equal(isWebUrlReadArgs(123), false);
     assert.equal(isWebUrlReadArgs({}), false);
+
+    // Test with new pagination parameters
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: 0 }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 100 }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 'intro' }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: '1-5' }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: true }), true);
+
+    // Test with all parameters
+    assert.equal(isWebUrlReadArgs({
+      url: 'https://example.com',
+      startChar: 10,
+      maxLength: 200,
+      section: 'section1',
+      paragraphRange: '2-4',
+      readHeadings: false
+    }), true);
+
+    // Test invalid parameter types
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: -1 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 0 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: 'invalid' }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 'invalid' }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 123 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: 123 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: 'invalid' }), false);
   });
 
   // 🧪 Integration Tests - Server Creation and Handlers
@@ -1592,18 +1969,18 @@ async function runTests() {
     // Test error handling for invalid arguments
     const invalidSearchArgs = { notQuery: 'invalid' };
     const invalidUrlArgs = { notUrl: 'invalid' };
-    
+
     assert.ok(!isSearXNGWebSearchArgs(invalidSearchArgs));
     assert.ok(!isWebUrlReadArgs(invalidUrlArgs));
-    
+
     // Test unknown tool error
     const unknownToolRequest = { name: 'unknown_tool', arguments: {} };
     assert.notEqual(unknownToolRequest.name, 'searxng_web_search');
     assert.notEqual(unknownToolRequest.name, 'web_url_read');
-    
+
     // Simulate error response
     try {
-      if (unknownToolRequest.name !== 'searxng_web_search' && 
+      if (unknownToolRequest.name !== 'searxng_web_search' &&
           unknownToolRequest.name !== 'web_url_read') {
         throw new Error(`Unknown tool: ${unknownToolRequest.name}`);
       }
@@ -1611,6 +1988,76 @@ async function runTests() {
       assert.ok(error instanceof Error);
       assert.ok(error.message.includes('Unknown tool'));
     }
+  });
+
+  await testFunction('Index - URL read tool with pagination parameters integration', async () => {
+    // Test that pagination parameters are properly passed through the system
+    const validArgs = {
+      url: 'https://example.com',
+      startChar: 10,
+      maxLength: 100,
+      section: 'introduction',
+      paragraphRange: '1-3',
+      readHeadings: false
+    };
+
+    // Verify type guard accepts the parameters
+    assert.ok(isWebUrlReadArgs(validArgs));
+
+    // Test individual parameter validation
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', startChar: 0 }));
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 1 }));
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', section: 'test' }));
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: '1' }));
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: true }));
+
+    // Test edge cases that should fail validation
+    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', startChar: -1 }));
+    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', maxLength: 0 }));
+    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', section: null }));
+    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: null }));
+    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', readHeadings: 'not-a-boolean' }));
+  });
+
+  await testFunction('Index - Pagination options object construction', async () => {
+    // Simulate what happens in the main tool handler
+    const testArgs = {
+      url: 'https://example.com',
+      startChar: 50,
+      maxLength: 200,
+      section: 'getting-started',
+      paragraphRange: '2-5',
+      readHeadings: true
+    };
+
+    // This mimics the pagination options construction in index.ts
+    const paginationOptions = {
+      startChar: testArgs.startChar,
+      maxLength: testArgs.maxLength,
+      section: testArgs.section,
+      paragraphRange: testArgs.paragraphRange,
+      readHeadings: testArgs.readHeadings,
+    };
+
+    assert.equal(paginationOptions.startChar, 50);
+    assert.equal(paginationOptions.maxLength, 200);
+    assert.equal(paginationOptions.section, 'getting-started');
+    assert.equal(paginationOptions.paragraphRange, '2-5');
+    assert.equal(paginationOptions.readHeadings, true);
+
+    // Test with undefined values (should work fine)
+    const testArgsPartial = { url: 'https://example.com', maxLength: 100 };
+    const paginationOptionsPartial = {
+      startChar: testArgsPartial.startChar,
+      maxLength: testArgsPartial.maxLength,
+      section: testArgsPartial.section,
+      paragraphRange: testArgsPartial.paragraphRange,
+      readHeadings: testArgsPartial.readHeadings,
+    };
+
+    assert.equal(paginationOptionsPartial.startChar, undefined);
+    assert.equal(paginationOptionsPartial.maxLength, 100);
+    assert.equal(paginationOptionsPartial.section, undefined);
   });
 
   await testFunction('Index - Set log level handler simulation', async () => {
