@@ -57,6 +57,14 @@ export async function createHttpServer(server: Server): Promise<express.Applicat
       await server.connect(transport);
     } else {
       // Invalid request
+      console.warn(`⚠️  POST request rejected - invalid request:`, {
+        clientIP: req.ip || req.connection.remoteAddress,
+        sessionId: sessionId || 'undefined',
+        hasInitializeRequest: isInitializeRequest(req.body),
+        userAgent: req.headers['user-agent'],
+        contentType: req.headers['content-type'],
+        accept: req.headers['accept']
+      });
       res.status(400).json({
         jsonrpc: '2.0',
         error: {
@@ -69,31 +77,73 @@ export async function createHttpServer(server: Server): Promise<express.Applicat
     }
 
     // Handle the request
-    await transport.handleRequest(req, res, req.body);
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      // Log header-related rejections for debugging
+      if (error instanceof Error && error.message.includes('accept')) {
+        console.warn(`⚠️  Connection rejected due to missing headers:`, {
+          clientIP: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          contentType: req.headers['content-type'],
+          accept: req.headers['accept'],
+          error: error.message
+        });
+      }
+      throw error;
+    }
   });
 
   // Handle GET requests for server-to-client notifications via SSE
   app.get('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
+      console.warn(`⚠️  GET request rejected - missing or invalid session ID:`, {
+        clientIP: req.ip || req.connection.remoteAddress,
+        sessionId: sessionId || 'undefined',
+        userAgent: req.headers['user-agent']
+      });
       res.status(400).send('Invalid or missing session ID');
       return;
     }
-    
+
     const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.warn(`⚠️  GET request failed:`, {
+        clientIP: req.ip || req.connection.remoteAddress,
+        sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   });
 
   // Handle DELETE requests for session termination
   app.delete('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
+      console.warn(`⚠️  DELETE request rejected - missing or invalid session ID:`, {
+        clientIP: req.ip || req.connection.remoteAddress,
+        sessionId: sessionId || 'undefined',
+        userAgent: req.headers['user-agent']
+      });
       res.status(400).send('Invalid or missing session ID');
       return;
     }
-    
+
     const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.warn(`⚠️  DELETE request failed:`, {
+        clientIP: req.ip || req.connection.remoteAddress,
+        sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   });
 
   // Health check endpoint
