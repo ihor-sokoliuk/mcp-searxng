@@ -7,14 +7,27 @@ let currentLogLevel: LoggingLevel = "info";
 // Logging helper function
 export function logMessage(server: Server, level: LoggingLevel, message: string, data?: unknown): void {
   if (shouldLog(level)) {
-    server.notification({
-      method: "notifications/message",
-      params: {
-        level,
-        message,
-        data
+    try {
+      server.notification({
+        method: "notifications/message",
+        params: {
+          level,
+          message,
+          data
+        }
+      }).catch((error) => {
+        // Silently ignore "Not connected" errors during server startup
+        // This can happen when logging occurs before the transport is fully connected
+        if (error instanceof Error && error.message !== "Not connected") {
+          console.error("Logging error:", error);
+        }
+      });
+    } catch (error) {
+      // Handle synchronous errors as well
+      if (error instanceof Error && error.message !== "Not connected") {
+        console.error("Logging error:", error);
       }
-    });
+    }
   }
 }
 
