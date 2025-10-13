@@ -8,12 +8,16 @@ let currentLogLevel: LoggingLevel = "info";
 export function logMessage(server: Server, level: LoggingLevel, message: string, data?: unknown): void {
   if (shouldLog(level)) {
     try {
+      // Merge message and data together for the notification body
+      const notificationData = data !== undefined
+        ? (typeof data === 'object' && data !== null ? { message, ...data } : { message, data })
+        : { message };
+
       server.notification({
         method: "notifications/message",
         params: {
           level,
-          message,
-          data
+          data: notificationData
         }
       }).catch((error) => {
         // Silently ignore "Not connected" errors during server startup
