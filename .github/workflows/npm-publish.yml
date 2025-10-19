@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-publish:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest  # Note: Trusted publishing requires GitHub-hosted runners, not self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: '18'
           registry-url: 'https://registry.npmjs.org/'
+      
+      - name: Update npm to latest version
+        run: npm install -g npm@latest
       
       - name: Install dependencies
         run: npm install --ignore-scripts
