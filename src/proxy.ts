@@ -11,10 +11,9 @@ import { ProxyAgent } from "undici";
  * - HTTPS_PROXY / https_proxy: For HTTPS requests
  * - NO_PROXY / no_proxy: Comma-separated list of hosts to bypass proxy
  * 
- * @param targetUrl - The URL being fetched (used to determine protocol)
  * @returns ProxyAgent dispatcher for fetch, or undefined if no proxy configured
  */
-export function createProxyAgent(targetUrl: string): ProxyAgent | undefined {
+export function createProxyAgent(): ProxyAgent | undefined {
   const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy;
 
   if (!proxyUrl) {

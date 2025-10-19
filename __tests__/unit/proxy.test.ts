@@ -22,8 +22,8 @@ async function runTests() {
     envManager.delete('HTTPS_PROXY');
     envManager.delete('http_proxy');
     envManager.delete('https_proxy');
-    
-    const agent = createProxyAgent('https://example.com');
+
+    const agent = createProxyAgent();
     assert.equal(agent, undefined);
     
     envManager.restore();
@@ -31,8 +31,8 @@ async function runTests() {
 
   await testFunction('HTTP proxy configuration', () => {
     envManager.set('HTTP_PROXY', 'http://proxy:8080');
-    
-    const agent = createProxyAgent('http://example.com');
+
+    const agent = createProxyAgent();
     assert.ok(agent);
     assert.equal(agent.constructor.name, 'ProxyAgent');
     
@@ -41,8 +41,8 @@ async function runTests() {
 
   await testFunction('HTTPS proxy configuration', () => {
     envManager.set('HTTPS_PROXY', 'https://proxy:8080');
-    
-    const agent = createProxyAgent('https://example.com');
+
+    const agent = createProxyAgent();
     assert.ok(agent);
     assert.equal(agent.constructor.name, 'ProxyAgent');
     
@@ -51,8 +51,8 @@ async function runTests() {
 
   await testFunction('Proxy with authentication', () => {
     envManager.set('HTTPS_PROXY', 'https://user:pass@proxy:8080');
-    
-    const agent = createProxyAgent('https://example.com');
+
+    const agent = createProxyAgent();
     assert.ok(agent);
     
     envManager.restore();
@@ -62,8 +62,8 @@ async function runTests() {
     envManager.delete('HTTP_PROXY');
     envManager.delete('HTTPS_PROXY');
     envManager.set('http_proxy', 'http://lowercase-proxy:8080');
-    
-    const agent = createProxyAgent('http://example.com');
+
+    const agent = createProxyAgent();
     assert.ok(agent);
     
     envManager.restore();
@@ -73,7 +73,7 @@ async function runTests() {
     envManager.set('HTTP_PROXY', 'not-a-url');
     
     try {
-      const agent = createProxyAgent('http://example.com');
+      const agent = createProxyAgent();
       // Should handle malformed URLs gracefully or throw
       assert.ok(agent === undefined || agent !== null);
     } catch (error) {
@@ -88,7 +88,7 @@ async function runTests() {
     envManager.set('HTTP_PROXY', 'socks5://proxy:1080');
     
     try {
-      const agent = createProxyAgent('http://example.com');
+      const agent = createProxyAgent();
       assert.fail('Should have thrown error for unsupported protocol');
     } catch (error) {
       assert.ok(error instanceof Error);
@@ -105,7 +105,7 @@ async function runTests() {
       envManager.set('HTTP_PROXY', 'http://proxy:8080');
       
       try {
-        const agent = createProxyAgent(url);
+        const agent = createProxyAgent();
         assert.ok(agent === undefined || agent !== null);
       } catch (error) {
         // Some URL schemes might not be supported, that's ok
@@ -118,9 +118,9 @@ async function runTests() {
 
   await testFunction('ProxyAgent has dispatch method', () => {
     envManager.set('HTTP_PROXY', 'http://proxy:8080');
-    
-    const agent = createProxyAgent('http://example.com');
-    
+
+    const agent = createProxyAgent();
+
     if (agent) {
       assert.ok(typeof agent.dispatch === 'function');
     }
