@@ -36,9 +36,8 @@
     "scripts": {
         "build": "tsc && shx chmod +x dist/*.js",
         "watch": "tsc --watch",
-        "test": "npm test",
-        "test:coverage": "npm test:coverage",
-        "test:watch": "npm test:watch",
+        "test": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/run-all.ts",
+        "test:coverage": "SEARXNG_URL=https://test-searx.example.com c8 --reporter=text tsx __tests__/run-all.ts",
         "bootstrap": "npm install && npm run build",
         "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/index.js",
         "postversion": "node scripts/update-version.js && git add src/index.ts && git commit --amend --no-edit"
