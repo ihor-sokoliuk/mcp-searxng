@@ -1,7 +1,20 @@
-import { HttpsProxyAgent } from "https-proxy-agent";
-import { HttpProxyAgent } from "http-proxy-agent";
+import { ProxyAgent } from "undici";
 
-export function createProxyAgent(targetUrl: string) {
+/**
+ * Creates a proxy agent dispatcher for Node.js fetch API.
+ * 
+ * Node.js fetch uses Undici under the hood, which requires a 'dispatcher' option
+ * instead of 'agent'. This function creates a ProxyAgent compatible with fetch.
+ * 
+ * Environment variables checked (in order):
+ * - HTTP_PROXY / http_proxy: For HTTP requests
+ * - HTTPS_PROXY / https_proxy: For HTTPS requests
+ * - NO_PROXY / no_proxy: Comma-separated list of hosts to bypass proxy
+ * 
+ * @param targetUrl - The URL being fetched (used to determine protocol)
+ * @returns ProxyAgent dispatcher for fetch, or undefined if no proxy configured
+ */
+export function createProxyAgent(targetUrl: string): ProxyAgent | undefined {
   const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy;
 
   if (!proxyUrl) {
@@ -27,17 +40,12 @@ export function createProxyAgent(targetUrl: string) {
     );
   }
 
-  // Reconstruct base proxy URL preserving credentials but removing any path
+  // Reconstruct base proxy URL preserving credentials
   const auth = parsedProxyUrl.username ? 
     (parsedProxyUrl.password ? `${parsedProxyUrl.username}:${parsedProxyUrl.password}@` : `${parsedProxyUrl.username}@`) : 
     '';
   const normalizedProxyUrl = `${parsedProxyUrl.protocol}//${auth}${parsedProxyUrl.host}`;
 
-  // Determine if target URL is HTTPS
-  const isHttps = targetUrl.startsWith('https:');
-
-  // Create appropriate agent based on target protocol
-  return isHttps
-    ? new HttpsProxyAgent(normalizedProxyUrl)
-    : new HttpProxyAgent(normalizedProxyUrl);
+  // Create and return Undici ProxyAgent compatible with fetch's dispatcher option
+  return new ProxyAgent(normalizedProxyUrl);
 }

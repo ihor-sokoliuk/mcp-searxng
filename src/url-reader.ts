@@ -179,10 +179,11 @@ export async function fetchAndConvertToMarkdown(
       signal: controller.signal,
     };
 
-    // Add proxy agent if proxy is configured
+    // Add proxy dispatcher if proxy is configured
+    // Node.js fetch uses 'dispatcher' option for proxy, not 'agent'
     const proxyAgent = createProxyAgent(url);
     if (proxyAgent) {
-      (requestOptions as any).agent = proxyAgent;
+      (requestOptions as any).dispatcher = proxyAgent;
     }
 
     let response: Response;
