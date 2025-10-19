@@ -36,11 +36,14 @@
     "scripts": {
         "build": "tsc && shx chmod +x dist/*.js",
         "watch": "tsc --watch",
-        "test": "tsx test-suite.ts",
+        "test": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/run-all.ts",
+        "test:old": "tsx test-suite.ts",
+        "test:unit": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/unit/*.test.ts",
+        "test:integration": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/integration/*.test.ts",
         "bootstrap": "npm install && npm run build",
-        "test:watch": "tsx --watch test-suite.ts",
-        "test:coverage": "c8 --reporter=text --reporter=lcov --reporter=html tsx test-suite.ts",
-        "test:ci": "c8 --reporter=text --reporter=lcov tsx test-suite.ts",
+        "test:watch": "SEARXNG_URL=https://test-searx.example.com tsx --watch __tests__/run-all.ts",
+        "test:coverage": "SEARXNG_URL=https://test-searx.example.com c8 --reporter=text --reporter=lcov --reporter=html tsx __tests__/run-all.ts",
+        "test:ci": "SEARXNG_URL=https://test-searx.example.com c8 --reporter=text --reporter=lcov tsx __tests__/run-all.ts",
         "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/index.js",
         "postversion": "node scripts/update-version.js && git add src/index.ts && git commit --amend --no-edit"
     },
@@ -50,9 +53,8 @@
         "@types/express": "^5.0.3",
         "cors": "^2.8.5",
         "express": "^5.1.0",
-        "http-proxy-agent": "^7.0.2",
-        "https-proxy-agent": "^7.0.6",
-        "node-html-markdown": "^1.3.0"
+        "node-html-markdown": "^1.3.0",
+        "undici": "^6.20.1"
     },
     "devDependencies": {
         "mcp-evals": "^1.0.18",
