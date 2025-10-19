@@ -21,7 +21,7 @@ import { createHttpServer } from "./http-server.js";
 import { validateEnvironment as validateEnv } from "./error-handler.js";
 
 // Use a static version string that will be updated by the version script
-const packageVersion = "0.7.2";
+const packageVersion = "0.7.3";
 
 // Export the version for use in other modules
 export { packageVersion };
