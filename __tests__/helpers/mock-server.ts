@@ -7,7 +7,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 export interface MockServer {
-  notification: (method: string, params: any) => void;
+  notification: (method: string, params: any) => Promise<void>;
   _serverInfo: { name: string; version: string };
   _capabilities: Record<string, any>;
   connect?: (transport: any) => Promise<void>;
@@ -20,7 +20,7 @@ export function createMockServer(overrides?: Partial<MockServer>): MockServer {
   const mockNotificationCalls: any[] = [];
   
   return {
-    notification: (method: string, params: any) => {
+    notification: async (method: string, params: any) => {
       mockNotificationCalls.push({ method, params });
     },
     _serverInfo: { name: 'test', version: '1.0' },
@@ -40,7 +40,7 @@ export function createMockServerWithTracking(): {
   const mockNotificationCalls: any[] = [];
   
   const server: MockServer = {
-    notification: (method: string, params: any) => {
+    notification: async (method: string, params: any) => {
       mockNotificationCalls.push({ method, params });
     },
     _serverInfo: { name: 'test', version: '1.0' },

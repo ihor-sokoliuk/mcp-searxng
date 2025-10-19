@@ -1,4 +1,3 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { getCurrentLogLevel } from "./logging.js";
 import { packageVersion } from "./index.js";
 
