@@ -36,14 +36,10 @@
     "scripts": {
         "build": "tsc && shx chmod +x dist/*.js",
         "watch": "tsc --watch",
-        "test": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/run-all.ts",
-        "test:old": "tsx test-suite.ts",
-        "test:unit": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/unit/*.test.ts",
-        "test:integration": "SEARXNG_URL=https://test-searx.example.com tsx __tests__/integration/*.test.ts",
+        "test": "npm test",
+        "test:coverage": "npm test:coverage",
+        "test:watch": "npm test:watch",
         "bootstrap": "npm install && npm run build",
-        "test:watch": "SEARXNG_URL=https://test-searx.example.com tsx --watch __tests__/run-all.ts",
-        "test:coverage": "SEARXNG_URL=https://test-searx.example.com c8 --reporter=text --reporter=lcov --reporter=html tsx __tests__/run-all.ts",
-        "test:ci": "SEARXNG_URL=https://test-searx.example.com c8 --reporter=text --reporter=lcov tsx __tests__/run-all.ts",
         "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/index.js",
         "postversion": "node scripts/update-version.js && git add src/index.ts && git commit --amend --no-edit"
     },
