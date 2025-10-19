@@ -40,7 +40,7 @@
         "test:coverage": "SEARXNG_URL=https://test-searx.example.com c8 --reporter=text tsx __tests__/run-all.ts",
         "bootstrap": "npm install && npm run build",
         "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/index.js",
-        "postversion": "node scripts/update-version.js && git add src/index.ts && git commit --amend --no-edit && git tag -f \"v$(node -p 'require(\\\"./package.json\\\").version')\""
+        "postversion": "TAG=$(node scripts/update-version.js | tail -1) && git add src/index.ts && git commit --amend --no-edit && git tag -f $TAG"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "1.17.4",

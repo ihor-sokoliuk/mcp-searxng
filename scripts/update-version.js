@@ -31,6 +31,9 @@ if (staticVersionRegex.test(content)) {
   fs.writeFileSync(indexPath, content);
   
   console.log(`Updated version in index.ts to ${version}`);
+  
+  // Output the tag name to be used in the git command
+  console.log(`v${version}`);
 } else {
   console.error('Could not find static version declaration in index.ts');
   process.exit(1);
