@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   build-and-publish:
+    name: Build and Publish NPM Package
     runs-on: ubuntu-latest  # Note: Trusted publishing requires GitHub-hosted runners, not self-hosted
     steps:
       - name: Checkout code
