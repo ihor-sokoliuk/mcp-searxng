@@ -128,6 +128,108 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('NO_PROXY bypasses proxy for exact hostname', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'example.com');
+
+    const agent = createProxyAgent('http://example.com/path');
+    assert.equal(agent, undefined);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY bypasses proxy for domain suffix', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', '.example.com');
+
+    const agent = createProxyAgent('http://sub.example.com/path');
+    assert.equal(agent, undefined);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY bypasses proxy for domain suffix without leading dot', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'example.com');
+
+    const agent = createProxyAgent('http://sub.example.com/path');
+    assert.equal(agent, undefined);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY wildcard bypasses all', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', '*');
+
+    const agent = createProxyAgent('http://anything.com/path');
+    assert.equal(agent, undefined);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY comma-separated list', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'localhost,127.0.0.1,.example.com');
+
+    const agent1 = createProxyAgent('http://localhost/path');
+    assert.equal(agent1, undefined);
+
+    const agent2 = createProxyAgent('http://127.0.0.1/path');
+    assert.equal(agent2, undefined);
+
+    const agent3 = createProxyAgent('http://sub.example.com/path');
+    assert.equal(agent3, undefined);
+
+    const agent4 = createProxyAgent('http://other.com/path');
+    assert.ok(agent4);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY case-insensitive matching', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'EXAMPLE.COM');
+
+    const agent = createProxyAgent('http://example.com/path');
+    assert.equal(agent, undefined);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY lowercase env var', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('no_proxy', 'example.com');
+
+    const agent = createProxyAgent('http://example.com/path');
+    assert.equal(agent, undefined);
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('NO_PROXY does not affect non-matching URLs', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'example.com');
+
+    const agent = createProxyAgent('http://other.com/path');
+    assert.ok(agent);
+    assert.equal(agent.constructor.name, 'ProxyAgent');
+    
+    envManager.restore();
+  }, results);
+
+  await testFunction('createProxyAgent without target URL still works', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'example.com');
+
+    // When no target URL is provided, NO_PROXY should not apply
+    const agent = createProxyAgent();
+    assert.ok(agent);
+    assert.equal(agent.constructor.name, 'ProxyAgent');
+    
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Proxy Module');
   return results;
 }

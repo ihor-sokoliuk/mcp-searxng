@@ -88,6 +88,8 @@ Set one or more of these environment variables to configure proxy support:
 - `HTTPS_PROXY`: Proxy URL for HTTPS requests  
 - `http_proxy`: Alternative lowercase version for HTTP requests
 - `https_proxy`: Alternative lowercase version for HTTPS requests
+- `NO_PROXY`: Comma-separated list of hostnames or domains to bypass proxy
+- `no_proxy`: Alternative lowercase version for NO_PROXY
 
 #### Proxy URL Formats
 
@@ -101,6 +103,31 @@ export HTTPS_PROXY=http://proxy.company.com:8080
 # Proxy with authentication
 export HTTP_PROXY=http://username:password@proxy.company.com:8080
 export HTTPS_PROXY=http://username:password@proxy.company.com:8080
+
+# Proxy with NO_PROXY bypass list
+export HTTP_PROXY=http://proxy.company.com:8080
+export NO_PROXY=localhost,127.0.0.1,.local,.internal,example.com
+```
+
+#### NO_PROXY Format
+
+The `NO_PROXY` variable accepts a comma-separated list of hosts and domains that should bypass the proxy:
+
+- **Exact hostname**: `example.com` - matches only `example.com`
+- **Domain suffix**: `.example.com` or `example.com` - matches `sub.example.com`, `api.example.com`, etc.
+- **Localhost**: `localhost`, `127.0.0.1` - common for local development
+- **Wildcard**: `*` - bypasses proxy for all requests (not recommended)
+
+**Examples:**
+```bash
+# Bypass proxy for localhost and internal domains
+export NO_PROXY=localhost,127.0.0.1,.internal,.local
+
+# Bypass proxy for specific services
+export NO_PROXY=api.company.com,search.internal
+
+# Multiple formats combined
+export NO_PROXY=localhost,*.local,.internal,192.168.1.0/24
 ```
 
 **Note:** If no proxy environment variables are set, the server will make direct connections as normal. See the usage examples below for how to configure proxy settings with different installation methods.
@@ -158,6 +185,24 @@ export HTTPS_PROXY=http://username:password@proxy.company.com:8080
 }
 ```
 
+#### With Proxy and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "npx",
+      "args": ["-y", "mcp-searxng"],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
+      }
+    }
+  }
+}
+```
+
 #### With Authentication and Proxy Support
 ```json
 {
@@ -171,6 +216,26 @@ export HTTPS_PROXY=http://username:password@proxy.company.com:8080
         "AUTH_PASSWORD": "your_password",
         "HTTP_PROXY": "http://proxy.company.com:8080",
         "HTTPS_PROXY": "http://proxy.company.com:8080"
+      }
+    }
+  }
+}
+```
+
+#### With Authentication, Proxy, and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "npx",
+      "args": ["-y", "mcp-searxng"],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
   }
@@ -227,6 +292,60 @@ npm install -g mcp-searxng
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "HTTP_PROXY": "http://proxy.company.com:8080",
         "HTTPS_PROXY": "http://proxy.company.com:8080"
+      }
+    }
+  }
+}
+```
+
+#### With Proxy and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "mcp-searxng",
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
+      }
+    }
+  }
+}
+```
+
+#### With Authentication and Proxy Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "mcp-searxng",
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080"
+      }
+    }
+  }
+}
+```
+
+#### With Authentication, Proxy, and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "mcp-searxng",
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
   }
@@ -328,6 +447,31 @@ docker pull isokoliuk/mcp-searxng:latest
 }
 ```
 
+#### With Proxy and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "SEARXNG_URL",
+        "-e", "HTTP_PROXY",
+        "-e", "HTTPS_PROXY",
+        "-e", "NO_PROXY",
+        "isokoliuk/mcp-searxng:latest"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
+      }
+    }
+  }
+}
+```
+
 #### With Authentication and Proxy Support
 ```json
 {
@@ -349,6 +493,35 @@ docker pull isokoliuk/mcp-searxng:latest
         "AUTH_PASSWORD": "your_password",
         "HTTP_PROXY": "http://proxy.company.com:8080",
         "HTTPS_PROXY": "http://proxy.company.com:8080"
+      }
+    }
+  }
+}
+```
+
+#### With Authentication, Proxy, and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "SEARXNG_URL",
+        "-e", "AUTH_USERNAME",
+        "-e", "AUTH_PASSWORD",
+        "-e", "HTTP_PROXY",
+        "-e", "HTTPS_PROXY",
+        "-e", "NO_PROXY",
+        "isokoliuk/mcp-searxng:latest"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
   }
@@ -430,6 +603,31 @@ docker build -t mcp-searxng:latest -f Dockerfile .
 }
 ```
 
+#### With Proxy and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "SEARXNG_URL",
+        "-e", "HTTP_PROXY",
+        "-e", "HTTPS_PROXY",
+        "-e", "NO_PROXY",
+        "mcp-searxng:latest"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
+      }
+    }
+  }
+}
+```
+
 #### With Authentication and Proxy Support
 ```json
 {
@@ -451,6 +649,35 @@ docker build -t mcp-searxng:latest -f Dockerfile .
         "AUTH_PASSWORD": "your_password",
         "HTTP_PROXY": "http://proxy.company.com:8080",
         "HTTPS_PROXY": "http://proxy.company.com:8080"
+      }
+    }
+  }
+}
+```
+
+#### With Authentication, Proxy, and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "SEARXNG_URL",
+        "-e", "AUTH_USERNAME",
+        "-e", "AUTH_PASSWORD",
+        "-e", "HTTP_PROXY",
+        "-e", "HTTPS_PROXY",
+        "-e", "NO_PROXY",
+        "mcp-searxng:latest"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
   }
@@ -512,6 +739,19 @@ services:
       - HTTPS_PROXY=http://proxy.company.com:8080
 ```
 
+#### With Proxy and NO_PROXY Support
+```yaml
+services:
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:latest
+    stdin_open: true
+    environment:
+      - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
+      - HTTP_PROXY=http://proxy.company.com:8080
+      - HTTPS_PROXY=http://proxy.company.com:8080
+      - NO_PROXY=localhost,127.0.0.1,.local,.internal
+```
+
 #### With Authentication and Proxy Support
 ```yaml
 services:
@@ -524,6 +764,21 @@ services:
       - AUTH_PASSWORD=your_password
       - HTTP_PROXY=http://proxy.company.com:8080
       - HTTPS_PROXY=http://proxy.company.com:8080
+```
+
+#### With Authentication, Proxy, and NO_PROXY Support
+```yaml
+services:
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:latest
+    stdin_open: true
+    environment:
+      - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
+      - AUTH_USERNAME=your_username
+      - AUTH_PASSWORD=your_password
+      - HTTP_PROXY=http://proxy.company.com:8080
+      - HTTPS_PROXY=http://proxy.company.com:8080
+      - NO_PROXY=localhost,127.0.0.1,.local,.internal
 ```
 
 #### Using Local Build
@@ -601,6 +856,24 @@ The server supports both STDIO (default) and HTTP transports:
 }
 ```
 
+#### HTTP Server with Proxy and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng-http": {
+      "command": "mcp-searxng",
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "MCP_HTTP_PORT": "3000",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
+      }
+    }
+  }
+}
+```
+
 #### HTTP Server with Authentication and Proxy Support
 ```json
 {
@@ -614,6 +887,26 @@ The server supports both STDIO (default) and HTTP transports:
         "AUTH_PASSWORD": "your_password",
         "HTTP_PROXY": "http://proxy.company.com:8080",
         "HTTPS_PROXY": "http://proxy.company.com:8080"
+      }
+    }
+  }
+}
+```
+
+#### HTTP Server with Authentication, Proxy, and NO_PROXY Support
+```json
+{
+  "mcpServers": {
+    "searxng-http": {
+      "command": "mcp-searxng",
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "MCP_HTTP_PORT": "3000",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
   }
