@@ -21,7 +21,16 @@ export async function performWebSearch(
   safesearch?: string
 ) {
   const startTime = Date.now();
-  logMessage(server, "info", `Starting web search: "${query}" (page ${pageno}, lang: ${language})`);
+  
+  // Build detailed log message with all parameters
+  const searchParams = [
+    `page ${pageno}`,
+    `lang: ${language}`,
+    time_range ? `time: ${time_range}` : null,
+    safesearch ? `safesearch: ${safesearch}` : null
+  ].filter(Boolean).join(", ");
+  
+  logMessage(server, "info", `Starting web search: "${query}" (${searchParams})`);
   
   const searxngUrl = process.env.SEARXNG_URL;
 
@@ -42,9 +51,7 @@ export async function performWebSearch(
     );
   }
 
-  // Construct the search URL
-  const baseUrl = parsedUrl.origin;
-  const url = new URL(`${baseUrl}/search`);
+  const url = new URL('/search', parsedUrl);
 
   url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
@@ -92,7 +99,7 @@ export async function performWebSearch(
   // Fetch with enhanced error handling
   let response: Response;
   try {
-    logMessage(server, "debug", `Making request to: ${url.toString()}`);
+    logMessage(server, "info", `Making request to: ${url.toString()}`);
     response = await fetch(url.toString(), requestOptions);
   } catch (error: any) {
     logMessage(server, "error", `Network error during search request: ${error.message}`, { query, url: url.toString() });
@@ -154,7 +161,7 @@ export async function performWebSearch(
   }
 
   const duration = Date.now() - startTime;
-  logMessage(server, "info", `Search completed: "${query}" - ${results.length} results in ${duration}ms`);
+  logMessage(server, "info", `Search completed: "${query}" (${searchParams}) - ${results.length} results in ${duration}ms`);
 
   return results
     .map((r) => `Title: ${r.title}\nDescription: ${r.content}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
