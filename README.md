@@ -76,6 +76,23 @@ If you are using a password protected SearxNG instance you can set a username an
 
 **Note:** Authentication is only required for password-protected SearxNG instances. See the usage examples below for how to configure authentication with different installation methods.
 
+### Custom User-Agent (Optional)
+
+You can set a custom User-Agent header for requests to the SearXNG instance:
+
+- Set the `USER_AGENT` environment variable to your desired User-Agent string
+
+**Note:** If `USER_AGENT` is not set, no User-Agent header will be added to requests. This is useful when the SearXNG instance requires a specific User-Agent or when you want to identify your requests. See the usage examples below for how to configure the User-Agent with different installation methods.
+
+**Examples:**
+```bash
+# Custom User-Agent
+export USER_AGENT="MyBot/1.0"
+
+# Browser-like User-Agent
+export USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+```
+
 ### Proxy Support (Optional)
 
 The server supports HTTP and HTTPS proxies through environment variables. This is useful when running behind corporate firewalls or when you need to route traffic through a specific proxy server.
@@ -168,6 +185,22 @@ export NO_PROXY=localhost,*.local,.internal,192.168.1.0/24
 }
 ```
 
+#### With Custom User-Agent
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "npx",
+      "args": ["-y", "mcp-searxng"],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "USER_AGENT": "MyBot/1.0"
+      }
+    }
+  }
+}
+```
+
 #### With Proxy Support
 ```json
 {
@@ -242,6 +275,27 @@ export NO_PROXY=localhost,*.local,.internal,192.168.1.0/24
 }
 ```
 
+#### With Authentication, Proxy, NO_PROXY, and User-Agent Support
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "npx",
+      "args": ["-y", "mcp-searxng"],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "AUTH_USERNAME": "your_username",
+        "AUTH_PASSWORD": "your_password",
+        "HTTP_PROXY": "http://proxy.company.com:8080",
+        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1,.local,.internal",
+        "USER_AGENT": "MyBot/1.0"
+      }
+    }
+  }
+}
+```
+
 </details>
 
 ### [NPM](https://www.npmjs.com/package/mcp-searxng)
@@ -276,6 +330,21 @@ npm install -g mcp-searxng
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password"
+      }
+    }
+  }
+}
+```
+
+#### With Custom User-Agent
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "mcp-searxng",
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "USER_AGENT": "MyBot/1.0"
       }
     }
   }
@@ -418,6 +487,27 @@ docker pull isokoliuk/mcp-searxng:latest
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password"
+      }
+    }
+  }
+}
+```
+
+#### With Custom User-Agent
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "SEARXNG_URL",
+        "-e", "USER_AGENT",
+        "isokoliuk/mcp-searxng:latest"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "USER_AGENT": "MyBot/1.0"
       }
     }
   }
@@ -580,6 +670,27 @@ docker build -t mcp-searxng:latest -f Dockerfile .
 }
 ```
 
+#### With Custom User-Agent
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "SEARXNG_URL",
+        "-e", "USER_AGENT",
+        "mcp-searxng:latest"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "USER_AGENT": "MyBot/1.0"
+      }
+    }
+  }
+}
+```
+
 #### With Proxy Support
 ```json
 {
@@ -725,6 +836,17 @@ services:
       - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
       - AUTH_USERNAME=your_username
       - AUTH_PASSWORD=your_password
+```
+
+#### With Custom User-Agent
+```yaml
+services:
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:latest
+    stdin_open: true
+    environment:
+      - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
+      - USER_AGENT=MyBot/1.0
 ```
 
 #### With Proxy Support

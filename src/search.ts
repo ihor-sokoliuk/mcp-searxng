@@ -96,6 +96,15 @@ export async function performWebSearch(
     };
   }
 
+  // Add User-Agent header if configured
+  const userAgent = process.env.USER_AGENT;
+  if (userAgent) {
+    requestOptions.headers = {
+      ...requestOptions.headers,
+      'User-Agent': userAgent
+    };
+  }
+
   // Fetch with enhanced error handling
   let response: Response;
   try {
