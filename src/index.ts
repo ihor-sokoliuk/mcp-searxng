@@ -33,7 +33,7 @@ let currentLogLevel: LoggingLevel = "info";
 export function isWebUrlReadArgs(args: unknown): args is {
   url: string;
   startChar?: number;
-  maxLength?: number;
+  max_length?: number;
   section?: string;
   paragraphRange?: string;
   readHeadings?: boolean;
@@ -57,7 +57,7 @@ export function isWebUrlReadArgs(args: unknown): args is {
   if (urlArgs.startChar !== undefined && (typeof urlArgs.startChar !== "number" || urlArgs.startChar < 0)) {
     return false;
   }
-  if (urlArgs.maxLength !== undefined && (typeof urlArgs.maxLength !== "number" || urlArgs.maxLength < 1)) {
+  if (urlArgs.max_length !== undefined && (typeof urlArgs.max_length !== "number" || urlArgs.max_length < 1)) {
     return false;
   }
   if (urlArgs.section !== undefined && typeof urlArgs.section !== "string") {
@@ -140,7 +140,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const paginationOptions = {
         startChar: args.startChar,
-        maxLength: args.maxLength,
+        max_length: args.max_length,
         section: args.section,
         paragraphRange: args.paragraphRange,
         readHeadings: args.readHeadings,
