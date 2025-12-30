@@ -274,10 +274,10 @@ async function main() {
     // Default STDIO transport
     // Show helpful message when running in terminal
     if (process.stdin.isTTY) {
-      console.log(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
-      console.log("✅ Configuration valid");
-      console.log(`🌐 SearXNG URL: ${process.env.SEARXNG_URL}`);
-      console.log("📡 Waiting for MCP client connection via STDIO...\n");
+      console.error(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
+      console.error("✅ Configuration valid");
+      console.error(`🌐 SearXNG URL: ${process.env.SEARXNG_URL}`);
+      console.error("📡 Waiting for MCP client connection via STDIO...\n");
     }
     
     const transport = new StdioServerTransport();
@@ -307,4 +307,3 @@ main().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
 });
-
