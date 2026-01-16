@@ -29,6 +29,10 @@ export const WEB_SEARCH_TOOL: Tool = {
   description:
     "Performs a web search using the SearXNG API, ideal for general queries, news, articles, and online content. " +
     "Use this for broad information gathering, recent events, or when you need diverse web sources.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
   inputSchema: {
     type: "object",
     properties: {
@@ -70,6 +74,10 @@ export const READ_URL_TOOL: Tool = {
   description:
     "Read the content from an URL. " +
     "Use this for further information retrieving to understand the content of each URL.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
   inputSchema: {
     type: "object",
     properties: {
