@@ -1,14 +1,14 @@
 {
-    "name": "mcp-searxng",
+    "name": "@atomlong/mcp-searxng",
     "version": "0.8.0",
     "description": "MCP server for SearXNG integration",
     "license": "MIT",
-    "author": "Ihor Sokoliuk (https://github.com/ihor-sokoliuk)",
-    "homepage": "https://github.com/ihor-sokoliuk/mcp-searxng",
-    "bugs": "https://github.com/ihor-sokoliuk/mcp-searxng/issues",
+    "author": "atomlong",
+    "homepage": "https://github.com/atomlong/mcp-searxng",
+    "bugs": "https://github.com/atomlong/mcp-searxng/issues",
     "repository": {
         "type": "git",
-        "url": "https://github.com/ihor-sokoliuk/mcp-searxng"
+        "url": "https://github.com/atomlong/mcp-searxng"
     },
     "keywords": [
         "mcp",

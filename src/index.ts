@@ -76,7 +76,7 @@ export function isWebUrlReadArgs(args: unknown): args is {
 // Server implementation
 const server = new Server(
   {
-    name: "ihor-sokoliuk/mcp-searxng",
+    name: "@atomlong/mcp-searxng",
     version: packageVersion,
   },
   {
