@@ -44,14 +44,14 @@ export async function performWebSearch(
   // Validate that searxngUrl is a valid URL
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(searxngUrl);
+    parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
   } catch (error) {
     throw createConfigurationError(
       `Invalid SEARXNG_URL format: ${searxngUrl}. Use format: http://localhost:8080`
     );
   }
 
-  const url = new URL('/search', parsedUrl);
+  const url = new URL('search', parsedUrl);
 
   url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
