@@ -81,6 +81,53 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('URL construction with subpath', async () => {
+    // Case 1: Subpath without trailing slash
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com/subpath');
+    
+    const mockServer = createMockServer();
+    
+    // First run
+    let capture = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await capture.mockFetch(url, options);
+      throw new Error('MOCK_NETWORK_ERROR');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch (error: any) {
+      // Expected
+    }
+
+    let url = new URL(capture.getCapturedUrl());
+    assert.ok(url.pathname.includes('/subpath/search'), `Expected path to contain /instance/search, got ${url.pathname}`);
+    
+    fetchMocker.restore();
+
+    // Case 2: Subpath with trailing slash
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com/subpath/');
+    
+    // Second run
+    capture = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await capture.mockFetch(url, options);
+      throw new Error('MOCK_NETWORK_ERROR');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch (error: any) {
+      // Expected
+    }
+
+    url = new URL(capture.getCapturedUrl());
+    assert.ok(url.pathname.includes('/subpath/search'), `Expected path to contain /instance/search, got ${url.pathname}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('Authentication header construction', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.set('AUTH_USERNAME', 'testuser');
