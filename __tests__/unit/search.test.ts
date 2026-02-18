@@ -62,7 +62,7 @@ async function runTests() {
     });
 
     try {
-      await performWebSearch(mockServer as any, 'test query', 2, 'day', 'en', '1');
+      await performWebSearch(mockServer as any, 'test query', 2, 'day', 'en', 1);
     } catch (error: any) {
       // Expected to fail with mock error
     }
