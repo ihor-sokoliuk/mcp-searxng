@@ -18,7 +18,7 @@ export async function performWebSearch(
   pageno: number = 1,
   time_range?: string,
   language: string = "all",
-  safesearch?: string
+  safesearch?: number
 ) {
   const startTime = Date.now();
   
@@ -68,8 +68,8 @@ export async function performWebSearch(
     url.searchParams.set("language", language);
   }
 
-  if (safesearch !== undefined && ["0", "1", "2"].includes(safesearch)) {
-    url.searchParams.set("safesearch", safesearch);
+  if (safesearch !== undefined && [0, 1, 2].includes(safesearch)) {
+    url.searchParams.set("safesearch", safesearch.toString());
   }
 
   // Prepare request options with headers

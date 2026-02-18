@@ -14,7 +14,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   pageno?: number;
   time_range?: string;
   language?: string;
-  safesearch?: string;
+  safesearch?: number;
 } {
   return (
     typeof args === "object" &&
@@ -58,11 +58,11 @@ export const WEB_SEARCH_TOOL: Tool = {
         default: "all",
       },
       safesearch: {
-        type: "string",
+        type: "number",
         description:
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
-        enum: ["0", "1", "2"],
-        default: "0",
+        enum: [0, 1, 2],
+        default: 0,
       },
     },
     required: ["query"],
