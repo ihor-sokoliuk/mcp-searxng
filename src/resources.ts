@@ -4,8 +4,8 @@ import { packageVersion } from "./index.js";
 export function createConfigResource() {
   const config = {
     serverInfo: {
-      name: "ihor-sokoliuk/mcp-searxng",
-      version: packageVersion,
+    name: "@atomlong/mcp-searxng",
+    version: packageVersion,
       description: "MCP server for SearXNG integration"
     },
     environment: {

@@ -150,7 +150,7 @@ export async function createHttpServer(server: Server): Promise<express.Applicat
   app.get('/health', (_req, res) => {
     res.json({ 
       status: 'healthy',
-      server: 'ihor-sokoliuk/mcp-searxng',
+      server: '@atomlong/mcp-searxng',
       version: packageVersion,
       transport: 'http'
     });
