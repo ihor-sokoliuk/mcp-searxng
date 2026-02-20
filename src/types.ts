@@ -90,7 +90,7 @@ export const READ_URL_TOOL: Tool = {
         description: "Starting character position for content extraction (default: 0)",
         minimum: 0,
       },
-      maxLength: {
+      max_length: {
         type: "number",
         description: "Maximum number of characters to return",
         minimum: 1,
