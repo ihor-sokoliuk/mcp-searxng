@@ -34,7 +34,7 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)
-    - `maxLength` (number, optional): Maximum number of characters to return
+    - `max_length` (number, optional): Maximum number of characters to return
     - `section` (string, optional): Extract content under a specific heading (searches for heading text)
     - `paragraphRange` (string, optional): Return specific paragraph ranges (e.g., '1-5', '3', '10-')
     - `readHeadings` (boolean, optional): Return only a list of headings instead of full content

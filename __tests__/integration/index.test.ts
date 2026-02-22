@@ -47,7 +47,7 @@ async function runTests() {
     const validArgs = {
       url: 'https://example.com',
       startChar: 10,
-      maxLength: 100,
+      max_length: 100,
       section: 'introduction',
       paragraphRange: '1-3',
       readHeadings: false
@@ -58,7 +58,7 @@ async function runTests() {
 
     // Test individual parameter validation
     assert.ok(isWebUrlReadArgs({ url: 'https://example.com', startChar: 0 }));
-    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 1 }));
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', max_length: 1 }));
     assert.ok(isWebUrlReadArgs({ url: 'https://example.com', section: 'test' }));
     assert.ok(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: '1' }));
     assert.ok(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: true }));
@@ -68,7 +68,7 @@ async function runTests() {
     const testArgs = {
       url: 'https://example.com',
       startChar: 50,
-      maxLength: 200,
+      max_length: 200,
       section: 'getting-started',
       paragraphRange: '2-5',
       readHeadings: true
@@ -77,14 +77,14 @@ async function runTests() {
     // Mimic pagination options construction in index.ts
     const paginationOptions = {
       startChar: testArgs.startChar,
-      maxLength: testArgs.maxLength,
+      max_length: testArgs.max_length,
       section: testArgs.section,
       paragraphRange: testArgs.paragraphRange,
       readHeadings: testArgs.readHeadings,
     };
 
     assert.equal(paginationOptions.startChar, 50);
-    assert.equal(paginationOptions.maxLength, 200);
+    assert.equal(paginationOptions.max_length, 200);
     assert.equal(paginationOptions.section, 'getting-started');
     assert.equal(paginationOptions.paragraphRange, '2-5');
     assert.equal(paginationOptions.readHeadings, true);
@@ -163,11 +163,11 @@ async function runTests() {
   await testFunction('Tool arguments validation - URL read tool', () => {
     // Valid cases with various pagination parameters
     assert.ok(isWebUrlReadArgs({ url: 'https://example.com' }));
-    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 100 }));
+    assert.ok(isWebUrlReadArgs({ url: 'https://example.com', max_length: 100 }));
     
     // Invalid cases
     assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', startChar: -1 }));
-    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', maxLength: 0 }));
+    assert.ok(!isWebUrlReadArgs({ url: 'https://example.com', max_length: 0 }));
     assert.ok(!isWebUrlReadArgs({ notUrl: 'invalid' }));
   }, results);
 

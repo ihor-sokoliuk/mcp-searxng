@@ -38,7 +38,7 @@ async function runTests() {
 
   await testFunction('isWebUrlReadArgs type guard - with pagination parameters', () => {
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: 0 }), true);
-    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 100 }), true);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', max_length: 100 }), true);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 'intro' }), true);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: '1-5' }), true);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: true }), true);
@@ -48,7 +48,7 @@ async function runTests() {
     assert.equal(isWebUrlReadArgs({
       url: 'https://example.com',
       startChar: 10,
-      maxLength: 200,
+      max_length: 200,
       section: 'section1',
       paragraphRange: '2-4',
       readHeadings: false
@@ -66,9 +66,9 @@ async function runTests() {
 
   await testFunction('isWebUrlReadArgs type guard - invalid parameter types', () => {
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: -1 }), false);
-    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 0 }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', max_length: 0 }), false);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', startChar: 'invalid' }), false);
-    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', maxLength: 'invalid' }), false);
+    assert.equal(isWebUrlReadArgs({ url: 'https://example.com', max_length: 'invalid' }), false);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 123 }), false);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: 123 }), false);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: 'invalid' }), false);

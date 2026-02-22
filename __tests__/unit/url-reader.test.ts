@@ -171,14 +171,14 @@ async function runTests() {
     fetchMocker.restore();
   }, results);
 
-  await testFunction('Character pagination - maxLength', async () => {
+  await testFunction('Character pagination - max_length', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
 
     const testHtml = '<html><body><h1>Test Title</h1><p>This is a long paragraph with lots of content that we can paginate through.</p></body></html>';
     fetchMocker.mock(createMockFetch({ body: testHtml }));
 
-    const result = await fetchAndConvertToMarkdown(mockServer as any, 'https://test-char-pagination.com', 10000, { maxLength: 20 });
+    const result = await fetchAndConvertToMarkdown(mockServer as any, 'https://test-char-pagination.com', 10000, { max_length: 20 });
     assert.ok(typeof result === 'string');
     assert.ok(result.length <= 20, `Expected length <= 20, got ${result.length}`);
 
@@ -198,14 +198,14 @@ async function runTests() {
     fetchMocker.restore();
   }, results);
 
-  await testFunction('Character pagination - both startChar and maxLength', async () => {
+  await testFunction('Character pagination - both startChar and max_length', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
 
     const testHtml = '<html><body><p>Content for pagination test.</p></body></html>';
     fetchMocker.mock(createMockFetch({ body: testHtml }));
 
-    const result = await fetchAndConvertToMarkdown(mockServer as any, 'https://test-both.com', 10000, { startChar: 5, maxLength: 15 });
+    const result = await fetchAndConvertToMarkdown(mockServer as any, 'https://test-both.com', 10000, { startChar: 5, max_length: 15 });
     assert.ok(typeof result === 'string');
     assert.ok(result.length <= 15, `Expected length <= 15, got ${result.length}`);
 
@@ -225,12 +225,12 @@ async function runTests() {
     });
 
     // First request should fetch from network
-    const result1 = await fetchAndConvertToMarkdown(mockServer as any, 'https://cache-test.com', 10000, { maxLength: 50 });
+    const result1 = await fetchAndConvertToMarkdown(mockServer as any, 'https://cache-test.com', 10000, { max_length: 50 });
     assert.equal(fetchCount, 1);
     assert.ok(typeof result1 === 'string');
 
     // Second request with different pagination should use cache
-    const result2 = await fetchAndConvertToMarkdown(mockServer as any, 'https://cache-test.com', 10000, { startChar: 10, maxLength: 30 });
+    const result2 = await fetchAndConvertToMarkdown(mockServer as any, 'https://cache-test.com', 10000, { startChar: 10, max_length: 30 });
     assert.equal(fetchCount, 1); // Should not have fetched again
 
     fetchMocker.restore();
