@@ -49,11 +49,30 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
   - Example: `https://search.example.com`
 
 #### Optional
-- **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials for password-protected instances
-- **`USER_AGENT`**: Custom User-Agent header (e.g., `MyBot/1.0`)
-- **`HTTP_PROXY`** / **`HTTPS_PROXY`**: Proxy URLs for routing traffic
+- **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials for `searxng_web_search` (password-protected SearXNG instances)
+- **`USER_AGENT`**: Custom User-Agent header for `searxng_web_search` (e.g., `MyBot/1.0`)
+- **`URL_READER_USER_AGENT`**: Custom User-Agent specifically for `web_url_read` tool (overrides `USER_AGENT`)
+- **`URL_READER_HEADERS`**: Custom JSON headers for `web_url_read` tool (e.g., `'{"X-Custom-Header":"value"}'`)
+- **`HTTP_PROXY`** / **`HTTPS_PROXY`**: Global proxy URLs for routing traffic (fallback for both interfaces)
   - Format: `http://[username:password@]proxy.host:port`
 - **`NO_PROXY`**: Comma-separated bypass list (e.g., `localhost,.internal,example.com`)
+
+##### Interface-Specific Proxies (Optional)
+- **`SEARCH_HTTP_PROXY`** / **`SEARCH_HTTPS_PROXY`**: Proxy for `searxng_web_search` tool only
+- **`URL_READER_HTTP_PROXY`** / **`URL_READER_HTTPS_PROXY`**: Proxy for `web_url_read` tool only
+  - These take priority over `HTTP_PROXY`/`HTTPS_PROXY` for their respective interfaces
+
+#### Advanced Configuration
+
+```bash
+# Separate proxies for search and URL reading
+SEARCH_HTTP_PROXY=http://search-proxy:8080
+URL_READER_HTTP_PROXY=http://reader-proxy:8080
+
+# Custom headers for URL reader
+URL_READER_USER_AGENT="Mozilla/5.0 (compatible; Bot/1.0)"
+URL_READER_HEADERS='{"X-API-Key":"secret","X-Custom":"value"}'
+```
 
 ## Installation & Configuration
 
@@ -87,8 +106,12 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
-        "HTTP_PROXY": "http://proxy.company.com:8080",
-        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
+        "URL_READER_HEADERS": "{\"X-Custom-Header\":\"value\"}",
+        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
+        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
+        "HTTP_PROXY": "http://global-proxy.company.com:8080",
+        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
         "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
@@ -132,8 +155,12 @@ npm install -g mcp-searxng
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
-        "HTTP_PROXY": "http://proxy.company.com:8080",
-        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
+        "URL_READER_HEADERS": "{\"X-Custom-Header\":\"value\"}",
+        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
+        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
+        "HTTP_PROXY": "http://global-proxy.company.com:8080",
+        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
         "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
@@ -183,6 +210,12 @@ docker pull isokoliuk/mcp-searxng:latest
         "-e", "AUTH_USERNAME",
         "-e", "AUTH_PASSWORD",
         "-e", "USER_AGENT",
+        "-e", "URL_READER_USER_AGENT",
+        "-e", "URL_READER_HEADERS",
+        "-e", "SEARCH_HTTP_PROXY",
+        "-e", "SEARCH_HTTPS_PROXY",
+        "-e", "URL_READER_HTTP_PROXY",
+        "-e", "URL_READER_HTTPS_PROXY",
         "-e", "HTTP_PROXY",
         "-e", "HTTPS_PROXY",
         "-e", "NO_PROXY",
@@ -193,8 +226,12 @@ docker pull isokoliuk/mcp-searxng:latest
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
-        "HTTP_PROXY": "http://proxy.company.com:8080",
-        "HTTPS_PROXY": "http://proxy.company.com:8080",
+        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
+        "URL_READER_HEADERS": "{\"X-Custom-Header\":\"value\"}",
+        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
+        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
+        "HTTP_PROXY": "http://global-proxy.company.com:8080",
+        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
         "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
       }
     }
@@ -229,7 +266,11 @@ services:
       # - AUTH_USERNAME=your_username
       # - AUTH_PASSWORD=your_password
       # - USER_AGENT=MyBot/1.0
-      # - HTTP_PROXY=http://proxy.company.com:8080
+      # - URL_READER_USER_AGENT=Mozilla/5.0 (compatible; MyBot/1.0)
+      # - URL_READER_HEADERS={"X-Custom-Header":"value"}
+      # - SEARCH_HTTP_PROXY=http://search-proxy.company.com:8080
+      # - URL_READER_HTTP_PROXY=http://reader-proxy.company.com:8080
+      # - HTTP_PROXY=http://global-proxy.company.com:8080
       # - HTTPS_PROXY=http://proxy.company.com:8080
       # - NO_PROXY=localhost,127.0.0.1,.local,.internal
 ```

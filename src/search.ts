@@ -79,7 +79,7 @@ export async function performWebSearch(
 
   // Add proxy dispatcher if proxy is configured
   // Node.js fetch uses 'dispatcher' option for proxy, not 'agent'
-  const proxyAgent = createProxyAgent(url.toString());
+  const proxyAgent = createProxyAgent(url.toString(), 'search');
   if (proxyAgent) {
     (requestOptions as any).dispatcher = proxyAgent;
   }

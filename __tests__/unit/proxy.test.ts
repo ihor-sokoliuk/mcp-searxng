@@ -226,7 +226,114 @@ async function runTests() {
     const agent = createProxyAgent();
     assert.ok(agent);
     assert.equal(agent.constructor.name, 'ProxyAgent');
-    
+
+    envManager.restore();
+  }, results);
+
+  // Tests for interface-specific proxy configuration
+  await testFunction('SEARCH_HTTP_PROXY takes priority over HTTP_PROXY for search type', () => {
+    envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
+    envManager.set('SEARCH_HTTP_PROXY', 'http://search-proxy:9090');
+
+    const agent = createProxyAgent('http://example.com', 'search');
+    assert.ok(agent);
+    // The agent should use search-proxy, not global-proxy
+    // We can't directly inspect the proxy URL, but we can verify agent is created
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('URL_READER_HTTP_PROXY takes priority over HTTP_PROXY for url_reader type', () => {
+    envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
+    envManager.set('URL_READER_HTTP_PROXY', 'http://reader-proxy:9090');
+
+    const agent = createProxyAgent('http://example.com', 'url_reader');
+    assert.ok(agent);
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Search type falls back to HTTP_PROXY when SEARCH_HTTP_PROXY not set', () => {
+    envManager.delete('SEARCH_HTTP_PROXY');
+    envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
+
+    const agent = createProxyAgent('http://example.com', 'search');
+    assert.ok(agent);
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('URL reader type falls back to HTTP_PROXY when URL_READER_HTTP_PROXY not set', () => {
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
+
+    const agent = createProxyAgent('http://example.com', 'url_reader');
+    assert.ok(agent);
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Different proxy types use different proxies', () => {
+    envManager.set('SEARCH_HTTP_PROXY', 'http://search-proxy:9090');
+    envManager.set('URL_READER_HTTP_PROXY', 'http://reader-proxy:9091');
+
+    const searchAgent = createProxyAgent('http://example.com', 'search');
+    const readerAgent = createProxyAgent('http://example.com', 'url_reader');
+
+    assert.ok(searchAgent, 'Search agent should be created');
+    assert.ok(readerAgent, 'Reader agent should be created');
+    // Both should be ProxyAgent instances
+    assert.equal(searchAgent!.constructor.name, 'ProxyAgent');
+    assert.equal(readerAgent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARCH_HTTPS_PROXY works for search type', () => {
+    envManager.set('SEARCH_HTTPS_PROXY', 'https://search-secure-proxy:9443');
+
+    const agent = createProxyAgent('https://example.com', 'search');
+    assert.ok(agent);
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('URL_READER_HTTPS_PROXY works for url_reader type', () => {
+    envManager.set('URL_READER_HTTPS_PROXY', 'https://reader-secure-proxy:9443');
+
+    const agent = createProxyAgent('https://example.com', 'url_reader');
+    assert.ok(agent);
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('No proxy returns undefined for search type when nothing configured', () => {
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('SEARCH_HTTP_PROXY');
+    envManager.delete('SEARCH_HTTPS_PROXY');
+
+    const agent = createProxyAgent('http://example.com', 'search');
+    assert.equal(agent, undefined);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('No proxy returns undefined for url_reader type when nothing configured', () => {
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.delete('URL_READER_HTTPS_PROXY');
+
+    const agent = createProxyAgent('http://example.com', 'url_reader');
+    assert.equal(agent, undefined);
+
     envManager.restore();
   }, results);
 

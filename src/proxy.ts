@@ -60,21 +60,70 @@ function shouldBypassProxy(targetUrl: string): boolean {
 }
 
 /**
+ * Proxy configuration type for separating search and URL reader proxies.
+ */
+export type ProxyType = 'search' | 'url_reader';
+
+/**
+ * Gets proxy URL for the specified proxy type.
+ * Checks type-specific proxy first, then falls back to global proxy.
+ *
+ * @param type - The type of proxy to get ('search' or 'url_reader')
+ * @returns The proxy URL or undefined if not configured
+ */
+function getProxyUrl(type?: ProxyType): string | undefined {
+  if (type === 'search') {
+    // Search-specific proxies (highest priority)
+    return process.env.SEARCH_HTTP_PROXY ||
+           process.env.SEARCH_HTTPS_PROXY ||
+           process.env.search_http_proxy ||
+           process.env.search_https_proxy ||
+           // Fallback to global proxies
+           process.env.HTTP_PROXY ||
+           process.env.HTTPS_PROXY ||
+           process.env.http_proxy ||
+           process.env.https_proxy;
+  }
+
+  if (type === 'url_reader') {
+    // URL reader-specific proxies (highest priority)
+    return process.env.URL_READER_HTTP_PROXY ||
+           process.env.URL_READER_HTTPS_PROXY ||
+           process.env.url_reader_http_proxy ||
+           process.env.url_reader_https_proxy ||
+           // Fallback to global proxies
+           process.env.HTTP_PROXY ||
+           process.env.HTTPS_PROXY ||
+           process.env.http_proxy ||
+           process.env.https_proxy;
+  }
+
+  // Global proxies (default)
+  return process.env.HTTP_PROXY ||
+         process.env.HTTPS_PROXY ||
+         process.env.http_proxy ||
+         process.env.https_proxy;
+}
+
+/**
  * Creates a proxy agent dispatcher for Node.js fetch API.
- * 
+ *
  * Node.js fetch uses Undici under the hood, which requires a 'dispatcher' option
  * instead of 'agent'. This function creates a ProxyAgent compatible with fetch.
- * 
+ *
  * Environment variables checked (in order):
- * - HTTP_PROXY / http_proxy: For HTTP requests
- * - HTTPS_PROXY / https_proxy: For HTTPS requests
+ * - For search type: SEARCH_HTTP_PROXY, SEARCH_HTTPS_PROXY, then global proxies
+ * - For url_reader type: URL_READER_HTTP_PROXY, URL_READER_HTTPS_PROXY, then global proxies
+ * - HTTP_PROXY / http_proxy: For HTTP requests (global fallback)
+ * - HTTPS_PROXY / https_proxy: For HTTPS requests (global fallback)
  * - NO_PROXY / no_proxy: Comma-separated list of hosts to bypass proxy
- * 
+ *
  * @param targetUrl - Optional target URL to check against NO_PROXY rules
+ * @param type - Optional proxy type ('search' or 'url_reader') for separate proxy configs
  * @returns ProxyAgent dispatcher for fetch, or undefined if no proxy configured or bypassed
  */
-export function createProxyAgent(targetUrl?: string): ProxyAgent | undefined {
-  const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy;
+export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAgent | undefined {
+  const proxyUrl = getProxyUrl(type);
 
   if (!proxyUrl) {
     return undefined;

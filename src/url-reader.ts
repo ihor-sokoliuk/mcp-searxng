@@ -181,9 +181,34 @@ export async function fetchAndConvertToMarkdown(
 
     // Add proxy dispatcher if proxy is configured
     // Node.js fetch uses 'dispatcher' option for proxy, not 'agent'
-    const proxyAgent = createProxyAgent(url);
+    const proxyAgent = createProxyAgent(url, 'url_reader');
     if (proxyAgent) {
       (requestOptions as any).dispatcher = proxyAgent;
+    }
+
+    // Add User-Agent header if configured (URL_READER_USER_AGENT takes priority over USER_AGENT)
+    const userAgent = process.env.URL_READER_USER_AGENT || process.env.USER_AGENT;
+    if (userAgent) {
+      requestOptions.headers = {
+        ...requestOptions.headers,
+        'User-Agent': userAgent
+      };
+    }
+
+    // Add custom headers from URL_READER_HEADERS environment variable (JSON format)
+    const customHeadersJson = process.env.URL_READER_HEADERS;
+    if (customHeadersJson) {
+      try {
+        const customHeaders = JSON.parse(customHeadersJson);
+        if (typeof customHeaders === 'object' && customHeaders !== null) {
+          requestOptions.headers = {
+            ...requestOptions.headers,
+            ...customHeaders
+          };
+        }
+      } catch (e) {
+        logMessage(server, "warning", `Failed to parse URL_READER_HEADERS as JSON: ${e}`);
+      }
     }
 
     let response: Response;
