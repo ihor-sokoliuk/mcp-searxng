@@ -68,7 +68,7 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 SEARCH_HTTP_PROXY=http://search-proxy:8080
 URL_READER_HTTP_PROXY=http://reader-proxy:8080
 
-# Custom headers for URL reader
+# Custom user_agent for URL reader
 URL_READER_USER_AGENT="Mozilla/5.0 (compatible; Bot/1.0)"
 ```
 
