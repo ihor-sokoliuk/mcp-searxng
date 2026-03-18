@@ -150,11 +150,23 @@ function getProxyUrl(type?: ProxyType, targetUrl?: string): string | undefined {
  * Node.js fetch uses Undici under the hood, which requires a 'dispatcher' option
  * instead of 'agent'. This function creates a ProxyAgent compatible with fetch.
  *
- * Environment variables checked (in order):
- * - For search type: SEARCH_HTTP_PROXY, SEARCH_HTTPS_PROXY, then global proxies
- * - For url_reader type: URL_READER_HTTP_PROXY, URL_READER_HTTPS_PROXY, then global proxies
- * - HTTP_PROXY / http_proxy: For HTTP requests (global fallback)
- * - HTTPS_PROXY / https_proxy: For HTTPS requests (global fallback)
+ * Environment variables checked (in order, depending on URL protocol):
+ * - For type 'search' and HTTPS URLs:
+ *   SEARCH_HTTPS_PROXY, SEARCH_HTTP_PROXY, search_https_proxy, search_http_proxy,
+ *   then HTTPS_PROXY, HTTP_PROXY, https_proxy, http_proxy
+ * - For type 'search' and HTTP/unknown URLs:
+ *   SEARCH_HTTP_PROXY, SEARCH_HTTPS_PROXY, search_http_proxy, search_https_proxy,
+ *   then HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy
+ * - For type 'url_reader' and HTTPS URLs:
+ *   URL_READER_HTTPS_PROXY, URL_READER_HTTP_PROXY, url_reader_https_proxy, url_reader_http_proxy,
+ *   then HTTPS_PROXY, HTTP_PROXY, https_proxy, http_proxy
+ * - For type 'url_reader' and HTTP/unknown URLs:
+ *   URL_READER_HTTP_PROXY, URL_READER_HTTPS_PROXY, url_reader_http_proxy, url_reader_https_proxy,
+ *   then HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy
+ * - For no specific type and HTTPS URLs:
+ *   HTTPS_PROXY, HTTP_PROXY, https_proxy, http_proxy
+ * - For no specific type and HTTP/unknown URLs:
+ *   HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy
  * - NO_PROXY / no_proxy: Comma-separated list of hosts to bypass proxy
  *
  * @param targetUrl - Optional target URL to check against NO_PROXY rules
