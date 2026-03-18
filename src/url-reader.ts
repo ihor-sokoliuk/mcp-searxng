@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { NodeHtmlMarkdown } from "node-html-markdown";
-import { createProxyAgent } from "./proxy.js";
+import { createProxyAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
 import {
@@ -181,7 +181,7 @@ export async function fetchAndConvertToMarkdown(
 
     // Add proxy dispatcher if proxy is configured
     // Node.js fetch uses 'dispatcher' option for proxy, not 'agent'
-    const proxyAgent = createProxyAgent(url, 'url_reader');
+    const proxyAgent = createProxyAgent(url, ProxyType.URL_READER);
     if (proxyAgent) {
       (requestOptions as any).dispatcher = proxyAgent;
     }
@@ -193,22 +193,6 @@ export async function fetchAndConvertToMarkdown(
         ...requestOptions.headers,
         'User-Agent': userAgent
       };
-    }
-
-    // Add custom headers from URL_READER_HEADERS environment variable (JSON format)
-    const customHeadersJson = process.env.URL_READER_HEADERS;
-    if (customHeadersJson) {
-      try {
-        const customHeaders = JSON.parse(customHeadersJson);
-        if (typeof customHeaders === 'object' && customHeaders !== null) {
-          requestOptions.headers = {
-            ...requestOptions.headers,
-            ...customHeaders
-          };
-        }
-      } catch (e) {
-        logMessage(server, "warning", `Failed to parse URL_READER_HEADERS as JSON: ${e}`);
-      }
     }
 
     let response: Response;

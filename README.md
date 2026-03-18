@@ -52,7 +52,6 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 - **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials for `searxng_web_search` (password-protected SearXNG instances)
 - **`USER_AGENT`**: Global default User-Agent header used by both `searxng_web_search` and `web_url_read` (e.g., `MyBot/1.0`)
 - **`URL_READER_USER_AGENT`**: Custom User-Agent specifically for the `web_url_read` tool (overrides `USER_AGENT` for URL reading requests)
-- **`URL_READER_HEADERS`**: Custom JSON headers for `web_url_read` tool (e.g., `'{"X-Custom-Header":"value"}'`)
 - **`HTTP_PROXY`** / **`HTTPS_PROXY`**: Global proxy URLs for routing traffic (fallback for both interfaces)
   - Format: `http://[username:password@]proxy.host:port`
 - **`NO_PROXY`**: Comma-separated bypass list (e.g., `localhost,.internal,example.com`)
@@ -71,7 +70,6 @@ URL_READER_HTTP_PROXY=http://reader-proxy:8080
 
 # Custom headers for URL reader
 URL_READER_USER_AGENT="Mozilla/5.0 (compatible; Bot/1.0)"
-URL_READER_HEADERS='{"X-API-Key":"secret","X-Custom":"value"}'
 ```
 
 ## Installation & Configuration
@@ -107,7 +105,6 @@ URL_READER_HEADERS='{"X-API-Key":"secret","X-Custom":"value"}'
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
         "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "URL_READER_HEADERS": "{\"X-Custom-Header\":\"value\"}",
         "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
         "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
         "HTTP_PROXY": "http://global-proxy.company.com:8080",
@@ -156,7 +153,6 @@ npm install -g mcp-searxng
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
         "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "URL_READER_HEADERS": "{\"X-Custom-Header\":\"value\"}",
         "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
         "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
         "HTTP_PROXY": "http://global-proxy.company.com:8080",
@@ -167,7 +163,6 @@ npm install -g mcp-searxng
   }
 }
 ```
-
 </details>
 
 ### Docker
@@ -211,7 +206,6 @@ docker pull isokoliuk/mcp-searxng:latest
         "-e", "AUTH_PASSWORD",
         "-e", "USER_AGENT",
         "-e", "URL_READER_USER_AGENT",
-        "-e", "URL_READER_HEADERS",
         "-e", "SEARCH_HTTP_PROXY",
         "-e", "SEARCH_HTTPS_PROXY",
         "-e", "URL_READER_HTTP_PROXY",
@@ -227,7 +221,6 @@ docker pull isokoliuk/mcp-searxng:latest
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
         "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "URL_READER_HEADERS": "{\"X-Custom-Header\":\"value\"}",
         "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
         "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
         "HTTP_PROXY": "http://global-proxy.company.com:8080",
@@ -267,7 +260,6 @@ services:
       # - AUTH_PASSWORD=your_password
       # - USER_AGENT=MyBot/1.0
       # - URL_READER_USER_AGENT=Mozilla/5.0 (compatible; MyBot/1.0)
-      # - URL_READER_HEADERS={"X-Custom-Header":"value"}
       # - SEARCH_HTTP_PROXY=http://search-proxy.company.com:8080
       # - URL_READER_HTTP_PROXY=http://reader-proxy.company.com:8080
       # - HTTP_PROXY=http://global-proxy.company.com:8080

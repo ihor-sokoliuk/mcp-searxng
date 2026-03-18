@@ -232,25 +232,30 @@ async function runTests() {
 
   // Tests for interface-specific proxy configuration
   await testFunction('SEARCH_HTTP_PROXY takes priority over HTTP_PROXY for search type', () => {
+    // Set a valid global proxy and an invalid search-specific proxy. If
+    // SEARCH_HTTP_PROXY
+    // is correctly given priority for "search" type, createProxyAgent should
+    // throw.
     envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
-    envManager.set('SEARCH_HTTP_PROXY', 'http://search-proxy:9090');
+    envManager.set('SEARCH_HTTP_PROXY', 'not-a-valid-url');
 
-    const agent = createProxyAgent('http://example.com', 'search');
-    assert.ok(agent);
-    // The agent should use search-proxy, not global-proxy
-    // We can't directly inspect the proxy URL, but we can verify agent is created
-    assert.equal(agent!.constructor.name, 'ProxyAgent');
+    assert.throws(() => {
+      createProxyAgent('http://example.com', 'search');
+    });
 
     envManager.restore();
   }, results);
 
   await testFunction('URL_READER_HTTP_PROXY takes priority over HTTP_PROXY for url_reader type', () => {
+    // Set a valid global proxy and an invalid url_reader-specific proxy. If
+    // URL_READER_HTTP_PROXY is correctly given priority for "url_reader" type,
+    // createProxyAgent should throw.
     envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
-    envManager.set('URL_READER_HTTP_PROXY', 'http://reader-proxy:9090');
+    envManager.set('URL_READER_HTTP_PROXY', 'not-a-valid-url');
 
-    const agent = createProxyAgent('http://example.com', 'url_reader');
-    assert.ok(agent);
-    assert.equal(agent!.constructor.name, 'ProxyAgent');
+    assert.throws(() => {
+      createProxyAgent('http://example.com', 'url_reader');
+    });
 
     envManager.restore();
   }, results);

@@ -62,18 +62,43 @@ function shouldBypassProxy(targetUrl: string): boolean {
 /**
  * Proxy configuration type for separating search and URL reader proxies.
  */
-export type ProxyType = 'search' | 'url_reader';
+export const ProxyType = {
+  SEARCH: 'search',
+  URL_READER: 'url_reader',
+} as const;
+
+export type ProxyType = typeof ProxyType[keyof typeof ProxyType];
 
 /**
  * Gets proxy URL for the specified proxy type.
  * Checks type-specific proxy first, then falls back to global proxy.
  *
  * @param type - The type of proxy to get ('search' or 'url_reader')
+ * @param targetUrl - Optional target URL whose protocol is used to select between HTTP and HTTPS proxies
  * @returns The proxy URL or undefined if not configured
  */
-function getProxyUrl(type?: ProxyType): string | undefined {
-  if (type === 'search') {
-    // Search-specific proxies (highest priority)
+function getProxyUrl(type?: ProxyType, targetUrl?: string): string | undefined {
+  let isHttps = false;
+  if (targetUrl) {
+    try {
+      const url = new URL(targetUrl);
+      isHttps = url.protocol === 'https:';
+    } catch {
+      isHttps = false;
+    }
+  }
+
+  if (type === ProxyType.SEARCH) {
+    if (isHttps) {
+      return process.env.SEARCH_HTTPS_PROXY ||
+             process.env.SEARCH_HTTP_PROXY ||
+             process.env.search_https_proxy ||
+             process.env.search_http_proxy ||
+             process.env.HTTPS_PROXY ||
+             process.env.HTTP_PROXY ||
+             process.env.https_proxy ||
+             process.env.http_proxy;
+    }
     return process.env.SEARCH_HTTP_PROXY ||
            process.env.SEARCH_HTTPS_PROXY ||
            process.env.search_http_proxy ||
@@ -85,8 +110,17 @@ function getProxyUrl(type?: ProxyType): string | undefined {
            process.env.https_proxy;
   }
 
-  if (type === 'url_reader') {
-    // URL reader-specific proxies (highest priority)
+  if (type === ProxyType.URL_READER) {
+    if (isHttps) {
+      return process.env.URL_READER_HTTPS_PROXY ||
+             process.env.URL_READER_HTTP_PROXY ||
+             process.env.url_reader_https_proxy ||
+             process.env.url_reader_http_proxy ||
+             process.env.HTTPS_PROXY ||
+             process.env.HTTP_PROXY ||
+             process.env.https_proxy ||
+             process.env.http_proxy;
+    }
     return process.env.URL_READER_HTTP_PROXY ||
            process.env.URL_READER_HTTPS_PROXY ||
            process.env.url_reader_http_proxy ||
@@ -98,7 +132,12 @@ function getProxyUrl(type?: ProxyType): string | undefined {
            process.env.https_proxy;
   }
 
-  // Global proxies (default)
+  if (isHttps) {
+    return process.env.HTTPS_PROXY ||
+           process.env.HTTP_PROXY ||
+           process.env.https_proxy ||
+           process.env.http_proxy;
+  }
   return process.env.HTTP_PROXY ||
          process.env.HTTPS_PROXY ||
          process.env.http_proxy ||
@@ -123,7 +162,7 @@ function getProxyUrl(type?: ProxyType): string | undefined {
  * @returns ProxyAgent dispatcher for fetch, or undefined if no proxy configured or bypassed
  */
 export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAgent | undefined {
-  const proxyUrl = getProxyUrl(type);
+  const proxyUrl = getProxyUrl(type, targetUrl);
 
   if (!proxyUrl) {
     return undefined;

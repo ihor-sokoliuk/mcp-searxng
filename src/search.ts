@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SearXNGWeb } from "./types.js";
-import { createProxyAgent } from "./proxy.js";
+import { createProxyAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
   createConfigurationError,
@@ -79,7 +79,7 @@ export async function performWebSearch(
 
   // Add proxy dispatcher if proxy is configured
   // Node.js fetch uses 'dispatcher' option for proxy, not 'agent'
-  const proxyAgent = createProxyAgent(url.toString(), 'search');
+  const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
   if (proxyAgent) {
     (requestOptions as any).dispatcher = proxyAgent;
   }
