@@ -50,8 +50,8 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 
 #### Optional
 - **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials for `searxng_web_search` (password-protected SearXNG instances)
-- **`USER_AGENT`**: Custom User-Agent header for `searxng_web_search` (e.g., `MyBot/1.0`)
-- **`URL_READER_USER_AGENT`**: Custom User-Agent specifically for `web_url_read` tool (overrides `USER_AGENT`)
+- **`USER_AGENT`**: Global default User-Agent header used by both `searxng_web_search` and `web_url_read` (e.g., `MyBot/1.0`)
+- **`URL_READER_USER_AGENT`**: Custom User-Agent specifically for the `web_url_read` tool (overrides `USER_AGENT` for URL reading requests)
 - **`URL_READER_HEADERS`**: Custom JSON headers for `web_url_read` tool (e.g., `'{"X-Custom-Header":"value"}'`)
 - **`HTTP_PROXY`** / **`HTTPS_PROXY`**: Global proxy URLs for routing traffic (fallback for both interfaces)
   - Format: `http://[username:password@]proxy.host:port`
