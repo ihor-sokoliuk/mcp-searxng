@@ -17,19 +17,19 @@ import {
 
 interface PaginationOptions {
   startChar?: number;
-  maxLength?: number;
+  max_length?: number;
   section?: string;
   paragraphRange?: string;
   readHeadings?: boolean;
 }
 
-function applyCharacterPagination(content: string, startChar: number = 0, maxLength?: number): string {
+function applyCharacterPagination(content: string, startChar: number = 0, max_length?: number): string {
   if (startChar >= content.length) {
     return "";
   }
 
   const start = Math.max(0, startChar);
-  const end = maxLength ? Math.min(content.length, start + maxLength) : content.length;
+  const end = max_length ? Math.min(content.length, start + max_length) : content.length;
 
   return content.slice(start, end);
 }
@@ -134,8 +134,8 @@ function applyPaginationOptions(markdownContent: string, options: PaginationOpti
   }
 
   // Apply character-based pagination last
-  if (options.startChar !== undefined || options.maxLength !== undefined) {
-    result = applyCharacterPagination(result, options.startChar, options.maxLength);
+  if (options.startChar !== undefined || options.max_length !== undefined) {
+    result = applyCharacterPagination(result, options.startChar, options.max_length);
   }
 
   return result;
