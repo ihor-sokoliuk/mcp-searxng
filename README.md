@@ -308,6 +308,40 @@ MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
 curl http://localhost:3000/health
 ```
 
+## Troubleshooting
+
+### 403 Forbidden Error from SearXNG
+
+If you receive a `403 Forbidden` error when using `mcp-searxng`, it is likely because your SearXNG instance does not have JSON format enabled. This server requests results in JSON format (`format=json`), which must be explicitly allowed in SearXNG's configuration.
+
+**To fix this**, edit your SearXNG `settings.yml` (commonly located at `/etc/searxng/settings.yml`) and add `json` to the list of allowed formats:
+
+```yaml
+search:
+  formats:
+    - html
+    - json
+```
+
+After saving the file, restart your SearXNG instance. For example, if running with Docker:
+
+```bash
+docker restart searxng
+```
+
+You can verify JSON format is working by running:
+
+```bash
+curl 'http://localhost:8080/search?q=test&format=json'
+```
+
+You should receive a JSON response. If you still get a 403 error, double-check that:
+- The `settings.yml` file is correctly mounted into your Docker container
+- The YAML indentation is correct
+- The SearXNG instance was fully restarted after the configuration change
+
+For more details, see the [SearXNG settings documentation](https://docs.searxng.org/admin/settings/settings.html) and [this discussion](https://github.com/searxng/searxng/discussions/1789).
+
 ## Running evals
 
 ```bash
