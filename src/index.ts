@@ -300,21 +300,29 @@ async function main() {
     // When launched via npx, signals may not propagate through the process
     // tree (npx → npm exec → sh -c → node). Detect parent death via stdin
     // EOF and signal handlers to prevent orphaned processes accumulating.
-    const shutdownStdio = () => {
-      server.close().catch(() => {});
+    let isShuttingDown = false;
+    const shutdownStdio = async () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+
+      // Give the server a chance to clean up, then force exit
+      const forceExit = setTimeout(() => process.exit(0), 2000);
+      forceExit.unref();
+
+      await server.close().catch(() => {});
       process.exit(0);
     };
 
-    process.on('SIGINT', shutdownStdio);
-    process.on('SIGTERM', shutdownStdio);
-    process.on('SIGHUP', shutdownStdio);
+    process.once('SIGINT', () => { shutdownStdio(); });
+    process.once('SIGTERM', () => { shutdownStdio(); });
+    process.once('SIGHUP', () => { shutdownStdio(); });
 
     // Per MCP spec, when the parent closes stdin the server should exit
-    process.stdin.on('end', shutdownStdio);
-    process.stdin.on('close', shutdownStdio);
+    process.stdin.once('end', () => { shutdownStdio(); });
+    process.stdin.once('close', () => { shutdownStdio(); });
 
-    // Periodic parent liveness check — if parent dies (PPID becomes 1 on
-    // Linux or changes), exit to avoid becoming an orphan
+    // Periodic parent liveness check — if the parent process dies, exit
+    // to avoid becoming an orphan (PPID=1 on Linux)
     const parentPid = process.ppid;
     if (parentPid && parentPid !== 1) {
       const parentCheck = setInterval(() => {
