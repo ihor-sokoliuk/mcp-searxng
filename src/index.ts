@@ -286,15 +286,55 @@ async function main() {
       console.error(`🌐 SearXNG URL: ${process.env.SEARXNG_URL}`);
       console.error("📡 Waiting for MCP client connection via STDIO...\n");
     }
-    
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    
+
     // Log after connection is established
     logMessage(server, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
     logMessage(server, "info", `Log level: ${currentLogLevel}`);
     logMessage(server, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
     logMessage(server, "info", `SearXNG URL: ${process.env.SEARXNG_URL || 'not configured'}`);
+
+    // Graceful shutdown for STDIO transport.
+    // When launched via npx, signals may not propagate through the process
+    // tree (npx → npm exec → sh -c → node). Detect parent death via stdin
+    // EOF and signal handlers to prevent orphaned processes accumulating.
+    let isShuttingDown = false;
+    const shutdownStdio = async () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+
+      // Give the server a chance to clean up, then force exit
+      const forceExit = setTimeout(() => process.exit(0), 2000);
+      forceExit.unref();
+
+      await server.close().catch(() => {});
+      process.exit(0);
+    };
+
+    process.once('SIGINT', () => { shutdownStdio(); });
+    process.once('SIGTERM', () => { shutdownStdio(); });
+    process.once('SIGHUP', () => { shutdownStdio(); });
+
+    // Per MCP spec, when the parent closes stdin the server should exit
+    process.stdin.once('end', () => { shutdownStdio(); });
+    process.stdin.once('close', () => { shutdownStdio(); });
+
+    // Periodic parent liveness check — if the parent process dies, exit
+    // to avoid becoming an orphan (PPID=1 on Linux)
+    const parentPid = process.ppid;
+    if (parentPid && parentPid !== 1) {
+      const parentCheck = setInterval(() => {
+        try {
+          process.kill(parentPid, 0);
+        } catch {
+          clearInterval(parentCheck);
+          shutdownStdio();
+        }
+      }, 5000);
+      parentCheck.unref();
+    }
   }
 }
 
