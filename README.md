@@ -8,6 +8,22 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 
 <a href="https://glama.ai/mcp/servers/0j7jjyt7m9"><img width="380" height="200" src="https://glama.ai/mcp/servers/0j7jjyt7m9/badge" alt="SearXNG Server MCP server" /></a>
 
+## How It Works
+
+`mcp-searxng` is an **MCP (Model Context Protocol) server** — it is a separate process that AI assistants (such as Claude) connect to in order to perform web searches. It communicates with a SearXNG instance over SearXNG's HTTP JSON API.
+
+> **Not a SearXNG plugin:** This project cannot be installed as a native SearXNG plugin (i.e., a Python module loaded inside the SearXNG process). It is a standalone MCP server that runs alongside your SearXNG instance and queries it via its API. You point it at any existing SearXNG instance by setting the `SEARXNG_URL` environment variable.
+
+```
+AI Assistant (e.g. Claude)
+        │  MCP protocol
+        ▼
+  mcp-searxng  (this project — Node.js process)
+        │  HTTP JSON API  (SEARXNG_URL)
+        ▼
+  SearXNG instance
+```
+
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
