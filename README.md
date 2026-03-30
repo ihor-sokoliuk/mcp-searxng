@@ -8,6 +8,10 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 
 <a href="https://glama.ai/mcp/servers/0j7jjyt7m9"><img width="380" height="200" src="https://glama.ai/mcp/servers/0j7jjyt7m9/badge" alt="SearXNG Server MCP server" /></a>
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/ihor-sokoliuk-mcp-searxng).
+
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
