@@ -13,7 +13,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
+import { WEB_SEARCH_TOOL, WEB_SEARCH_SIMPLE_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
 import { logMessage, setLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
@@ -96,7 +96,7 @@ const server = mcpServer.server;
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   logMessage(mcpServer, "debug", "Handling list_tools request");
   return {
-    tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
+    tools: [WEB_SEARCH_TOOL, WEB_SEARCH_SIMPLE_TOOL, READ_URL_TOOL],
   };
 });
 
@@ -119,6 +119,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         args.language,
         args.safesearch
       );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "searxng_web_search_simple") {
+      if (!isSearXNGWebSearchArgs(args)) {
+        throw new Error("Invalid arguments for web search");
+      }
+
+      const result = await performWebSearch(mcpServer, args.query);
 
       return {
         content: [

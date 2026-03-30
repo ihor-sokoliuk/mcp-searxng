@@ -69,6 +69,27 @@ export const WEB_SEARCH_TOOL: Tool = {
   },
 };
 
+export const WEB_SEARCH_SIMPLE_TOOL: Tool = {
+  name: "searxng_web_search_simple",
+  description:
+    "Performs a web search using the SearXNG API with only a query parameter. " +
+    "Use this simplified tool when you only need to provide a search query without additional options.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The search query",
+      },
+    },
+    required: ["query"],
+  },
+};
+
 export const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:

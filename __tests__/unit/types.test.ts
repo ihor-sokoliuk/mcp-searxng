@@ -7,7 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { isSearXNGWebSearchArgs } from '../../src/types.js';
+import { isSearXNGWebSearchArgs, WEB_SEARCH_SIMPLE_TOOL } from '../../src/types.js';
 import { isWebUrlReadArgs } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -29,6 +29,14 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs('string'), false);
     assert.equal(isSearXNGWebSearchArgs(123), false);
     assert.equal(isSearXNGWebSearchArgs({}), false);
+  }, results);
+
+  await testFunction('WEB_SEARCH_SIMPLE_TOOL definition', () => {
+    assert.equal(WEB_SEARCH_SIMPLE_TOOL.name, 'searxng_web_search_simple');
+    assert.deepEqual(WEB_SEARCH_SIMPLE_TOOL.inputSchema.required, ['query']);
+    const props = WEB_SEARCH_SIMPLE_TOOL.inputSchema.properties as Record<string, unknown>;
+    assert.ok('query' in props, 'query property should exist');
+    assert.equal(Object.keys(props).length, 1, 'only query property should exist');
   }, results);
 
   await testFunction('isWebUrlReadArgs type guard - basic valid cases', () => {
