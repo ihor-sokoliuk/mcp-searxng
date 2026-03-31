@@ -287,19 +287,13 @@ async function main() {
       console.error("📡 Waiting for MCP client connection via STDIO...\n");
     }
 
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-
-    // Log after connection is established
-    logMessage(server, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
-    logMessage(server, "info", `Log level: ${currentLogLevel}`);
-    logMessage(server, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
-    logMessage(server, "info", `SearXNG URL: ${process.env.SEARXNG_URL || 'not configured'}`);
-
     // Graceful shutdown for STDIO transport.
     // When launched via npx, signals may not propagate through the process
     // tree (npx → npm exec → sh -c → node). Detect parent death via stdin
     // EOF and signal handlers to prevent orphaned processes accumulating.
+    //
+    // Handlers are registered BEFORE server.connect() to avoid a race
+    // where the parent dies during startup before handlers are attached.
     let isShuttingDown = false;
     const shutdownStdio = async () => {
       if (isShuttingDown) return;
@@ -322,19 +316,35 @@ async function main() {
     process.stdin.once('close', () => { shutdownStdio(); });
 
     // Periodic parent liveness check — if the parent process dies, exit
-    // to avoid becoming an orphan (PPID=1 on Linux)
+    // to avoid becoming an orphan (PPID=1 on Linux). This is a third
+    // safety layer for cases where signals don't propagate and stdin
+    // pipes aren't closed (e.g. parent killed with SIGKILL).
     const parentPid = process.ppid;
     if (parentPid && parentPid !== 1) {
       const parentCheck = setInterval(() => {
         try {
           process.kill(parentPid, 0);
-        } catch {
-          clearInterval(parentCheck);
-          shutdownStdio();
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === 'ESRCH') {
+            // Parent process no longer exists
+            clearInterval(parentCheck);
+            shutdownStdio();
+          }
+          // EPERM means process exists but not signalable — treat as alive
         }
       }, 5000);
       parentCheck.unref();
     }
+
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+
+    // Log after connection is established
+    logMessage(server, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
+    logMessage(server, "info", `Log level: ${currentLogLevel}`);
+    logMessage(server, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
+    logMessage(server, "info", `SearXNG URL: ${process.env.SEARXNG_URL || 'not configured'}`);
   }
 }
 
