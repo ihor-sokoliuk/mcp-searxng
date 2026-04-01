@@ -44,7 +44,7 @@ async function runTests() {
       await performWebSearch(mockServer as any, 'test query');
       assert.fail('Should have thrown configuration error for invalid URL');
     } catch (error: any) {
-      assert.ok(error.message.includes('Configuration Error') || error.message.includes('Invalid SEARXNG_URL'));
+      assert.ok(error.message.includes('Configuration Issues') || error.message.includes('invalid format'));
     }
     
     envManager.restore();

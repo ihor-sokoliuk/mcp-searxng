@@ -3,7 +3,8 @@ import { SearXNGWeb } from "./types.js";
 import { createProxyAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
-  createConfigurationError,
+  MCPSearXNGError,
+  validateEnvironment,
   createNetworkError,
   createServerError,
   createJSONError,
@@ -32,24 +33,14 @@ export async function performWebSearch(
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
   
-  const searxngUrl = process.env.SEARXNG_URL;
-
-  if (!searxngUrl) {
-    logMessage(mcpServer, "error", "SEARXNG_URL not configured");
-    throw createConfigurationError(
-      "SEARXNG_URL not set. Set it to your SearXNG instance (e.g., http://localhost:8080 or https://search.example.com)"
-    );
+  const validationError = validateEnvironment();
+  if (validationError) {
+    logMessage(mcpServer, "error", "Configuration invalid");
+    throw new MCPSearXNGError(validationError);
   }
 
-  // Validate that searxngUrl is a valid URL
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
-  } catch (error) {
-    throw createConfigurationError(
-      `Invalid SEARXNG_URL format: ${searxngUrl}. Use format: http://localhost:8080`
-    );
-  }
+  const searxngUrl = process.env.SEARXNG_URL!;
+  const parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
 
   const url = new URL('search', parsedUrl);
 
