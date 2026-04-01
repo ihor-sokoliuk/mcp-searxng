@@ -105,6 +105,7 @@ async function runTests() {
     logMessage(server as any, 'info', 'test message');
     // Wait for the async rejection to be handled
     await new Promise(resolve => setTimeout(resolve, 10));
+    setLogLevel('info');
   }, results);
 
   await testFunction('logMessage silently ignores sync "Not connected" errors', () => {
@@ -117,6 +118,7 @@ async function runTests() {
     setLogLevel('debug');
     // Should not throw
     logMessage(server as any, 'info', 'test message');
+    setLogLevel('info');
   }, results);
 
   await testFunction('logMessage logs non-"Not connected" async errors to console.error', async () => {
@@ -135,6 +137,7 @@ async function runTests() {
     await new Promise(resolve => setTimeout(resolve, 10));
 
     console.error = originalError;
+    setLogLevel('info');
     assert.ok(consoleErrors.length > 0, 'Expected console.error to be called');
   }, results);
 
@@ -153,6 +156,7 @@ async function runTests() {
     logMessage(server as any, 'info', 'test message');
 
     console.error = originalError;
+    setLogLevel('info');
     assert.ok(consoleErrors.length > 0, 'Expected console.error to be called');
   }, results);
 

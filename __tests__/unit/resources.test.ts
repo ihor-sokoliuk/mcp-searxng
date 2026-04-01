@@ -12,6 +12,7 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 import { EnvManager } from '../helpers/env-utils.js';
 
 const results = createTestResults();
+const envManager = new EnvManager();
 
 async function runTests() {
   console.log('🧪 Testing: resources.ts\n');
@@ -50,8 +51,6 @@ async function runTests() {
     // Should include information about tools
     assert.ok(help.includes('searxng') || help.includes('search') || help.includes('SearXNG'));
   }, results);
-
-  const envManager = new EnvManager();
 
   await testFunction('createConfigResource - hasAuth true when both credentials set', () => {
     envManager.set('AUTH_USERNAME', 'testuser');

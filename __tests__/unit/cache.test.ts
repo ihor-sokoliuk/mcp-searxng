@@ -100,7 +100,7 @@ async function runTests() {
     urlCache.clear();
   }, results);
 
-  await testFunction('Cache cleanup interval', async () => {
+  await testFunction('Cache get() returns null after TTL expiry', async () => {
     const testCache = new SimpleCache(50); // 50ms TTL
 
     testCache.set('cleanup-test', '<html>test</html>', '# Test');
