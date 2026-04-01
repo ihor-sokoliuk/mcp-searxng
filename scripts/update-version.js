@@ -26,15 +26,28 @@ const staticVersionRegex = /const packageVersion = "([\d\.]+|unknown)";/;
 // Replace with updated version from package.json
 if (staticVersionRegex.test(content)) {
   content = content.replace(staticVersionRegex, `const packageVersion = "${version}";`);
-  
+
   // Write the updated content
   fs.writeFileSync(indexPath, content);
-  
+
   console.log(`Updated version in index.ts to ${version}`);
-  
-  // Output the tag name to be used in the git command
-  console.log(`v${version}`);
 } else {
   console.error('Could not find static version declaration in index.ts');
   process.exit(1);
 }
+
+// Update version in .mcp/server.json
+const serverJsonPath = path.join(__dirname, '..', '.mcp', 'server.json');
+const serverJson = require(serverJsonPath);
+serverJson.version = version;
+serverJson.packages = serverJson.packages.map(pkg => {
+  if (pkg.registryType === 'npm') {
+    return { ...pkg, version };
+  }
+  return pkg;
+});
+fs.writeFileSync(serverJsonPath, JSON.stringify(serverJson, null, 2) + '\n');
+console.log(`Updated version in .mcp/server.json to ${version}`);
+
+// Output the tag name to be used in the git command
+console.log(`v${version}`);
