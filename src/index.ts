@@ -194,6 +194,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
 });
 
 // List resource templates handler
+// Returns empty list — required by MCP spec even when no templates exist
 server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
   logMessage(mcpServer, "debug", "Handling list_resource_templates request");
   return { resourceTemplates: [] };

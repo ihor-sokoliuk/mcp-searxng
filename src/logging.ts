@@ -4,11 +4,17 @@ import { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 // Logging state
 let currentLogLevel: LoggingLevel = "info";
 
+// Shared handler for sendLoggingMessage errors
+function handleSendError(error: unknown): void {
+  if (error instanceof Error && error.message !== "Not connected") {
+    console.error("Logging error:", error);
+  }
+}
+
 // Logging helper function
 export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: string, data?: unknown): void {
   if (shouldLog(level)) {
     try {
-      // Merge message and data together for the notification body
       const notificationData = data !== undefined
         ? (typeof data === 'object' && data !== null ? { message, ...data } : { message, data })
         : { message };
@@ -16,18 +22,9 @@ export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: s
       mcpServer.sendLoggingMessage({
         level,
         data: notificationData
-      }).catch((error: unknown) => {
-        // Silently ignore "Not connected" errors during server startup
-        // This can happen when logging occurs before the transport is fully connected
-        if (error instanceof Error && error.message !== "Not connected") {
-          console.error("Logging error:", error);
-        }
-      });
+      }).catch(handleSendError);
     } catch (error) {
-      // Handle synchronous errors as well
-      if (error instanceof Error && error.message !== "Not connected") {
-        console.error("Logging error:", error);
-      }
+      handleSendError(error);
     }
   }
 }
