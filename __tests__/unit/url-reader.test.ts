@@ -257,6 +257,156 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('Section extraction - existing section', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h1>Introduction</h1><p>Intro paragraph.</p>
+        <h2>Installation</h2><p>Install steps here.</p>
+        <h2>Usage</h2><p>Usage details here.</p>
+      </body></html>
+    `;
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-section-1.com', 10000,
+      { section: 'Installation' }
+    );
+    assert.ok(result.includes('Installation'), `Expected "Installation" in: ${result}`);
+    assert.ok(!result.includes('Usage'), `Expected "Usage" NOT in section result`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('Section extraction - section not found returns message', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><h1>Overview</h1><p>Text.</p></body></html>';
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-section-2.com', 10000,
+      { section: 'NonExistentSection' }
+    );
+    assert.ok(result.includes('not found'), `Expected "not found" message, got: ${result}`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('Paragraph range - single paragraph', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><p>First paragraph.</p><p>Second paragraph.</p><p>Third paragraph.</p></body></html>';
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-para-1.com', 10000,
+      { paragraphRange: '1' }
+    );
+    assert.ok(result.includes('First paragraph'), `Expected first paragraph, got: ${result}`);
+    assert.ok(!result.includes('Second paragraph'), `Expected only first paragraph`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('Paragraph range - specific range', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><p>Para one.</p><p>Para two.</p><p>Para three.</p><p>Para four.</p></body></html>';
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-para-2.com', 10000,
+      { paragraphRange: '2-3' }
+    );
+    assert.ok(result.includes('Para two'), `Expected para two, got: ${result}`);
+    assert.ok(result.includes('Para three'), `Expected para three, got: ${result}`);
+    assert.ok(!result.includes('Para one'), `Expected para one excluded`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('Paragraph range - range to end', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><p>Alpha.</p><p>Beta.</p><p>Gamma.</p></body></html>';
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-para-3.com', 10000,
+      { paragraphRange: '2-' }
+    );
+    assert.ok(result.includes('Beta'), `Expected Beta, got: ${result}`);
+    assert.ok(result.includes('Gamma'), `Expected Gamma, got: ${result}`);
+    assert.ok(!result.includes('Alpha'), `Expected Alpha excluded`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('Paragraph range - out of bounds returns message', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><p>Only one paragraph.</p></body></html>';
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-para-4.com', 10000,
+      { paragraphRange: '99' }
+    );
+    assert.ok(result.includes('invalid') || result.includes('out of bounds'), `Expected out-of-bounds message, got: ${result}`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('readHeadings option returns heading list', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h1>Main Title</h1>
+        <h2>Chapter One</h2>
+        <h3>Section A</h3>
+        <p>Some paragraph text that should not appear.</p>
+        <h2>Chapter Two</h2>
+      </body></html>
+    `;
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-headings-1.com', 10000,
+      { readHeadings: true }
+    );
+    assert.ok(result.includes('Main Title'), `Expected Main Title, got: ${result}`);
+    assert.ok(result.includes('Chapter One'), `Expected Chapter One, got: ${result}`);
+    assert.ok(!result.includes('Some paragraph text'), `Paragraph should be excluded`);
+
+    fetchMocker.restore();
+  }, results);
+
+  await testFunction('readHeadings with no headings returns message', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><p>Only plain text, no headings here.</p></body></html>';
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-headings-2.com', 10000,
+      { readHeadings: true }
+    );
+    assert.ok(result.includes('No headings found'), `Expected "No headings found", got: ${result}`);
+
+    fetchMocker.restore();
+  }, results);
+
   printTestSummary(results, 'URL Reader Module');
   return results;
 }
