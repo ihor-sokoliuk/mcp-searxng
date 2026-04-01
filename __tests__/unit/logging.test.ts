@@ -93,6 +93,69 @@ async function runTests() {
     assert.equal(shouldLog('debug'), true);
   }, results);
 
+  await testFunction('logMessage silently ignores async "Not connected" errors', async () => {
+    const server = {
+      sendLoggingMessage: async () => {
+        throw new Error('Not connected');
+      }
+    };
+
+    setLogLevel('debug');
+    // Should not throw
+    logMessage(server as any, 'info', 'test message');
+    // Wait for the async rejection to be handled
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }, results);
+
+  await testFunction('logMessage silently ignores sync "Not connected" errors', () => {
+    const server = {
+      sendLoggingMessage: () => {
+        throw new Error('Not connected');
+      }
+    };
+
+    setLogLevel('debug');
+    // Should not throw
+    logMessage(server as any, 'info', 'test message');
+  }, results);
+
+  await testFunction('logMessage logs non-"Not connected" async errors to console.error', async () => {
+    const consoleErrors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => consoleErrors.push(args);
+
+    const server = {
+      sendLoggingMessage: async () => {
+        throw new Error('Something else went wrong');
+      }
+    };
+
+    setLogLevel('debug');
+    logMessage(server as any, 'info', 'test message');
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    console.error = originalError;
+    assert.ok(consoleErrors.length > 0, 'Expected console.error to be called');
+  }, results);
+
+  await testFunction('logMessage logs non-"Not connected" sync errors to console.error', () => {
+    const consoleErrors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => consoleErrors.push(args);
+
+    const server = {
+      sendLoggingMessage: () => {
+        throw new Error('Synchronous failure');
+      }
+    };
+
+    setLogLevel('debug');
+    logMessage(server as any, 'info', 'test message');
+
+    console.error = originalError;
+    assert.ok(consoleErrors.length > 0, 'Expected console.error to be called');
+  }, results);
+
   printTestSummary(results, 'Logging Module');
   return results;
 }

@@ -190,6 +190,22 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('createNetworkError with searxngUrl context includes SEARXNG_URL guidance', () => {
+    // Covers the truthy branch of the searxngUrl ternary
+    const error = { message: 'fetch failed' };
+    const context = {
+      url: 'https://searx.example.com/search',
+      searxngUrl: 'https://searx.example.com'
+    };
+
+    const result = createNetworkError(error, context);
+    assert.ok(result instanceof MCPSearXNGError);
+    assert.ok(
+      result.message.includes('SEARXNG_URL'),
+      `Expected SEARXNG_URL guidance, got: ${result.message}`
+    );
+  }, results);
+
   printTestSummary(results, 'Error Handler Module');
   return results;
 }

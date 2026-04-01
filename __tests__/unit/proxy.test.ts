@@ -342,6 +342,41 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('shouldBypassProxy invalid target URL returns false (catch branch)', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.set('NO_PROXY', 'example.com');
+
+    // Invalid targetUrl triggers catch block in shouldBypassProxy, returns false
+    // So the proxy agent IS created (bypass returns false)
+    const agent = createProxyAgent('not-a-valid-url');
+    assert.ok(agent, 'Expected agent to be created when targetUrl is invalid');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('getProxyUrl invalid target URL falls back to isHttps=false (catch branch)', () => {
+    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+    envManager.delete('HTTPS_PROXY');
+
+    // Invalid targetUrl triggers catch in getProxyUrl, isHttps=false, uses HTTP_PROXY
+    const agent = createProxyAgent('not-a-valid-url');
+    assert.ok(agent, 'Expected agent when targetUrl is invalid but HTTP_PROXY is set');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('No-type HTTPS URL uses HTTPS_PROXY (lines 136-140)', () => {
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('http_proxy');
+    envManager.set('HTTPS_PROXY', 'https://secure-proxy:8443');
+
+    // No type specified + HTTPS target URL → hits the isHttps branch for no-type case
+    const agent = createProxyAgent('https://example.com');
+    assert.ok(agent, 'Expected agent when no type specified and HTTPS_PROXY set');
+
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Proxy Module');
   return results;
 }

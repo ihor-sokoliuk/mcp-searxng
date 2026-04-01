@@ -9,16 +9,16 @@ class SimpleCache {
   private readonly ttlMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
-  constructor(ttlMs: number = 60000) { // Default 1 minute TTL
+  constructor(ttlMs: number = 60000, cleanupIntervalMs: number = 30000) {
     this.ttlMs = ttlMs;
-    this.startCleanup();
+    this.startCleanup(cleanupIntervalMs);
   }
 
-  private startCleanup(): void {
-    // Clean up expired entries every 30 seconds
+  private startCleanup(cleanupIntervalMs: number): void {
+    // Clean up expired entries every cleanupIntervalMs milliseconds (default 30s)
     this.cleanupInterval = setInterval(() => {
       this.cleanupExpired();
-    }, 30000);
+    }, cleanupIntervalMs);
   }
 
   private cleanupExpired(): void {

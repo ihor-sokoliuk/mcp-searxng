@@ -114,6 +114,24 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
+  await testFunction('Cache cleanup interval removes expired entries', async () => {
+    // Use 50ms TTL and 1ms cleanup interval so the interval fires quickly
+    const testCache = new SimpleCache(50, 1);
+
+    testCache.set('cleanup-target', '<html>test</html>', '# Test');
+
+    // Confirm entry exists immediately
+    assert.ok(testCache.get('cleanup-target'));
+
+    // Wait for TTL to expire (50ms) + a few cleanup ticks (5ms buffer)
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    // Cleanup interval has fired and should have removed the expired entry
+    assert.equal(testCache.get('cleanup-target'), null);
+
+    testCache.destroy();
+  }, results);
+
   printTestSummary(results, 'Cache Module');
   return results;
 }

@@ -282,6 +282,126 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('User-Agent header added when USER_AGENT env var is set', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('USER_AGENT', 'MyCustomBot/1.0');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    const options = getCapturedOptions();
+    const headers = options?.headers as Record<string, string>;
+    assert.ok(headers?.['User-Agent'] === 'MyCustomBot/1.0', `Expected User-Agent header, got: ${JSON.stringify(headers)}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('User-Agent header absent when USER_AGENT env var not set', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('USER_AGENT');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    const options = getCapturedOptions();
+    const headers = (options?.headers || {}) as Record<string, string>;
+    assert.ok(!headers['User-Agent'], `Expected no User-Agent header`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('response.text() failure during server error path uses fallback string', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => ({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => { throw new Error('text() failed'); }
+    } as any));
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected server error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('500') || error.message.includes('Server Error'));
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('response.text() failure during JSON parse error uses fallback string', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => { throw new Error('JSON parse failed'); },
+      text: async () => { throw new Error('text() also failed'); }
+    } as any));
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected JSON error');
+    } catch (error: any) {
+      assert.ok(error.name === 'MCPSearXNGError' || error.message.includes('JSON'));
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Proxy dispatcher set when HTTP_PROXY configured', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('HTTP_PROXY', 'http://proxy.example.com:8080');
+
+    const mockServer = createMockServer();
+    let capturedOptions: any;
+    fetchMocker.mock(async (_url, options) => {
+      capturedOptions = options;
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    assert.ok(capturedOptions?.dispatcher, 'Expected dispatcher to be set when proxy configured');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Search Module');
   return results;
 }
