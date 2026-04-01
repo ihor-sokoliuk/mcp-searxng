@@ -15,6 +15,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   time_range?: string;
   language?: string;
   safesearch?: number;
+  categories?: string;
 } {
   return (
     typeof args === "object" &&
@@ -63,6 +64,14 @@ export const WEB_SEARCH_TOOL: Tool = {
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
         enum: [0, 1, 2],
         default: 0,
+      },
+      categories: {
+        type: "string",
+        description:
+          "Comma-separated search categories to filter results by engine type. " +
+          "Available: general, images, videos, news, map, music, it, science, files, social media. " +
+          "The 'it' category targets developer engines (GitHub, StackOverflow, npm, PyPI, Docker Hub, crates.io). " +
+          "Multiple categories can be combined, e.g. 'it,general'.",
       },
     },
     required: ["query"],
