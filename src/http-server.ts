@@ -27,7 +27,7 @@ export async function createHttpServer(mcpServer: McpServer): Promise<express.Ap
         callback(null, true);
         return;
       }
-      callback(new Error("Origin not allowed by HTTP security policy"));
+      callback(null, false);
     },
     exposedHeaders: ["Mcp-Session-Id"],
     allowedHeaders: ["Content-Type", "mcp-session-id", "authorization"],

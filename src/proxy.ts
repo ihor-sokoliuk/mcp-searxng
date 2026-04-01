@@ -216,15 +216,26 @@ export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAge
 }
 
 /**
- * Creates a plain undici Agent with system CA certificates in the connect
+ * Returns a singleton undici Agent with system CA certificates in the connect
  * options. Used as a dispatcher when no proxy is configured, to ensure
  * undici's fetch uses system CAs instead of only Node's compiled-in bundle.
+ *
+ * The agent (and the CA bundle disk read) is created once and reused across
+ * requests to avoid repeated synchronous I/O and connection pool proliferation.
  *
  * Returns undefined if no system CA bundle is found — callers should treat
  * undefined as "use Node's default behavior".
  */
+let _defaultAgentInitialized = false;
+let _defaultAgent: Agent | undefined;
+
 export function createDefaultAgent(): Agent | undefined {
-  const connectOpts = getConnectOptions();
-  if (Object.keys(connectOpts).length === 0) return undefined;
-  return new Agent({ connect: connectOpts });
+  if (!_defaultAgentInitialized) {
+    _defaultAgentInitialized = true;
+    const connectOpts = getConnectOptions();
+    if (Object.keys(connectOpts).length > 0) {
+      _defaultAgent = new Agent({ connect: connectOpts });
+    }
+  }
+  return _defaultAgent;
 }

@@ -27,7 +27,7 @@ interface PaginationOptions {
 }
 
 function isPrivateHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
+  const lower = hostname.toLowerCase().replace(/\.+$/, "");
   return lower === "localhost" || lower.endsWith(".localhost");
 }
 
@@ -45,13 +45,34 @@ function isPrivateIpv4(hostname: string): boolean {
   );
 }
 
+function isPrivateIPv6(hostname: string): boolean {
+  // url.hostname wraps IPv6 in brackets (e.g. "[::1]") — strip them first
+  const addr = (hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname
+  ).toLowerCase();
+
+  if (isIP(addr) !== 6) return false;
+
+  if (addr === "::1") return true;                        // loopback
+  if (addr === "::") return true;                         // unspecified
+  if (/^f[cd]/i.test(addr)) return true;                 // ULA fc00::/7
+  if (/^fe[89ab][0-9a-f]:/i.test(addr)) return true;    // link-local fe80::/10
+
+  // IPv4-mapped ::ffff:<ipv4> — delegate to the IPv4 check
+  const mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (mapped) return isPrivateIpv4(mapped[1]);
+
+  return false;
+}
+
 function assertUrlAllowed(url: URL): void {
   const security = getHttpSecurityConfig();
   if (!security.harden || security.allowPrivateUrls) {
     return;
   }
 
-  if (isPrivateHostname(url.hostname) || isPrivateIpv4(url.hostname)) {
+  if (isPrivateHostname(url.hostname) || isPrivateIpv4(url.hostname) || isPrivateIPv6(url.hostname)) {
     throw createURLSecurityPolicyError(url.toString());
   }
 }
