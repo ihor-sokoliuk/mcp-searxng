@@ -1,10 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { isIP } from "node:net";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
+import { getHttpSecurityConfig } from "./http-security.js";
 import {
   createURLFormatError,
+  createURLSecurityPolicyError,
   createNetworkError,
   createServerError,
   createContentError,
@@ -21,6 +24,36 @@ interface PaginationOptions {
   section?: string;
   paragraphRange?: string;
   readHeadings?: boolean;
+}
+
+function isPrivateHostname(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  return lower === "localhost" || lower.endsWith(".localhost");
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  if (isIP(hostname) !== 4) {
+    return false;
+  }
+
+  return (
+    hostname.startsWith("10.") ||
+    hostname.startsWith("127.") ||
+    hostname.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
+    hostname.startsWith("169.254.")
+  );
+}
+
+function assertUrlAllowed(url: URL): void {
+  const security = getHttpSecurityConfig();
+  if (!security.harden || security.allowPrivateUrls) {
+    return;
+  }
+
+  if (isPrivateHostname(url.hostname) || isPrivateIpv4(url.hostname)) {
+    throw createURLSecurityPolicyError(url.toString());
+  }
 }
 
 function applyCharacterPagination(content: string, startChar: number = 0, maxLength?: number): string {
@@ -168,6 +201,8 @@ export async function fetchAndConvertToMarkdown(
     logMessage(mcpServer, "error", `Invalid URL format: ${url}`);
     throw createURLFormatError(url);
   }
+
+  assertUrlAllowed(parsedUrl);
 
   // Create an AbortController instance
   const controller = new AbortController();

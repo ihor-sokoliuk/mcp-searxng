@@ -6,23 +6,54 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { logMessage } from "./logging.js";
 import { packageVersion } from "./index.js";
+import {
+  getHttpSecurityConfig,
+  isOriginAllowed,
+  isRequestAuthorized,
+  validateHttpSecurityConfig,
+} from "./http-security.js";
 
 export async function createHttpServer(mcpServer: McpServer): Promise<express.Application> {
   const app = express();
+  const security = getHttpSecurityConfig();
+  validateHttpSecurityConfig(security);
+
   app.use(express.json());
   
   // Add CORS support for web clients
   app.use(cors({
-    origin: '*', // Configure appropriately for production
-    exposedHeaders: ['Mcp-Session-Id'],
-    allowedHeaders: ['Content-Type', 'mcp-session-id'],
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin || undefined, security)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("Origin not allowed by HTTP security policy"));
+    },
+    exposedHeaders: ["Mcp-Session-Id"],
+    allowedHeaders: ["Content-Type", "mcp-session-id", "authorization"],
   }));
+
+  function rejectUnauthorized(res: express.Response) {
+    res.status(401).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32001,
+        message: "Unauthorized: missing or invalid HTTP auth token",
+      },
+      id: null,
+    });
+  }
 
   // Map to store transports by session ID  
   const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
   // Handle POST requests for client-to-server communication
   app.post('/mcp', async (req, res) => {
+    if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
+      rejectUnauthorized(res);
+      return;
+    }
+
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: StreamableHTTPServerTransport;
 
@@ -39,10 +70,9 @@ export async function createHttpServer(mcpServer: McpServer): Promise<express.Ap
           transports[sessionId] = transport;
           logMessage(mcpServer, "debug", `Session initialized: ${sessionId}`);
         },
-        // DNS rebinding protection disabled by default for backwards compatibility
-        // For production, consider enabling:
-        // enableDnsRebindingProtection: true,
-        // allowedHosts: ['127.0.0.1', 'localhost'],
+        enableDnsRebindingProtection: security.enableDnsRebindingProtection,
+        allowedHosts: security.allowedHosts,
+        allowedOrigins: security.allowedOrigins,
       });
 
       // Clean up transport when closed
@@ -96,6 +126,11 @@ export async function createHttpServer(mcpServer: McpServer): Promise<express.Ap
 
   // Handle GET requests for server-to-client notifications via SSE
   app.get('/mcp', async (req, res) => {
+    if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
+      rejectUnauthorized(res);
+      return;
+    }
+
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
       console.warn(`⚠️  GET request rejected - missing or invalid session ID:`, {
@@ -122,6 +157,11 @@ export async function createHttpServer(mcpServer: McpServer): Promise<express.Ap
 
   // Handle DELETE requests for session termination
   app.delete('/mcp', async (req, res) => {
+    if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
+      rejectUnauthorized(res);
+      return;
+    }
+
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
       console.warn(`⚠️  DELETE request rejected - missing or invalid session ID:`, {

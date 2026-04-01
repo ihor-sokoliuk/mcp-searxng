@@ -1,7 +1,11 @@
 import { getCurrentLogLevel } from "./logging.js";
 import { packageVersion } from "./index.js";
+import { getHttpSecurityConfig } from "./http-security.js";
 
 export function createConfigResource() {
+  const security = getHttpSecurityConfig();
+  const showFullConfig = !security.harden || security.exposeFullConfig;
+
   const config = {
     serverInfo: {
       name: "ihor-sokoliuk/mcp-searxng",
@@ -9,7 +13,9 @@ export function createConfigResource() {
       description: "MCP server for SearXNG integration"
     },
     environment: {
-      searxngUrl: process.env.SEARXNG_URL || "(not configured)",
+      ...(showFullConfig
+        ? { searxngUrl: process.env.SEARXNG_URL || "(not configured)" }
+        : { searxngUrlConfigured: !!process.env.SEARXNG_URL }),
       hasAuth: !!(process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD),
       hasProxy: !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy),
       hasNoProxy: !!(process.env.NO_PROXY || process.env.no_proxy),
@@ -69,6 +75,13 @@ Standard input/output transport for desktop clients like Claude Desktop.
 
 ### HTTP (Optional)
 RESTful HTTP transport for web applications. Set \`MCP_HTTP_PORT\` to enable.
+
+### Hardened HTTP Mode (Optional)
+Default behavior remains compatible for existing deployments.
+For network-exposed HTTP transport, enable:
+- \`MCP_HTTP_HARDEN\`
+- \`MCP_HTTP_AUTH_TOKEN\`
+- \`MCP_HTTP_ALLOWED_ORIGINS\`
 
 ## Usage Examples
 

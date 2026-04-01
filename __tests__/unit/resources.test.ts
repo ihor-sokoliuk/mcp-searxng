@@ -121,6 +121,33 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('config resource redacts searxngUrl in hardened mode', () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+    envManager.set('SEARXNG_URL', 'https://search.internal.example');
+    envManager.delete('MCP_HTTP_EXPOSE_FULL_CONFIG');
+
+    const config = JSON.parse(createConfigResource());
+    assert.equal(config.environment.searxngUrlConfigured, true);
+    assert.equal(config.environment.searxngUrl, undefined);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('debug override exposes full config in hardened mode', () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+    envManager.set('MCP_HTTP_EXPOSE_FULL_CONFIG', 'true');
+    envManager.set('SEARXNG_URL', 'https://search.internal.example');
+
+    const config = JSON.parse(createConfigResource());
+    assert.equal(config.environment.searxngUrl, 'https://search.internal.example');
+
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Resources Module');
   return results;
 }

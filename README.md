@@ -324,6 +324,30 @@ MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
 curl http://localhost:3000/health
 ```
 
+### Hardened HTTP Mode (Optional)
+
+Default HTTP behavior remains unchanged for backward compatibility.
+
+If you expose the HTTP transport on a network, enable hardened mode:
+
+```bash
+MCP_HTTP_PORT=3000 \
+MCP_HTTP_HARDEN=true \
+MCP_HTTP_AUTH_TOKEN=replace-me \
+MCP_HTTP_ALLOWED_ORIGINS=https://app.example.com \
+SEARXNG_URL=http://localhost:8080 \
+mcp-searxng
+```
+
+Available hardening variables:
+
+- `MCP_HTTP_HARDEN`: enables hardened HTTP behavior
+- `MCP_HTTP_AUTH_TOKEN`: required auth token for HTTP requests in hardened mode
+- `MCP_HTTP_ALLOWED_ORIGINS`: comma-separated CORS allowlist in hardened mode
+- `MCP_HTTP_ALLOWED_HOSTS`: optional DNS rebinding allowlist override
+- `MCP_HTTP_ALLOW_PRIVATE_URLS`: allows internal URL reads in hardened mode
+- `MCP_HTTP_EXPOSE_FULL_CONFIG`: exposes full config resource details in hardened mode for debugging
+
 ## Troubleshooting
 
 ### 403 Forbidden Error from SearXNG

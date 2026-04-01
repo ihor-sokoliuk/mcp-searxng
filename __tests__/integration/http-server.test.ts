@@ -11,8 +11,10 @@ import request from 'supertest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createHttpServer } from '../../src/http-server.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
+import { EnvManager } from '../helpers/env-utils.js';
 
 const results = createTestResults();
+const envManager = new EnvManager();
 
 function createTestMcpServer(): McpServer {
   return new McpServer(
@@ -133,6 +135,57 @@ async function runTests() {
     // Should succeed (200) and return a session ID
     assert.equal(res.status, 200);
     assert.ok(res.headers['mcp-session-id'], 'Expected mcp-session-id header in response');
+  }, results);
+
+  await testFunction('compatibility mode still allows health and init flow', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_AUTH_TOKEN');
+    envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+
+    const app = await createHttpServer(createTestMcpServer());
+    const res = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      });
+
+    assert.equal(res.status, 200);
+    envManager.restore();
+  }, results);
+
+  await testFunction('hardened mode rejects initialize without auth token', async () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+
+    const app = await createHttpServer(createTestMcpServer());
+    const res = await request(app)
+      .post('/mcp')
+      .set('Origin', 'https://app.example.com')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      });
+
+    assert.equal(res.status, 401);
+    envManager.restore();
   }, results);
 
   printTestSummary(results, 'HTTP Server Integration');

@@ -257,6 +257,35 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('hardened mode blocks localhost URL reads', async () => {
+    const mockServer = createMockServer();
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://127.0.0.1:8080/private');
+      assert.fail('Expected localhost URL to be blocked');
+    } catch (error: any) {
+      assert.ok(error.message.includes('blocked by security policy'));
+    }
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('override allows localhost URL reads in hardened mode', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_ALLOW_PRIVATE_URLS', 'true');
+
+    fetchMocker.mock(createMockFetch({ body: '<html><body><h1>Internal</h1></body></html>' }));
+    const result = await fetchAndConvertToMarkdown(mockServer as any, 'http://127.0.0.1:8080/private');
+    assert.ok(result.includes('Internal'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('Section extraction - existing section', async () => {
     const mockServer = createMockServer();
     urlCache.clear();

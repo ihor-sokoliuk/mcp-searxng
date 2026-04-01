@@ -126,6 +126,13 @@ export function createURLFormatError(url: string): MCPSearXNGError {
   return new MCPSearXNGError(`🔧 URL Format Error: Invalid URL "${url}"`);
 }
 
+export function createURLSecurityPolicyError(url: string): MCPSearXNGError {
+  return new MCPSearXNGError(
+    `🔒 URL blocked by security policy: ${url}. ` +
+    "Enable MCP_HTTP_ALLOW_PRIVATE_URLS=true only if internal URL reads are intentional."
+  );
+}
+
 export function createContentError(message: string, url: string): MCPSearXNGError {
   return new MCPSearXNGError(`📄 Content Error: ${message} (${url})`);
 }
