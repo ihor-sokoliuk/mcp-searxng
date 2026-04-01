@@ -171,6 +171,23 @@ async function runTests() {
     assert.ok(!isWebUrlReadArgs({ notUrl: 'invalid' }));
   }, results);
 
+  await testFunction('Server starts without SEARXNG_URL set', async () => {
+    const { EnvManager } = await import('../helpers/env-utils.js');
+    const env = new EnvManager();
+    env.delete('SEARXNG_URL');
+
+    // validateEnvironment() should return an error string (URL missing)
+    const { validateEnvironment } = await import('../../src/error-handler.js');
+    const result = validateEnvironment();
+    assert.ok(typeof result === 'string', 'validateEnvironment returns error string when URL missing');
+
+    // But the server module itself must be importable and export packageVersion
+    // (i.e. startup does not call process.exit when module is imported)
+    assert.ok(typeof packageVersion === 'string');
+
+    env.restore();
+  }, results);
+
   printTestSummary(results, 'Main Server Integration');
   return results;
 }

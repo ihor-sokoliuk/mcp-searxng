@@ -19,7 +19,6 @@ import { performWebSearch } from "./search.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer } from "./http-server.js";
-import { validateEnvironment as validateEnv } from "./error-handler.js";
 
 // Use a static version string that will be updated by the version script
 const packageVersion = "0.10.5";
@@ -235,13 +234,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 
 // Main function
 async function main() {
-  // Environment validation
-  const validationError = validateEnv();
-  if (validationError) {
-    console.error(`❌ ${validationError}`);
-    process.exit(1);
-  }
-
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
   if (httpPort) {
@@ -276,8 +268,11 @@ async function main() {
     // Show helpful message when running in terminal
     if (process.stdin.isTTY) {
       console.error(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
-      console.error("✅ Configuration valid");
-      console.error(`🌐 SearXNG URL: ${process.env.SEARXNG_URL}`);
+      if (process.env.SEARXNG_URL) {
+        console.error(`🌐 SearXNG URL: ${process.env.SEARXNG_URL}`);
+      } else {
+        console.error("⚠️  SEARXNG_URL not set — configure it before using search tools");
+      }
       console.error("📡 Waiting for MCP client connection via STDIO...\n");
     }
     
