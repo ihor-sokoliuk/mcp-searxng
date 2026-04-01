@@ -23,6 +23,32 @@ export function createConfigurationError(message: string): MCPSearXNGError {
   return new MCPSearXNGError(`🔧 Configuration Error: ${message}`);
 }
 
+const TLS_ERROR_CODES = new Set([
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'CERT_UNTRUSTED', 'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_GET_ISSUER_CERT',
+  'CERT_CHAIN_TOO_LONG', 'INVALID_CA',
+]);
+
+function isTLSError(error: any): boolean {
+  if (TLS_ERROR_CODES.has(error?.code)) return true;
+  if (TLS_ERROR_CODES.has(error?.cause?.code)) return true;
+  if (error?.message?.includes('certificate')) return true;
+  if (error?.cause?.message?.includes('certificate')) return true;
+  return false;
+}
+
+function getTLSRemediationMessage(): string {
+  const { platform } = process;
+  if (platform === 'win32') {
+    return 'Set NODE_EXTRA_CA_CERTS=C:\\path\\to\\ca-bundle.pem before starting the server.';
+  }
+  if (platform === 'darwin') {
+    return 'Run: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /path/to/ca.crt';
+  }
+  return 'Run: sudo cp /path/to/ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates';
+}
+
 export function createNetworkError(error: any, context: ErrorContext): MCPSearXNGError {
   const target = context.searxngUrl ? 'SearXNG server' : 'website';
   
@@ -39,8 +65,12 @@ export function createNetworkError(error: any, context: ErrorContext): MCPSearXN
     return new MCPSearXNGError(`🌐 Timeout Error: ${target} is too slow to respond`);
   }
   
-  if (error.message?.includes('certificate')) {
-    return new MCPSearXNGError(`🌐 SSL Error: Certificate problem with ${target}`);
+  if (isTLSError(error)) {
+    const causeCode = error?.cause?.code || error?.code || 'CERT_ERROR';
+    return new MCPSearXNGError(
+      `🔒 SSL/TLS Error: Certificate verification failed for ${target} (${causeCode}). ` +
+      getTLSRemediationMessage()
+    );
   }
   
   // For generic fetch failures, provide root cause guidance

@@ -7,7 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { createProxyAgent } from '../../src/proxy.js';
+import { createProxyAgent, createDefaultAgent } from '../../src/proxy.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -375,6 +375,16 @@ async function runTests() {
     assert.ok(agent, 'Expected agent when no type specified and HTTPS_PROXY set');
 
     envManager.restore();
+  }, results);
+
+  await testFunction('createDefaultAgent returns Agent or undefined', () => {
+    const agent = createDefaultAgent();
+    assert.ok(agent === undefined || agent.constructor.name === 'Agent');
+  }, results);
+
+  await testFunction('createDefaultAgent has dispatch method when returned', () => {
+    const agent = createDefaultAgent();
+    if (agent) assert.ok(typeof agent.dispatch === 'function');
   }, results);
 
   printTestSummary(results, 'Proxy Module');

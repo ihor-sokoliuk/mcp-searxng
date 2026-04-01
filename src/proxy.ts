@@ -1,4 +1,5 @@
-import { ProxyAgent } from "undici";
+import { Agent, ProxyAgent } from "undici";
+import { getConnectOptions } from "./tls-config.js";
 
 /**
  * Checks if a target URL should bypass the proxy based on NO_PROXY environment variable.
@@ -211,5 +212,19 @@ export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAge
   const normalizedProxyUrl = `${parsedProxyUrl.protocol}//${auth}${parsedProxyUrl.host}`;
 
   // Create and return Undici ProxyAgent compatible with fetch's dispatcher option
-  return new ProxyAgent(normalizedProxyUrl);
+  return new ProxyAgent({ uri: normalizedProxyUrl, connect: getConnectOptions() });
+}
+
+/**
+ * Creates a plain undici Agent with system CA certificates in the connect
+ * options. Used as a dispatcher when no proxy is configured, to ensure
+ * undici's fetch uses system CAs instead of only Node's compiled-in bundle.
+ *
+ * Returns undefined if no system CA bundle is found — callers should treat
+ * undefined as "use Node's default behavior".
+ */
+export function createDefaultAgent(): Agent | undefined {
+  const connectOpts = getConnectOptions();
+  if (Object.keys(connectOpts).length === 0) return undefined;
+  return new Agent({ connect: connectOpts });
 }

@@ -52,7 +52,7 @@ async function runTests() {
       { code: 'ETIMEDOUT', message: 'Timeout', expectedText: 'Timeout Error' },
       { code: 'EAI_NONAME', message: 'DNS error', expectedText: 'DNS Error' },
       { code: 'ENOTFOUND', message: 'DNS error', expectedText: 'DNS Error' },
-      { message: 'certificate error', expectedText: 'SSL Error' }
+      { message: 'certificate error', expectedText: 'SSL' }
     ];
     
     for (const testError of errors) {
@@ -204,6 +204,28 @@ async function runTests() {
       result.message.includes('SEARXNG_URL'),
       `Expected SEARXNG_URL guidance, got: ${result.message}`
     );
+  }, results);
+
+  await testFunction('createNetworkError detects TLS error via error.cause.code', () => {
+    const error = {
+      message: 'fetch failed',
+      cause: { code: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', message: 'unable to get local issuer certificate' }
+    };
+    const result = createNetworkError(error, { url: 'https://example.com' });
+    assert.ok(result instanceof MCPSearXNGError);
+    assert.ok(
+      result.message.includes('SSL') || result.message.includes('TLS') || result.message.includes('Certificate'),
+      `Expected SSL/TLS/Certificate in message, got: ${result.message}`
+    );
+  }, results);
+
+  await testFunction('createNetworkError TLS error includes error code in message', () => {
+    const error = {
+      message: 'fetch failed',
+      cause: { code: 'DEPTH_ZERO_SELF_SIGNED_CERT', message: 'self signed certificate' }
+    };
+    const result = createNetworkError(error, { url: 'https://example.com' });
+    assert.ok(result.message.includes('DEPTH_ZERO_SELF_SIGNED_CERT'), `Expected code in message, got: ${result.message}`);
   }, results);
 
   printTestSummary(results, 'Error Handler Module');
