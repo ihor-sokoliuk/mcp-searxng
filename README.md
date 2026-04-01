@@ -1,6 +1,6 @@
 # SearXNG MCP Server
 
-An [MCP server](https://modelcontextprotocol.io/introduction) implementation that integrates the [SearXNG](https://docs.searxng.org) API, providing web search capabilities.
+An [MCP server](https://modelcontextprotocol.io/introduction) that integrates the [SearXNG](https://docs.searxng.org) API, giving AI assistants web search capabilities.
 
 [![https://nodei.co/npm/mcp-searxng.png?downloads=true&downloadRank=true&stars=true](https://nodei.co/npm/mcp-searxng.png?downloads=true&downloadRank=true&stars=true)](https://www.npmjs.com/package/mcp-searxng)
 
@@ -8,89 +8,9 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
 
 <a href="https://glama.ai/mcp/servers/0j7jjyt7m9"><img width="380" height="200" src="https://glama.ai/mcp/servers/0j7jjyt7m9/badge" alt="SearXNG Server MCP server" /></a>
 
-## How It Works
+## Quick Start
 
-`mcp-searxng` is an **MCP (Model Context Protocol) server** — it is a separate process that AI assistants (such as Claude) connect to in order to perform web searches. It communicates with a SearXNG instance over SearXNG's HTTP JSON API.
-
-> **Not a SearXNG plugin:** This project cannot be installed as a native SearXNG plugin (i.e., a Python module loaded inside the SearXNG process). It is a standalone MCP server that runs alongside your SearXNG instance and queries it via its API. You point it at any existing SearXNG instance by setting the `SEARXNG_URL` environment variable.
-
-```
-AI Assistant (e.g. Claude)
-        │  MCP protocol
-        ▼
-  mcp-searxng  (this project — Node.js process)
-        │  HTTP JSON API  (SEARXNG_URL)
-        ▼
-  SearXNG instance
-```
-
-## Features
-
-- **Web Search**: General queries, news, articles, with pagination.
-- **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
-- **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
-- **Pagination**: Control which page of results to retrieve.
-- **Time Filtering**: Filter results by time range (day, month, year).
-- **Language Selection**: Filter results by preferred language.
-- **Safe Search**: Control content filtering level for search results.
-
-## Tools
-
-- **searxng_web_search**
-  - Execute web searches with pagination
-  - Inputs:
-    - `query` (string): The search query. This string is passed to external search services.
-    - `pageno` (number, optional): Search page number, starts at 1 (default 1)
-    - `time_range` (string, optional): Filter results by time range - one of: "day", "month", "year" (default: none)
-    - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
-    - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
-
-- **web_url_read**
-  - Read and convert the content from a URL to markdown with advanced content extraction options
-  - Inputs:
-    - `url` (string): The URL to fetch and process
-    - `startChar` (number, optional): Starting character position for content extraction (default: 0)
-    - `maxLength` (number, optional): Maximum number of characters to return
-    - `section` (string, optional): Extract content under a specific heading (searches for heading text)
-    - `paragraphRange` (string, optional): Return specific paragraph ranges (e.g., '1-5', '3', '10-')
-    - `readHeadings` (boolean, optional): Return only a list of headings instead of full content
-
-## Configuration
-
-### Environment Variables
-
-#### Required
-- **`SEARXNG_URL`**: SearXNG instance URL (default: `http://localhost:8080`)
-  - Format: `<protocol>://<hostname>[:<port>]`
-  - Example: `https://search.example.com`
-
-#### Optional
-- **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials for `searxng_web_search` (password-protected SearXNG instances)
-- **`USER_AGENT`**: Global default User-Agent header used by both `searxng_web_search` and `web_url_read` (e.g., `MyBot/1.0`)
-- **`URL_READER_USER_AGENT`**: Custom User-Agent specifically for the `web_url_read` tool (overrides `USER_AGENT` for URL reading requests)
-- **`HTTP_PROXY`** / **`HTTPS_PROXY`**: Global proxy URLs for routing traffic (fallback for both interfaces)
-  - Format: `http://[username:password@]proxy.host:port`
-- **`NO_PROXY`**: Comma-separated bypass list (e.g., `localhost,.internal,example.com`)
-
-##### Interface-Specific Proxies (Optional)
-- **`SEARCH_HTTP_PROXY`** / **`SEARCH_HTTPS_PROXY`**: Proxy for `searxng_web_search` tool only
-- **`URL_READER_HTTP_PROXY`** / **`URL_READER_HTTPS_PROXY`**: Proxy for `web_url_read` tool only
-  - These take priority over `HTTP_PROXY`/`HTTPS_PROXY` for their respective interfaces
-
-#### Advanced Configuration
-
-```bash
-# Separate proxies for search and URL reading
-SEARCH_HTTP_PROXY=http://search-proxy:8080
-URL_READER_HTTP_PROXY=http://reader-proxy:8080
-
-# Custom user_agent for URL reader
-URL_READER_USER_AGENT="Mozilla/5.0 (compatible; Bot/1.0)"
-```
-
-## Installation & Configuration
-
-### [NPX](https://www.npmjs.com/package/mcp-searxng)
+Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 
 ```json
 {
@@ -106,37 +26,35 @@ URL_READER_USER_AGENT="Mozilla/5.0 (compatible; Bot/1.0)"
 }
 ```
 
-<details>
-<summary>Full Configuration Example (All Options)</summary>
+Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://search.example.com`).
 
-```json
-{
-  "mcpServers": {
-    "searxng": {
-      "command": "npx",
-      "args": ["-y", "mcp-searxng"],
-      "env": {
-        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
-        "AUTH_USERNAME": "your_username",
-        "AUTH_PASSWORD": "your_password",
-        "USER_AGENT": "MyBot/1.0",
-        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
-        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
-        "HTTP_PROXY": "http://global-proxy.company.com:8080",
-        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
-        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
-      }
-    }
-  }
-}
+## How It Works
+
+`mcp-searxng` is a standalone MCP server — a separate Node.js process that your AI assistant connects to for web search. It queries any SearXNG instance via its HTTP JSON API.
+
+> **Not a SearXNG plugin:** This project cannot be installed as a native SearXNG plugin. Point it at any existing SearXNG instance by setting `SEARXNG_URL`.
+
+```
+AI Assistant (e.g. Claude)
+        │  MCP protocol
+        ▼
+  mcp-searxng  (this project — Node.js process)
+        │  HTTP JSON API  (SEARXNG_URL)
+        ▼
+  SearXNG instance
 ```
 
-**Note:** Mix and match environment variables as needed. All optional variables can be used independently or together.
+## Tools
 
-</details>
+| Tool | Description | Inputs |
+|---|---|---|
+| `searxng_web_search` | Execute web searches with pagination | `query` (required), `pageno`, `time_range` (`day`/`month`/`year`), `language`, `safesearch` (0/1/2) |
+| `web_url_read` | Fetch a URL and return its content as markdown | `url` (required), `startChar`, `maxLength`, `section`, `paragraphRange` (e.g. `1-5`), `readHeadings` |
 
-### [NPM](https://www.npmjs.com/package/mcp-searxng)
+## Installation
+
+<details>
+<summary>NPM (global install)</summary>
 
 ```bash
 npm install -g mcp-searxng
@@ -155,35 +73,12 @@ npm install -g mcp-searxng
 }
 ```
 
-<details>
-<summary>Full Configuration Example (All Options)</summary>
-
-```json
-{
-  "mcpServers": {
-    "searxng": {
-      "command": "mcp-searxng",
-      "env": {
-        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
-        "AUTH_USERNAME": "your_username",
-        "AUTH_PASSWORD": "your_password",
-        "USER_AGENT": "MyBot/1.0",
-        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
-        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
-        "HTTP_PROXY": "http://global-proxy.company.com:8080",
-        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
-        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
-      }
-    }
-  }
-}
-```
 </details>
 
-### Docker
+<details>
+<summary>Docker</summary>
 
-#### Using [Pre-built Image from Docker Hub](https://hub.docker.com/r/isokoliuk/mcp-searxng)
+**Pre-built image:**
 
 ```bash
 docker pull isokoliuk/mcp-searxng:latest
@@ -207,62 +102,22 @@ docker pull isokoliuk/mcp-searxng:latest
 }
 ```
 
-<details>
-<summary>Full Configuration Example (All Options)</summary>
+To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `env`.
 
-```json
-{
-  "mcpServers": {
-    "searxng": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "-e", "SEARXNG_URL",
-        "-e", "AUTH_USERNAME",
-        "-e", "AUTH_PASSWORD",
-        "-e", "USER_AGENT",
-        "-e", "URL_READER_USER_AGENT",
-        "-e", "SEARCH_HTTP_PROXY",
-        "-e", "SEARCH_HTTPS_PROXY",
-        "-e", "URL_READER_HTTP_PROXY",
-        "-e", "URL_READER_HTTPS_PROXY",
-        "-e", "HTTP_PROXY",
-        "-e", "HTTPS_PROXY",
-        "-e", "NO_PROXY",
-        "isokoliuk/mcp-searxng:latest"
-      ],
-      "env": {
-        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
-        "AUTH_USERNAME": "your_username",
-        "AUTH_PASSWORD": "your_password",
-        "USER_AGENT": "MyBot/1.0",
-        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
-        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
-        "HTTP_PROXY": "http://global-proxy.company.com:8080",
-        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
-        "NO_PROXY": "localhost,127.0.0.1,.local,.internal"
-      }
-    }
-  }
-}
-```
-
-**Note:** Add only the `-e` flags and env variables you need.
-
-</details>
-
-#### Build Locally
+**Build locally:**
 
 ```bash
 docker build -t mcp-searxng:latest -f Dockerfile .
 ```
 
-Use the same configuration as above, replacing `isokoliuk/mcp-searxng:latest` with `mcp-searxng:latest`.
+Use the same config above, replacing `isokoliuk/mcp-searxng:latest` with `mcp-searxng:latest`.
 
-#### Docker Compose
+</details>
 
-Create a `docker-compose.yml` file:
+<details>
+<summary>Docker Compose</summary>
+
+`docker-compose.yml`:
 
 ```yaml
 services:
@@ -271,19 +126,10 @@ services:
     stdin_open: true
     environment:
       - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
-      # Add any optional variables as needed:
-      # - AUTH_USERNAME=your_username
-      # - AUTH_PASSWORD=your_password
-      # - USER_AGENT=MyBot/1.0
-      # - URL_READER_USER_AGENT=Mozilla/5.0 (compatible; MyBot/1.0)
-      # - SEARCH_HTTP_PROXY=http://search-proxy.company.com:8080
-      # - URL_READER_HTTP_PROXY=http://reader-proxy.company.com:8080
-      # - HTTP_PROXY=http://global-proxy.company.com:8080
-      # - HTTPS_PROXY=http://proxy.company.com:8080
-      # - NO_PROXY=localhost,127.0.0.1,.local,.internal
+      # Add optional variables as needed — see CONFIGURATION.md
 ```
 
-Then configure your MCP client:
+MCP client config:
 
 ```json
 {
@@ -296,9 +142,12 @@ Then configure your MCP client:
 }
 ```
 
-### HTTP Transport (Optional)
+</details>
 
-The server supports both STDIO (default) and HTTP transports. Set `MCP_HTTP_PORT` to enable HTTP mode.
+<details>
+<summary>HTTP Transport</summary>
+
+By default the server uses STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode:
 
 ```json
 {
@@ -314,21 +163,21 @@ The server supports both STDIO (default) and HTTP transports. Set `MCP_HTTP_PORT
 }
 ```
 
-**HTTP Endpoints:**
-- **MCP Protocol**: `POST/GET/DELETE /mcp` 
-- **Health Check**: `GET /health`
+**Endpoints:** `POST/GET/DELETE /mcp` (MCP protocol), `GET /health` (health check)
 
-**Testing:**
+**Test it:**
+
 ```bash
 MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
 curl http://localhost:3000/health
 ```
 
-### Hardened HTTP Mode (Optional)
+</details>
 
-Default HTTP behavior remains unchanged for backward compatibility.
+<details>
+<summary>Hardened HTTP Mode</summary>
 
-If you expose the HTTP transport on a network, enable hardened mode:
+If you expose the HTTP transport on a network, enable hardened mode for authentication, CORS, and SSRF protection. Default behavior is unchanged — opt in explicitly:
 
 ```bash
 MCP_HTTP_PORT=3000 \
@@ -339,22 +188,30 @@ SEARXNG_URL=http://localhost:8080 \
 mcp-searxng
 ```
 
-Available hardening variables:
+| Variable | Description |
+|---|---|
+| `MCP_HTTP_HARDEN` | Enable hardened mode |
+| `MCP_HTTP_AUTH_TOKEN` | Required bearer token for all requests |
+| `MCP_HTTP_ALLOWED_ORIGINS` | Comma-separated CORS origin allowlist |
+| `MCP_HTTP_ALLOWED_HOSTS` | DNS rebinding protection allowlist override |
+| `MCP_HTTP_ALLOW_PRIVATE_URLS` | Allow internal URL reads (default: blocked) |
+| `MCP_HTTP_EXPOSE_FULL_CONFIG` | Expose full config in `/health` (for debugging) |
 
-- `MCP_HTTP_HARDEN`: enables hardened HTTP behavior
-- `MCP_HTTP_AUTH_TOKEN`: required auth token for HTTP requests in hardened mode
-- `MCP_HTTP_ALLOWED_ORIGINS`: comma-separated CORS allowlist in hardened mode
-- `MCP_HTTP_ALLOWED_HOSTS`: optional DNS rebinding allowlist override
-- `MCP_HTTP_ALLOW_PRIVATE_URLS`: allows internal URL reads in hardened mode
-- `MCP_HTTP_EXPOSE_FULL_CONFIG`: exposes full config resource details in hardened mode for debugging
+Full reference: [CONFIGURATION.md#hardened-http-mode](CONFIGURATION.md#hardened-http-mode)
+
+</details>
+
+## Configuration
+
+Set `SEARXNG_URL` to your SearXNG instance URL. All other variables are optional.
+
+Full environment variable reference: [CONFIGURATION.md](CONFIGURATION.md)
 
 ## Troubleshooting
 
-### 403 Forbidden Error from SearXNG
+### 403 Forbidden from SearXNG
 
-If you receive a `403 Forbidden` error when using `mcp-searxng`, it is likely because your SearXNG instance does not have JSON format enabled. This server requests results in JSON format (`format=json`), which must be explicitly allowed in SearXNG's configuration.
-
-**To fix this**, edit your SearXNG `settings.yml` (commonly located at `/etc/searxng/settings.yml`) and add `json` to the list of allowed formats:
+Your SearXNG instance likely has JSON format disabled. Edit `settings.yml` (usually `/etc/searxng/settings.yml`):
 
 ```yaml
 search:
@@ -363,88 +220,26 @@ search:
     - json
 ```
 
-After saving the file, restart your SearXNG instance. For example, if running with Docker:
-
-```bash
-docker restart searxng
-```
-
-You can verify JSON format is working by running:
+Restart SearXNG (`docker restart searxng`) then verify:
 
 ```bash
 curl 'http://localhost:8080/search?q=test&format=json'
 ```
 
-You should receive a JSON response. If you still get a 403 error, double-check that:
-- The `settings.yml` file is correctly mounted into your Docker container
-- The YAML indentation is correct
-- The SearXNG instance was fully restarted after the configuration change
+You should receive a JSON response. If not, confirm the file is correctly mounted and YAML indentation is valid.
 
-For more details, see the [SearXNG settings documentation](https://docs.searxng.org/admin/settings/settings.html) and [this discussion](https://github.com/searxng/searxng/discussions/1789).
+See also: [SearXNG settings docs](https://docs.searxng.org/admin/settings/settings.html) · [discussion](https://github.com/searxng/searxng/discussions/1789)
 
-## Running evals
+## Running Evals
 
 ```bash
 SEARXNG_URL=YOUR_URL OPENAI_API_KEY=your-key npx mcp-eval evals.ts src/index.ts
 ```
 
-## For Developers
+## Contributing
 
-### Contributing
-
-We welcome contributions! Follow these guidelines:
-
-**Coding Standards:**
-- Use TypeScript with strict type safety
-- Follow existing error handling patterns
-- Write concise, informative error messages
-- Include unit tests for new functionality
-- Maintain 90%+ test coverage
-- Test with MCP inspector before submitting
-- Run evals to verify functionality
-
-**Workflow:**
-
-1. **Fork and clone:**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/mcp-searxng.git
-   cd mcp-searxng
-   git remote add upstream https://github.com/ihor-sokoliuk/mcp-searxng.git
-   ```
-
-2. **Setup:**
-   ```bash
-   npm install
-   npm run watch  # Development mode with file watching
-   ```
-
-3. **Development:**
-   ```bash
-   git checkout -b feature/your-feature-name
-   # Make changes in src/
-   npm run build
-   npm test
-   npm run test:coverage
-   npm run inspector
-   ```
-
-4. **Submit:**
-   ```bash
-   git commit -m "feat: description"
-   git push origin feature/your-feature-name
-   # Create PR on GitHub
-   ```
-
-### Testing
-
-```bash
-npm test                    # Run all tests
-npm run test:coverage      # Generate coverage report
-npm run test:watch         # Watch mode
-```
-
-**Coverage:** 100% success rate with comprehensive unit tests covering error handling, types, proxy configs, resources, and logging.
+See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+MIT — see [LICENSE](LICENSE) for details.
