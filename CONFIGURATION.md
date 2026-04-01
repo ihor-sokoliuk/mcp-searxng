@@ -6,7 +6,7 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_URL` | Yes | `http://localhost:8080` | URL of your SearXNG instance. Format: `<protocol>://<hostname>[:<port>]` |
+| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance. Format: `<protocol>://<hostname>[:<port>]` (e.g. `http://localhost:8080`) |
 
 ## Authentication
 
@@ -58,16 +58,6 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 | `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs in hardened mode |
 | `MCP_HTTP_EXPOSE_FULL_CONFIG` | No | `false` | Expose full config details in `/health` response (for debugging) |
 
-**Example — hardened mode startup:**
-
-```bash
-MCP_HTTP_PORT=3000 \
-MCP_HTTP_HARDEN=true \
-MCP_HTTP_AUTH_TOKEN=replace-me \
-MCP_HTTP_ALLOWED_ORIGINS=https://app.example.com \
-SEARXNG_URL=http://localhost:8080 \
-mcp-searxng
-```
 
 ## Full Example (All Options)
 

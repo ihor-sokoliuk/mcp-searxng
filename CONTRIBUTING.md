@@ -24,7 +24,7 @@ npm run build   # One-off build
 - Follow existing error handling patterns
 - Write concise, informative error messages
 - Include unit tests for new functionality
-- Maintain 90%+ test coverage
+- Maintain 80%+ test coverage
 - Test with MCP inspector before submitting
 - Run evals to verify functionality
 

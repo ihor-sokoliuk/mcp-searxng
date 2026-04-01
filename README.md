@@ -28,6 +28,16 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 
 Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://search.example.com`).
 
+## Features
+
+- **Web Search**: General queries, news, articles, with pagination.
+- **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
+- **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
+- **Pagination**: Control which page of results to retrieve.
+- **Time Filtering**: Filter results by time range (day, month, year).
+- **Language Selection**: Filter results by preferred language.
+- **Safe Search**: Control content filtering level for search results.
+
 ## How It Works
 
 `mcp-searxng` is a standalone MCP server — a separate Node.js process that your AI assistant connects to for web search. It queries any SearXNG instance via its HTTP JSON API.
@@ -46,10 +56,24 @@ AI Assistant (e.g. Claude)
 
 ## Tools
 
-| Tool | Description | Inputs |
-|---|---|---|
-| `searxng_web_search` | Execute web searches with pagination | `query` (required), `pageno`, `time_range` (`day`/`month`/`year`), `language`, `safesearch` (0/1/2) |
-| `web_url_read` | Fetch a URL and return its content as markdown | `url` (required), `startChar`, `maxLength`, `section`, `paragraphRange` (e.g. `1-5`), `readHeadings` |
+- **searxng_web_search**
+  - Execute web searches with pagination
+  - Inputs:
+    - `query` (string): The search query. This string is passed to external search services.
+    - `pageno` (number, optional): Search page number, starts at 1 (default 1)
+    - `time_range` (string, optional): Filter results by time range - one of: "day", "month", "year" (default: none)
+    - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
+    - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
+
+- **web_url_read**
+  - Read and convert the content from a URL to markdown with advanced content extraction options
+  - Inputs:
+    - `url` (string): The URL to fetch and process
+    - `startChar` (number, optional): Starting character position for content extraction (default: 0)
+    - `maxLength` (number, optional): Maximum number of characters to return
+    - `section` (string, optional): Extract content under a specific heading (searches for heading text)
+    - `paragraphRange` (string, optional): Return specific paragraph ranges (e.g., '1-5', '3', '10-')
+    - `readHeadings` (boolean, optional): Return only a list of headings instead of full content
 
 ## Installation
 
@@ -174,33 +198,6 @@ curl http://localhost:3000/health
 
 </details>
 
-<details>
-<summary>Hardened HTTP Mode</summary>
-
-If you expose the HTTP transport on a network, enable hardened mode for authentication, CORS, and SSRF protection. Default behavior is unchanged — opt in explicitly:
-
-```bash
-MCP_HTTP_PORT=3000 \
-MCP_HTTP_HARDEN=true \
-MCP_HTTP_AUTH_TOKEN=replace-me \
-MCP_HTTP_ALLOWED_ORIGINS=https://app.example.com \
-SEARXNG_URL=http://localhost:8080 \
-mcp-searxng
-```
-
-| Variable | Description |
-|---|---|
-| `MCP_HTTP_HARDEN` | Enable hardened mode |
-| `MCP_HTTP_AUTH_TOKEN` | Required bearer token for all requests |
-| `MCP_HTTP_ALLOWED_ORIGINS` | Comma-separated CORS origin allowlist |
-| `MCP_HTTP_ALLOWED_HOSTS` | DNS rebinding protection allowlist override |
-| `MCP_HTTP_ALLOW_PRIVATE_URLS` | Allow internal URL reads (default: blocked) |
-| `MCP_HTTP_EXPOSE_FULL_CONFIG` | Expose full config in `/health` (for debugging) |
-
-Full reference: [CONFIGURATION.md#hardened-http-mode](CONFIGURATION.md#hardened-http-mode)
-
-</details>
-
 ## Configuration
 
 Set `SEARXNG_URL` to your SearXNG instance URL. All other variables are optional.
@@ -229,12 +226,6 @@ curl 'http://localhost:8080/search?q=test&format=json'
 You should receive a JSON response. If not, confirm the file is correctly mounted and YAML indentation is valid.
 
 See also: [SearXNG settings docs](https://docs.searxng.org/admin/settings/settings.html) · [discussion](https://github.com/searxng/searxng/discussions/1789)
-
-## Running Evals
-
-```bash
-SEARXNG_URL=YOUR_URL OPENAI_API_KEY=your-key npx mcp-eval evals.ts src/index.ts
-```
 
 ## Contributing
 
