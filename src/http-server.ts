@@ -193,6 +193,8 @@ export async function createHttpServer(
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
+    } finally {
+      sessions.delete(sessionId);
     }
   });
 
