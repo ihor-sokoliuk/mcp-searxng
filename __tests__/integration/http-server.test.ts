@@ -27,7 +27,7 @@ async function runTests() {
   console.log('🧪 Integration Testing: http-server.ts\n');
 
   await testFunction('GET /health returns healthy status', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
     const res = await request(app).get('/health');
 
     assert.equal(res.status, 200);
@@ -38,7 +38,7 @@ async function runTests() {
   }, results);
 
   await testFunction('GET /health includes CORS headers', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
     const res = await request(app)
       .get('/health')
       .set('Origin', 'http://example.com');
@@ -48,7 +48,7 @@ async function runTests() {
   }, results);
 
   await testFunction('POST /mcp without sessionId and non-initialize body returns 400', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .post('/mcp')
@@ -62,7 +62,7 @@ async function runTests() {
   }, results);
 
   await testFunction('POST /mcp with unknown sessionId and non-initialize body returns 400', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .post('/mcp')
@@ -75,7 +75,7 @@ async function runTests() {
   }, results);
 
   await testFunction('GET /mcp without sessionId returns 400', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app).get('/mcp');
 
@@ -84,7 +84,7 @@ async function runTests() {
   }, results);
 
   await testFunction('GET /mcp with unknown sessionId returns 400', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .get('/mcp')
@@ -95,7 +95,7 @@ async function runTests() {
   }, results);
 
   await testFunction('DELETE /mcp without sessionId returns 400', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app).delete('/mcp');
 
@@ -104,7 +104,7 @@ async function runTests() {
   }, results);
 
   await testFunction('DELETE /mcp with unknown sessionId returns 400', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .delete('/mcp')
@@ -115,7 +115,7 @@ async function runTests() {
   }, results);
 
   await testFunction('POST /mcp with initialize request creates session', async () => {
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .post('/mcp')
@@ -142,7 +142,7 @@ async function runTests() {
     envManager.delete('MCP_HTTP_AUTH_TOKEN');
     envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
 
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
     const res = await request(app)
       .post('/mcp')
       .set('Content-Type', 'application/json')
@@ -167,7 +167,7 @@ async function runTests() {
     envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
     envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
 
-    const app = await createHttpServer(createTestMcpServer());
+    const app = await createHttpServer(() => createTestMcpServer());
     const res = await request(app)
       .post('/mcp')
       .set('Origin', 'https://app.example.com')
@@ -186,6 +186,28 @@ async function runTests() {
 
     assert.equal(res.status, 401);
     envManager.restore();
+  }, results);
+
+  await testFunction('multiple sessions can initialize without "Already connected" error', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+    const initBody = (clientName: string) => ({
+      jsonrpc: '2.0', id: 1, method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {},
+        clientInfo: { name: clientName, version: '1.0.0' } }
+    });
+    const res1 = await request(app).post('/mcp')
+      .set('Content-Type', 'application/json').set('Accept', 'application/json, text/event-stream')
+      .send(initBody('client-1'));
+    assert.equal(res1.status, 200);
+    const sessionId1 = res1.headers['mcp-session-id'];
+    assert.ok(sessionId1, 'First session should get an ID');
+    const res2 = await request(app).post('/mcp')
+      .set('Content-Type', 'application/json').set('Accept', 'application/json, text/event-stream')
+      .send(initBody('client-2'));
+    assert.equal(res2.status, 200);
+    const sessionId2 = res2.headers['mcp-session-id'];
+    assert.ok(sessionId2, 'Second session should get an ID');
+    assert.notEqual(sessionId1, sessionId2, 'Sessions should have distinct IDs');
   }, results);
 
   printTestSummary(results, 'HTTP Server Integration');

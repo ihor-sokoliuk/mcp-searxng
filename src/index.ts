@@ -9,12 +9,11 @@ import {
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
-  LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
 import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
-import { logMessage, setLogLevel } from "./logging.js";
+import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
@@ -25,9 +24,6 @@ const packageVersion = "1.0.2";
 
 // Export the version for use in other modules
 export { packageVersion };
-
-// Global state for logging level
-let currentLogLevel: LoggingLevel = "info";
 
 // Type guard for URL reading args
 export function isWebUrlReadArgs(args: unknown): args is {
@@ -73,165 +69,170 @@ export function isWebUrlReadArgs(args: unknown): args is {
   return true;
 }
 
-// Server implementation
-const mcpServer = new McpServer(
-  {
-    name: "ihor-sokoliuk/mcp-searxng",
-    version: packageVersion,
-  },
-  {
-    capabilities: {
-      logging: {},
-      resources: {},
-      tools: {},
+/**
+ * Creates and configures a new McpServer with all handlers registered.
+ * Called once per HTTP session, or once for STDIO mode.
+ */
+export function createMcpServer(): McpServer {
+  const mcpServer = new McpServer(
+    {
+      name: "ihor-sokoliuk/mcp-searxng",
+      version: packageVersion,
     },
-  }
-);
-
-// Underlying low-level server for handler registration and passing to modules
-const server = mcpServer.server;
-
-// List tools handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  logMessage(mcpServer, "debug", "Handling list_tools request");
-  return {
-    tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
-  };
-});
-
-// Call tool handler
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
-
-  try {
-    if (name === "searxng_web_search") {
-      if (!isSearXNGWebSearchArgs(args)) {
-        throw new Error("Invalid arguments for web search");
-      }
-
-      const result = await performWebSearch(
-        mcpServer,
-        args.query,
-        args.pageno,
-        args.time_range,
-        args.language,
-        args.safesearch
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
-    } else if (name === "web_url_read") {
-      if (!isWebUrlReadArgs(args)) {
-        throw new Error("Invalid arguments for URL reading");
-      }
-
-      const paginationOptions = {
-        startChar: args.startChar,
-        maxLength: args.maxLength,
-        section: args.section,
-        paragraphRange: args.paragraphRange,
-        readHeadings: args.readHeadings,
-      };
-
-      const result = await fetchAndConvertToMarkdown(mcpServer, args.url, 10000, paginationOptions);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
-    } else {
-      throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (error) {
-    logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, { 
-      tool: name, 
-      args: args,
-      error: error instanceof Error ? error.stack : String(error)
-    });
-    throw error;
-  }
-});
-
-// Logging level handler
-server.setRequestHandler(SetLevelRequestSchema, async (request) => {
-  const { level } = request.params;
-  logMessage(mcpServer, "info", `Setting log level to: ${level}`);
-  currentLogLevel = level;
-  setLogLevel(level);
-  return {};
-});
-
-// List resources handler
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  logMessage(mcpServer, "debug", "Handling list_resources request");
-  return {
-    resources: [
-      {
-        uri: "config://server-config",
-        mimeType: "application/json",
-        name: "Server Configuration",
-        description: "Current server configuration and environment variables"
+    {
+      capabilities: {
+        logging: {},
+        resources: {},
+        tools: {},
       },
-      {
-        uri: "help://usage-guide",
-        mimeType: "text/markdown",
-        name: "Usage Guide",
-        description: "How to use the MCP SearXNG server effectively"
+    }
+  );
+
+  const server = mcpServer.server;
+
+  // List tools handler
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    logMessage(mcpServer, "debug", "Handling list_tools request");
+    return {
+      tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
+    };
+  });
+
+  // Call tool handler
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+
+    try {
+      if (name === "searxng_web_search") {
+        if (!isSearXNGWebSearchArgs(args)) {
+          throw new Error("Invalid arguments for web search");
+        }
+
+        const result = await performWebSearch(
+          mcpServer,
+          args.query,
+          args.pageno,
+          args.time_range,
+          args.language,
+          args.safesearch
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } else if (name === "web_url_read") {
+        if (!isWebUrlReadArgs(args)) {
+          throw new Error("Invalid arguments for URL reading");
+        }
+
+        const paginationOptions = {
+          startChar: args.startChar,
+          maxLength: args.maxLength,
+          section: args.section,
+          paragraphRange: args.paragraphRange,
+          readHeadings: args.readHeadings,
+        };
+
+        const result = await fetchAndConvertToMarkdown(mcpServer, args.url, 10000, paginationOptions);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } else {
+        throw new Error(`Unknown tool: ${name}`);
       }
-    ]
-  };
-});
+    } catch (error) {
+      logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, { 
+        tool: name, 
+        args: args,
+        error: error instanceof Error ? error.stack : String(error)
+      });
+      throw error;
+    }
+  });
 
-// List resource templates handler
-// Returns empty list — required by MCP spec even when no templates exist
-server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-  logMessage(mcpServer, "debug", "Handling list_resource_templates request");
-  return { resourceTemplates: [] };
-});
+  // Logging level handler
+  server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+    const { level } = request.params;
+    logMessage(mcpServer, "info", `Setting log level to: ${level}`);
+    setLogLevel(level);
+    return {};
+  });
 
-// Read resource handler
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const { uri } = request.params;
-  logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri}`);
+  // List resources handler
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    logMessage(mcpServer, "debug", "Handling list_resources request");
+    return {
+      resources: [
+        {
+          uri: "config://server-config",
+          mimeType: "application/json",
+          name: "Server Configuration",
+          description: "Current server configuration and environment variables"
+        },
+        {
+          uri: "help://usage-guide",
+          mimeType: "text/markdown",
+          name: "Usage Guide",
+          description: "How to use the MCP SearXNG server effectively"
+        }
+      ]
+    };
+  });
 
-  switch (uri) {
-    case "config://server-config":
-      return {
-        contents: [
-          {
-            uri: uri,
-            mimeType: "application/json",
-            text: createConfigResource()
-          }
-        ]
-      };
+  // List resource templates handler
+  // Returns empty list — required by MCP spec even when no templates exist
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    logMessage(mcpServer, "debug", "Handling list_resource_templates request");
+    return { resourceTemplates: [] };
+  });
 
-    case "help://usage-guide":
-      return {
-        contents: [
-          {
-            uri: uri,
-            mimeType: "text/markdown",
-            text: createHelpResource()
-          }
-        ]
-      };
+  // Read resource handler
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri}`);
 
-    default:
-      throw new Error(`Unknown resource: ${uri}`);
-  }
-});
+    switch (uri) {
+      case "config://server-config":
+        return {
+          contents: [
+            {
+              uri: uri,
+              mimeType: "application/json",
+              text: createConfigResource()
+            }
+          ]
+        };
+
+      case "help://usage-guide":
+        return {
+          contents: [
+            {
+              uri: uri,
+              mimeType: "text/markdown",
+              text: createHelpResource()
+            }
+          ]
+        };
+
+      default:
+        throw new Error(`Unknown resource: ${uri}`);
+    }
+  });
+
+  return mcpServer;
+}
 
 // Main function
 async function main() {
@@ -245,7 +246,7 @@ async function main() {
     }
 
     console.log(`Starting HTTP transport on port ${port}`);
-    const app = await createHttpServer(mcpServer);
+    const app = await createHttpServer(createMcpServer);
     
     const httpServer = app.listen(port, () => {
       console.log(`HTTP server listening on port ${port}`);
@@ -265,7 +266,9 @@ async function main() {
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   } else {
-    // Default STDIO transport
+    // Default STDIO transport — single session, single server
+    const mcpServer = createMcpServer();
+
     // Show helpful message when running in terminal
     if (process.stdin.isTTY) {
       console.error(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
@@ -282,7 +285,7 @@ async function main() {
     
     // Log after connection is established
     logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
-    logMessage(mcpServer, "info", `Log level: ${currentLogLevel}`);
+    logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);
     logMessage(mcpServer, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
     logMessage(mcpServer, "info", `SearXNG URL: ${process.env.SEARXNG_URL || 'not configured'}`);
   }
@@ -304,4 +307,3 @@ main().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
 });
-
