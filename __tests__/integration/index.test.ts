@@ -9,7 +9,8 @@
 import { strict as assert } from 'node:assert';
 import { 
   packageVersion, 
-  isWebUrlReadArgs 
+  isWebUrlReadArgs,
+  createMcpServer
 } from '../../src/index.js';
 import { isSearXNGWebSearchArgs } from '../../src/types.js';
 import { createConfigResource, createHelpResource } from '../../src/resources.js';
@@ -186,6 +187,19 @@ async function runTests() {
     assert.ok(typeof packageVersion === 'string');
 
     env.restore();
+  }, results);
+
+  await testFunction('createMcpServer returns an McpServer instance', () => {
+    const server = createMcpServer();
+    assert.ok(server, 'should return a truthy value');
+    assert.ok(server.server, 'should expose underlying Server via .server');
+  }, results);
+
+  await testFunction('createMcpServer returns independent instances per call', () => {
+    const server1 = createMcpServer();
+    const server2 = createMcpServer();
+    assert.notEqual(server1, server2, 'factory should return distinct objects');
+    assert.notEqual(server1.server, server2.server, 'underlying servers should differ');
   }, results);
 
   printTestSummary(results, 'Main Server Integration');
