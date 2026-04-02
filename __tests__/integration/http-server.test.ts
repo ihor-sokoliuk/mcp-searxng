@@ -210,6 +210,61 @@ async function runTests() {
     assert.notEqual(sessionId1, sessionId2, 'Sessions should have distinct IDs');
   }, results);
 
+  await testFunction('session reuse: follow-up request on same session succeeds', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {},
+          clientInfo: { name: 'reuse-client', version: '1.0.0' } }
+      });
+    assert.equal(initRes.status, 200);
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.ok(sessionId, 'should receive a session ID');
+
+    const listRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', sessionId)
+      .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    assert.equal(listRes.status, 200, 'follow-up request should succeed on existing session');
+  }, results);
+
+  await testFunction('session cleanup: DELETE removes session so subsequent requests fail', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {},
+          clientInfo: { name: 'cleanup-client', version: '1.0.0' } }
+      });
+    assert.equal(initRes.status, 200);
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.ok(sessionId, 'should receive a session ID');
+
+    const deleteRes = await request(app)
+      .delete('/mcp')
+      .set('mcp-session-id', sessionId);
+    assert.equal(deleteRes.status, 200, 'DELETE should succeed for existing session');
+
+    const postRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', sessionId)
+      .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    assert.equal(postRes.status, 400, 'request after DELETE should be rejected');
+  }, results);
+
   printTestSummary(results, 'HTTP Server Integration');
   return results;
 }
