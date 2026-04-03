@@ -81,6 +81,7 @@ const mcpServer = new McpServer(
   },
   {
     capabilities: {
+      completions: {},
       logging: {},
       resources: {},
       tools: {},

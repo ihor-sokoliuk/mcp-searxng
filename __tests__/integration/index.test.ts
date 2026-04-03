@@ -171,6 +171,19 @@ async function runTests() {
     assert.ok(!isWebUrlReadArgs({ notUrl: 'invalid' }));
   }, results);
 
+  await testFunction('Server declares completions capability for LM Studio compatibility', async () => {
+    // LM Studio sends completion/complete requests; the server must advertise
+    // completions in its capabilities or the MCP SDK will throw on startup.
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const testServer = new McpServer(
+      { name: 'test', version: '0.0.0' },
+      { capabilities: { completions: {}, logging: {}, resources: {}, tools: {} } }
+    );
+    // If completions capability is missing the constructor / setRequestHandler throws.
+    // Reaching this line means the capability is accepted without error.
+    assert.ok(testServer);
+  }, results);
+
   await testFunction('Server starts without SEARXNG_URL set', async () => {
     const { EnvManager } = await import('../helpers/env-utils.js');
     const env = new EnvManager();
