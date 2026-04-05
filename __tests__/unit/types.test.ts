@@ -22,6 +22,36 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'day' }), true);
   }, results);
 
+
+  await testFunction('isSearXNGWebSearchArgs type guard - accepts categories', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,images' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'social media' }), true);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs type guard - rejects non-string categories', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 123 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: ['news'] }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: null }), false);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs type guard - rejects invalid category values', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'fake_category' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,fake' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: '../../../etc' }), false);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs type guard - accepts valid response_format', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'classic' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'full' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test' }), true);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs type guard - rejects non-string response_format', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 123 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: null }), false);
+  }, results);
+
   await testFunction('isSearXNGWebSearchArgs type guard - invalid cases', () => {
     assert.equal(isSearXNGWebSearchArgs({ notQuery: 'test' }), false);
     assert.equal(isSearXNGWebSearchArgs(null), false);

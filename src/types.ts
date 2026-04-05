@@ -1,13 +1,34 @@
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 
-export interface SearXNGWeb {
-  results: Array<{
-    title: string;
-    content: string;
-    url: string;
-    score: number;
-  }>;
+export interface SearXNGResult {
+  title?: string;
+  content?: string;
+  url?: string;
+  score?: number;
+  [key: string]: unknown;
 }
+
+export interface SearXNGResponse {
+  results: Record<string, unknown>[];
+  answers?: string[];
+  suggestions?: string[];
+  corrections?: string[];
+  infoboxes?: Record<string, unknown>[];
+  unresponsive_engines?: string[];
+  number_of_results?: number;
+}
+
+export const VALID_CATEGORIES = new Set([
+  "general",
+  "news",
+  "images",
+  "videos",
+  "music",
+  "files",
+  "it",
+  "science",
+  "social media",
+]);
 
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
@@ -15,19 +36,41 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   time_range?: string;
   language?: string;
   safesearch?: number;
+  categories?: string;
+  response_format?: string;
 } {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "query" in args &&
-    typeof (args as { query: string }).query === "string"
-  );
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("query" in args) ||
+    typeof (args as { query: string }).query !== "string"
+  ) {
+    return false;
+  }
+
+  const typedArgs = args as Record<string, unknown>;
+  if (typedArgs.categories !== undefined) {
+    if (typeof typedArgs.categories !== "string") {
+      return false;
+    }
+    const cats = typedArgs.categories.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
+    if (cats.length > 0 && !cats.every(c => VALID_CATEGORIES.has(c))) {
+      return false;
+    }
+  }
+
+  if (typedArgs.response_format !== undefined && typeof typedArgs.response_format !== "string") {
+    return false;
+  }
+
+  return true;
 }
 
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
     "Performs a web search using the SearXNG API, ideal for general queries, news, articles, and online content. " +
+    "Supports category-specific search (news, images, videos, music, files, it, science, social media). " +
     "Use this for broad information gathering, recent events, or when you need diverse web sources.",
   annotations: {
     readOnlyHint: true,
@@ -38,8 +81,7 @@ export const WEB_SEARCH_TOOL: Tool = {
     properties: {
       query: {
         type: "string",
-        description:
-          "The search query. This is the main input for the web search",
+        description: "The search query. This is the main input for the web search",
       },
       pageno: {
         type: "number",
@@ -59,10 +101,21 @@ export const WEB_SEARCH_TOOL: Tool = {
       },
       safesearch: {
         type: "number",
-        description:
-          "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
+        description: "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
         enum: [0, 1, 2],
         default: 0,
+      },
+      categories: {
+        type: "string",
+        description:
+          "Search categories (comma-separated). Options: general, news, images, videos, music, files, it, science, social media. Default: general.",
+      },
+      response_format: {
+        type: "string",
+        description:
+          "Response format: 'classic' returns Title/Description/URL/Score (default, backward-compatible). 'full' returns all available fields with key-value passthrough.",
+        enum: ["classic", "full"],
+        default: "classic",
       },
     },
     required: ["query"],

@@ -148,6 +148,18 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+
+  await testFunction('Help resource mentions categories', () => {
+    const help = createHelpResource();
+    assert.ok(help.includes('categories'), 'Help resource should mention categories parameter');
+  }, results);
+
+  await testFunction('Help resource shows category example', () => {
+    const help = createHelpResource();
+    assert.ok(help.includes('categories'), 'Help should include categories parameter');
+    assert.ok(help.includes('news') || help.includes('images'), 'Help should show category example');
+  }, results);
+
   printTestSummary(results, 'Resources Module');
   return results;
 }

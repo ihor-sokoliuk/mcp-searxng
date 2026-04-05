@@ -31,6 +31,7 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
+- **Category Search**: Search by category — news, images, videos, music, files, it, science, social media.
 - **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
 - **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
 - **Pagination**: Control which page of results to retrieve.
@@ -64,6 +65,8 @@ AI Assistant (e.g. Claude)
     - `time_range` (string, optional): Filter results by time range - one of: "day", "month", "year" (default: none)
     - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
     - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
+    - `categories` (string, optional): Search categories, comma-separated — "general", "news", "images", "videos", "music", "files", "it", "science", "social media" (default: "general")
+    - `response_format` (string, optional): Response format — "classic" returns Title/Description/URL/Score (default, backward-compatible). "full" returns all SearXNG fields as key-value pairs with answers, suggestions, corrections, and infoboxes sections. Note: full format is a raw passthrough — complex nested objects are JSON-stringified. (default: "classic")
 
 - **web_url_read**
   - Read and convert the content from a URL to markdown with advanced content extraction options

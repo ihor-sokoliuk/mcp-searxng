@@ -50,6 +50,8 @@ Performs web searches using the configured SearXNG instance.
 - \`time_range\` (optional): Filter by time - "day", "month", or "year"
 - \`language\` (optional): Language code like "en", "fr", "de" (default: "all")
 - \`safesearch\` (optional): Safe search level - 0 (none), 1 (moderate), 2 (strict)
+- \`categories\` (optional): Search categories - "general", "news", "images", "videos", "music", "files", "it", "science", "social media" (comma-separated, default: "general")
+- \`response_format\` (optional): Response format - "classic" returns Title/Description/URL/Score (default). "full" returns all SearXNG fields as key-value pairs with top-level answers, suggestions, corrections, and infoboxes sections.
 
 ### 2. web_url_read
 Reads and converts web page content to Markdown format.
@@ -88,7 +90,7 @@ For network-exposed HTTP transport, enable:
 ### Search for recent news
 \`\`\`
 Tool: searxng_web_search
-Args: {"query": "latest AI developments", "time_range": "day"}
+Args: {"query": "latest AI developments", "time_range": "day", "categories": "news"}
 \`\`\`
 
 ### Read a specific article
