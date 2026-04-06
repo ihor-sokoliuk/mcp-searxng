@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SearXNGResponse, SearXNGResult } from "./types.js";
+import { SearXNGResponse } from "./types.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
@@ -63,7 +63,7 @@ function formatTopLevelData(data: SearXNGResponse): string {
   if (data.infoboxes && data.infoboxes.length > 0) {
     const infoboxLines = data.infoboxes.map((ib: Record<string, unknown>, i: number) => {
       const entries = Object.entries(ib)
-        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .filter(([, v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
         .map(([k, v]) => `${k}: ${formatValue(v)}`);
       return `### Infobox ${i + 1}\n${entries.join("\n")}`;
     });
@@ -127,7 +127,10 @@ export async function performWebSearch(
   }
 
   if (categories && categories.trim() !== "") {
-    url.searchParams.set("categories", categories);
+    const normalized = categories.split(",").map(c => c.trim().toLowerCase()).filter(Boolean).join(",");
+    if (normalized) {
+      url.searchParams.set("categories", normalized);
+    }
   }
 
   const requestOptions: RequestInit = {
@@ -220,7 +223,7 @@ export async function performWebSearch(
   if (isFullFormat) {
     // Full passthrough: all fields, --- separators, top-level data sections
     const formattedResults = data.results
-      .map((result: Record<string, unknown>) => formatResult(result))
+      .map((result) => formatResult(result))
       .join("\n---\n");
 
     const topLevelData = formatTopLevelData(data);
@@ -230,10 +233,9 @@ export async function performWebSearch(
   } else {
     // Classic format: backward-compatible Title/Description/URL/Score
     const results = data.results.map((result) => {
-      const r = result as SearXNGResult;
-      const score = Number(r.score);
+      const score = Number(result.score);
       const formattedScore = isNaN(score) ? "0.000" : score.toFixed(3);
-      return `Title: ${r.title || ""}\nDescription: ${r.content || ""}\nURL: ${r.url || ""}\nRelevance Score: ${formattedScore}`;
+      return `Title: ${result.title || ""}\nDescription: ${result.content || ""}\nURL: ${result.url || ""}\nRelevance Score: ${formattedScore}`;
     });
     output = results.join("\n\n");
   }
