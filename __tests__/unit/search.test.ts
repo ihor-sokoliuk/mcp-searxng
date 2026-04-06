@@ -8,7 +8,6 @@
 
 import { strict as assert } from 'node:assert';
 import { performWebSearch } from '../../src/search.js';
-import { isSearXNGWebSearchArgs } from '../../src/types.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
@@ -654,12 +653,76 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('Invalid categories rejected by type guard', async () => {
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news' }), true);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,images' }), true);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'fake_category' }), false);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,fake' }), false);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: '../../../etc' }), false);
+  await testFunction('Safesearch=0 is sent to URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_NETWORK_ERROR');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', 0);
+    } catch (error: any) {
+      // Expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.ok(url.searchParams.get('safesearch') === '0', `Expected safesearch=0, got ${url.searchParams.get('safesearch')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Custom category passed through to URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_NETWORK_ERROR');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 'custom_category');
+    } catch (error: any) {
+      // Expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.ok(url.searchParams.get('categories') === 'custom_category', `Expected categories=custom_category, got ${url.searchParams.get('categories')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Categories normalized (trimmed, lowercased, empty filtered) in URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_NETWORK_ERROR');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, ' News , IMAGES , it ');
+    } catch (error: any) {
+      // Expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.ok(url.searchParams.get('categories') === 'news,images,it', `Expected normalized categories, got ${url.searchParams.get('categories')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
   }, results);
 
   printTestSummary(results, 'Search Module');

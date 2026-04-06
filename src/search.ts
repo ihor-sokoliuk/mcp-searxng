@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SearXNGResponse } from "./types.js";
+import { SearXNGResponse, normalizeCategories } from "./types.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
@@ -89,7 +89,7 @@ export async function performWebSearch(
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null,
+    safesearch !== undefined ? `safesearch: ${safesearch}` : null,
     categories ? `categories: ${categories}` : null,
     response_format ? `format: ${response_format}` : null
   ].filter(Boolean).join(", ");
@@ -126,8 +126,8 @@ export async function performWebSearch(
     url.searchParams.set("safesearch", safesearch.toString());
   }
 
-  if (categories && categories.trim() !== "") {
-    const normalized = categories.split(",").map(c => c.trim().toLowerCase()).filter(Boolean).join(",");
+  if (categories) {
+    const normalized = normalizeCategories(categories);
     if (normalized) {
       url.searchParams.set("categories", normalized);
     }

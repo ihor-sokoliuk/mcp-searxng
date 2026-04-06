@@ -9,7 +9,7 @@ export interface SearXNGResult {
 }
 
 export interface SearXNGResponse {
-  results: Record<string, unknown>[];
+  results: SearXNGResult[];
   answers?: string[];
   suggestions?: string[];
   corrections?: string[];
@@ -18,17 +18,9 @@ export interface SearXNGResponse {
   number_of_results?: number;
 }
 
-export const VALID_CATEGORIES = new Set([
-  "general",
-  "news",
-  "images",
-  "videos",
-  "music",
-  "files",
-  "it",
-  "science",
-  "social media",
-]);
+export function normalizeCategories(categories: string): string {
+  return categories.split(",").map(c => c.trim().toLowerCase()).filter(Boolean).join(",");
+}
 
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
@@ -53,14 +45,18 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     if (typeof typedArgs.categories !== "string") {
       return false;
     }
-    const cats = typedArgs.categories.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
-    if (cats.length > 0 && !cats.every(c => VALID_CATEGORIES.has(c))) {
+    if (normalizeCategories(typedArgs.categories) === "") {
       return false;
     }
   }
 
-  if (typedArgs.response_format !== undefined && typeof typedArgs.response_format !== "string") {
-    return false;
+  if (typedArgs.response_format !== undefined) {
+    if (typeof typedArgs.response_format !== "string") {
+      return false;
+    }
+    if (typedArgs.response_format !== "classic" && typedArgs.response_format !== "full") {
+      return false;
+    }
   }
 
   return true;

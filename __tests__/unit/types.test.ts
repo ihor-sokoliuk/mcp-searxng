@@ -27,6 +27,8 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,images' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'social media' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'custom_category' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,custom' }), true);
   }, results);
 
   await testFunction('isSearXNGWebSearchArgs type guard - rejects non-string categories', () => {
@@ -35,10 +37,10 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: null }), false);
   }, results);
 
-  await testFunction('isSearXNGWebSearchArgs type guard - rejects invalid category values', () => {
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'fake_category' }), false);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news,fake' }), false);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: '../../../etc' }), false);
+  await testFunction('isSearXNGWebSearchArgs type guard - rejects empty categories', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: '' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: '   ' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: ',,' }), false);
   }, results);
 
   await testFunction('isSearXNGWebSearchArgs type guard - accepts valid response_format', () => {
