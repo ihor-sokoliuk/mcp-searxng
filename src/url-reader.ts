@@ -88,9 +88,13 @@ function applyCharacterPagination(content: string, startChar: number = 0, maxLen
   return content.slice(start, end);
 }
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function extractSection(markdownContent: string, sectionHeading: string): string {
   const lines = markdownContent.split('\n');
-  const sectionRegex = new RegExp(`^#{1,6}\s*.*${sectionHeading}.*$`, 'i');
+  const sectionRegex = new RegExp(`^#{1,6}\s*.*${escapeRegExp(sectionHeading)}.*$`, 'i');
 
   let startIndex = -1;
   let currentLevel = 0;
