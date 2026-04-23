@@ -9,6 +9,36 @@ export interface SearXNGWeb {
   }>;
 }
 
+export interface SearXNGInstanceEngine {
+  categories?: string[];
+  enabled?: boolean;
+  name?: string;
+  shortcut?: string;
+}
+
+export interface SearXNGInstancePlugin {
+  enabled?: boolean;
+  name?: string;
+}
+
+export interface SearXNGInstanceConfig {
+  autocomplete?: string;
+  categories?: string[];
+  default_locale?: string;
+  default_theme?: string;
+  engines?: SearXNGInstanceEngine[];
+  instance_name?: string;
+  locales?: Record<string, string>;
+  plugins?: SearXNGInstancePlugin[];
+  safe_search?: number;
+}
+
+export interface SearXNGInstanceInfoArgs {
+  includeEngines?: boolean;
+  includeDisabled?: boolean;
+  category?: string;
+}
+
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
   pageno?: number;
@@ -22,6 +52,46 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     "query" in args &&
     typeof (args as { query: string }).query === "string"
   );
+}
+
+export function isSearXNGInstanceInfoArgs(
+  args: unknown
+): args is SearXNGInstanceInfoArgs | undefined {
+  if (args === undefined) {
+    return true;
+  }
+
+  if (typeof args !== "object" || args === null) {
+    return false;
+  }
+
+  const typedArgs = args as Record<string, unknown>;
+
+  if (
+    typedArgs.includeEngines !== undefined &&
+    typeof typedArgs.includeEngines !== "boolean"
+  ) {
+    return false;
+  }
+
+  if (
+    typedArgs.includeDisabled !== undefined &&
+    typeof typedArgs.includeDisabled !== "boolean"
+  ) {
+    return false;
+  }
+
+  if (typedArgs.category !== undefined) {
+    if (typeof typedArgs.category !== "string") {
+      return false;
+    }
+
+    if (typedArgs.category.trim() === "") {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export const WEB_SEARCH_TOOL: Tool = {
@@ -66,6 +136,39 @@ export const WEB_SEARCH_TOOL: Tool = {
       },
     },
     required: ["query"],
+  },
+};
+
+export const INSTANCE_INFO_TOOL: Tool = {
+  name: "searxng_instance_info",
+  description:
+    "Retrieves live configuration details from the configured SearXNG instance using its /config endpoint. " +
+    "Use this before category-specific or engine-specific searches when you need to discover what the instance actually supports.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      includeEngines: {
+        type: "boolean",
+        description:
+          "Include matching engine details in the response. Defaults to false.",
+        default: false,
+      },
+      includeDisabled: {
+        type: "boolean",
+        description:
+          "Include disabled engines when returning engine details. Defaults to false.",
+        default: false,
+      },
+      category: {
+        type: "string",
+        description:
+          "Optional category filter for the engine list. Supplying this also implies engine details should be included.",
+      },
+    },
   },
 };
 

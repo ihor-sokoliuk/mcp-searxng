@@ -16,6 +16,7 @@ import { runTests as runProxyTests } from './unit/proxy.test.js';
 import { runTests as runErrorHandlerTests } from './unit/error-handler.test.js';
 import { runTests as runResourcesTests } from './unit/resources.test.js';
 import { runTests as runSearchTests } from './unit/search.test.js';
+import { runTests as runInstanceInfoTests } from './unit/instance-info.test.js';
 import { runTests as runUrlReaderTests } from './unit/url-reader.test.js';
 import { runTests as runTlsConfigTests } from './unit/tls-config.test.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
@@ -36,6 +37,7 @@ const testSuites: TestSuite[] = [
   { name: 'Error Handler', category: 'unit', run: runErrorHandlerTests },
   { name: 'Resources', category: 'unit', run: runResourcesTests },
   { name: 'Search', category: 'unit', run: runSearchTests },
+  { name: 'Instance Info', category: 'unit', run: runInstanceInfoTests },
   { name: 'URL Reader', category: 'unit', run: runUrlReaderTests },
   { name: 'TLS Config', category: 'unit', run: runTlsConfigTests },
 

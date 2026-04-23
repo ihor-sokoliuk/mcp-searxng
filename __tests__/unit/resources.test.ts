@@ -52,6 +52,17 @@ async function runTests() {
     assert.ok(help.includes('searxng') || help.includes('search') || help.includes('SearXNG'));
   }, results);
 
+  await testFunction('createConfigResource lists the instance info tool', () => {
+    const config = JSON.parse(createConfigResource());
+    assert.ok(config.capabilities.tools.includes('searxng_instance_info'));
+  }, results);
+
+  await testFunction('createHelpResource documents instance discovery', () => {
+    const help = createHelpResource();
+    assert.ok(help.includes('searxng_instance_info'));
+    assert.ok(help.includes('/config'));
+  }, results);
+
   await testFunction('createConfigResource - hasAuth true when both credentials set', () => {
     envManager.set('AUTH_USERNAME', 'testuser');
     envManager.set('AUTH_PASSWORD', 'testpass');
