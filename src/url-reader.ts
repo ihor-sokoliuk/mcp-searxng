@@ -94,7 +94,7 @@ function escapeRegExp(str: string): string {
 
 function extractSection(markdownContent: string, sectionHeading: string): string {
   const lines = markdownContent.split('\n');
-  const sectionRegex = new RegExp(`^#{1,6}\s*.*${escapeRegExp(sectionHeading)}.*$`, 'i');
+  const sectionRegex = new RegExp(`^#{1,6}\\s*.*${escapeRegExp(sectionHeading)}.*$`, 'i');
 
   let startIndex = -1;
   let currentLevel = 0;

@@ -325,6 +325,30 @@ async function runTests() {
     fetchMocker.restore();
   }, results);
 
+  await testFunction('Section extraction - treats regex metacharacters as literals', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h1>Overview</h1><p>Intro paragraph.</p>
+        <h2>API (v1.0+) reference?</h2><p>Literal metacharacter heading content.</p>
+        <h2>API v100 referencex</h2><p>Regex-like near miss should not be selected.</p>
+      </body></html>
+    `;
+    fetchMocker.mock(createMockFetch({ body: testHtml }));
+
+    const result = await fetchAndConvertToMarkdown(
+      mockServer as any, 'https://test-section-metacharacters.com', 10000,
+      { section: 'API (v1.0+) reference?' }
+    );
+    assert.ok(result.includes('API (v1.0+) reference?'), `Expected literal heading match, got: ${result}`);
+    assert.ok(result.includes('Literal metacharacter heading content'), `Expected matching section body, got: ${result}`);
+    assert.ok(!result.includes('Regex-like near miss'), 'Expected regex-like near miss to be excluded');
+
+    fetchMocker.restore();
+  }, results);
+
   await testFunction('Paragraph range - single paragraph', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
