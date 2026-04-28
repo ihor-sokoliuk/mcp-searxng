@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SearXNGWeb } from "./types.js";
+import { SearXNGResponse, normalizeCategories } from "./types.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
@@ -13,22 +13,85 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
+function formatValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    if (value.every(v => typeof v !== "object" || v === null)) {
+      return value.join(", ");
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  if (typeof value === "object" && value !== null) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function formatResult(result: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(result)) {
+    if (value === null || value === undefined) continue;
+    if (value === "") continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    lines.push(`${key}: ${formatValue(value)}`);
+  }
+  return lines.join("\n");
+}
+
+function formatTopLevelData(data: SearXNGResponse): string {
+  const sections: string[] = [];
+
+  if (data.answers && data.answers.length > 0) {
+    sections.push("## Answers\n" + data.answers.map((a: string) => `- ${a}`).join("\n"));
+  }
+
+  if (data.suggestions && data.suggestions.length > 0) {
+    sections.push("## Suggestions\n" + data.suggestions.map((s: string) => `- ${s}`).join("\n"));
+  }
+
+  if (data.corrections && data.corrections.length > 0) {
+    sections.push("## Corrections\n" + data.corrections.map((c: string) => `- ${c}`).join("\n"));
+  }
+
+  if (data.infoboxes && data.infoboxes.length > 0) {
+    const infoboxLines = data.infoboxes.map((ib: Record<string, unknown>, i: number) => {
+      const entries = Object.entries(ib)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
+        .map(([k, v]) => `${k}: ${formatValue(v)}`);
+      return `### Infobox ${i + 1}\n${entries.join("\n")}`;
+    });
+    sections.push("## Infoboxes\n" + infoboxLines.join("\n\n"));
+  }
+
+  return sections.join("\n\n");
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
   pageno: number = 1,
   time_range?: string,
   language: string = "all",
-  safesearch?: number
+  safesearch?: number,
+  categories?: string,
+  response_format?: string
 ) {
   const startTime = Date.now();
   
-  // Build detailed log message with all parameters
   const searchParams = [
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null
+    safesearch !== undefined ? `safesearch: ${safesearch}` : null,
+    categories ? `categories: ${categories}` : null,
+    response_format ? `format: ${response_format}` : null
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -63,19 +126,23 @@ export async function performWebSearch(
     url.searchParams.set("safesearch", safesearch.toString());
   }
 
-  // Prepare request options with headers
+  if (categories) {
+    const normalized = normalizeCategories(categories);
+    if (normalized) {
+      url.searchParams.set("categories", normalized);
+    }
+  }
+
   const requestOptions: RequestInit = {
     method: "GET"
   };
 
-  // Add proxy or default dispatcher (includes system CA certs for TLS)
   const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
   const dispatcher = proxyAgent ?? createDefaultAgent();
   if (dispatcher) {
     (requestOptions as any).dispatcher = dispatcher;
   }
 
-  // Add basic authentication if credentials are provided
   const username = process.env.AUTH_USERNAME;
   const password = process.env.AUTH_PASSWORD;
 
@@ -87,7 +154,6 @@ export async function performWebSearch(
     };
   }
 
-  // Add User-Agent header if configured
   const userAgent = process.env.USER_AGENT;
   if (userAgent) {
     requestOptions.headers = {
@@ -96,7 +162,6 @@ export async function performWebSearch(
     };
   }
 
-  // Fetch with enhanced error handling
   let response: Response;
   try {
     logMessage(mcpServer, "info", `Making request to: ${url.toString()}`);
@@ -127,10 +192,9 @@ export async function performWebSearch(
     throw createServerError(response.status, response.statusText, responseBody, context);
   }
 
-  // Parse JSON response
-  let data: SearXNGWeb;
+  let data: SearXNGResponse;
   try {
-    data = (await response.json()) as SearXNGWeb;
+    data = (await response.json()) as SearXNGResponse;
   } catch (error: any) {
     let responseText: string;
     try {
@@ -148,22 +212,36 @@ export async function performWebSearch(
     throw createDataError(data, context);
   }
 
-  const results = data.results.map((result) => ({
-    title: result.title || "",
-    content: result.content || "",
-    url: result.url || "",
-    score: result.score || 0,
-  }));
-
-  if (results.length === 0) {
+  if (data.results.length === 0) {
     logMessage(mcpServer, "info", `No results found for query: "${query}"`);
     return createNoResultsMessage(query);
   }
 
-  const duration = Date.now() - startTime;
-  logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${results.length} results in ${duration}ms`);
+  const isFullFormat = response_format === "full";
 
-  return results
-    .map((r) => `Title: ${r.title}\nDescription: ${r.content}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
-    .join("\n\n");
+  let output: string;
+  if (isFullFormat) {
+    // Full passthrough: all fields, --- separators, top-level data sections
+    const formattedResults = data.results
+      .map((result) => formatResult(result))
+      .join("\n---\n");
+
+    const topLevelData = formatTopLevelData(data);
+    output = topLevelData
+      ? `${formattedResults}\n\n${topLevelData}`
+      : formattedResults;
+  } else {
+    // Classic format: backward-compatible Title/Description/URL/Score
+    const results = data.results.map((result) => {
+      const score = Number(result.score);
+      const formattedScore = isNaN(score) ? "0.000" : score.toFixed(3);
+      return `Title: ${result.title || ""}\nDescription: ${result.content || ""}\nURL: ${result.url || ""}\nRelevance Score: ${formattedScore}`;
+    });
+    output = results.join("\n\n");
+  }
+
+  const duration = Date.now() - startTime;
+  logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${data.results.length} results in ${duration}ms`);
+
+  return output;
 }

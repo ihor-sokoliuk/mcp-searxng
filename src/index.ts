@@ -11,7 +11,6 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Import modularized functionality
 import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
@@ -22,10 +21,8 @@ import { createHttpServer } from "./http-server.js";
 // Use a static version string that will be updated by the version script
 const packageVersion = "1.0.3";
 
-// Export the version for use in other modules
 export { packageVersion };
 
-// Type guard for URL reading args
 export function isWebUrlReadArgs(args: unknown): args is {
   url: string;
   startChar?: number;
@@ -45,11 +42,9 @@ export function isWebUrlReadArgs(args: unknown): args is {
 
   const urlArgs = args as any;
 
-  // Convert empty strings to undefined for optional string parameters
   if (urlArgs.section === "") urlArgs.section = undefined;
   if (urlArgs.paragraphRange === "") urlArgs.paragraphRange = undefined;
 
-  // Validate optional parameters
   if (urlArgs.startChar !== undefined && (typeof urlArgs.startChar !== "number" || urlArgs.startChar < 0)) {
     return false;
   }
@@ -90,7 +85,6 @@ export function createMcpServer(): McpServer {
 
   const server = mcpServer.server;
 
-  // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
@@ -98,7 +92,6 @@ export function createMcpServer(): McpServer {
     };
   });
 
-  // Call tool handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
@@ -115,7 +108,9 @@ export function createMcpServer(): McpServer {
           args.pageno,
           args.time_range,
           args.language,
-          args.safesearch
+          args.safesearch,
+          args.categories,
+          args.response_format
         );
 
         return {
@@ -162,7 +157,6 @@ export function createMcpServer(): McpServer {
     }
   });
 
-  // Logging level handler
   server.setRequestHandler(SetLevelRequestSchema, async (request) => {
     const { level } = request.params;
     logMessage(mcpServer, "info", `Setting log level to: ${level}`);
@@ -170,7 +164,6 @@ export function createMcpServer(): McpServer {
     return {};
   });
 
-  // List resources handler
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_resources request");
     return {
@@ -198,7 +191,6 @@ export function createMcpServer(): McpServer {
     return { resourceTemplates: [] };
   });
 
-  // Read resource handler
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
     logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri}`);
@@ -234,9 +226,7 @@ export function createMcpServer(): McpServer {
   return mcpServer;
 }
 
-// Main function
 async function main() {
-  // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
   if (httpPort) {
     const port = parseInt(httpPort, 10);
@@ -254,7 +244,6 @@ async function main() {
       console.log(`MCP endpoint: http://localhost:${port}/mcp`);
     });
 
-    // Handle graceful shutdown
     const shutdown = (signal: string) => {
       console.log(`Received ${signal}. Shutting down HTTP server...`);
       httpServer.close(() => {
@@ -266,10 +255,8 @@ async function main() {
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   } else {
-    // Default STDIO transport — single session, single server
     const mcpServer = createMcpServer();
 
-    // Show helpful message when running in terminal
     if (process.stdin.isTTY) {
       console.error(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
       if (process.env.SEARXNG_URL) {
@@ -283,7 +270,6 @@ async function main() {
     const transport = new StdioServerTransport();
     await mcpServer.connect(transport);
     
-    // Log after connection is established
     logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
     logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);
     logMessage(mcpServer, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -291,7 +277,6 @@ async function main() {
   }
 }
 
-// Handle uncaught errors
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
   process.exit(1);
@@ -302,7 +287,6 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-// Start the server (CLI entrypoint)
 main().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
