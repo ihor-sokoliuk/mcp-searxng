@@ -53,6 +53,10 @@
         "node-html-markdown": "^2.0.0",
         "undici": "^7.24.0"
     },
+    "overrides": {
+        "@hono/node-server": "1.19.14",
+        "hono": "4.12.16"
+    },
     "devDependencies": {
         "@types/node": "^22.17.2",
         "@types/supertest": "^7.2.0",
