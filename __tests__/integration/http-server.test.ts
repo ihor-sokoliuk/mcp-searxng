@@ -47,6 +47,25 @@ async function runTests() {
     assert.ok(res.headers['access-control-allow-origin']);
   }, results);
 
+  await testFunction('CORS allows expected headers', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+    const res = await request(app)
+      .options('/mcp')
+      .set('Origin', 'http://example.com')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version');
+
+    assert.equal(res.status, 204, 'OPTIONS preflight should succeed');
+    const allowHeaders = (res.headers['access-control-allow-headers'] || '').toLowerCase();
+    const expected = ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version'];
+    for (const header of expected) {
+      assert.ok(
+        allowHeaders.includes(header),
+        `Expected '${header}' in Access-Control-Allow-Headers, got: ${allowHeaders}`
+      );
+    }
+  }, results);
+
   await testFunction('POST /mcp without sessionId and non-initialize body returns 400', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
 
