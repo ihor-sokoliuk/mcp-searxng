@@ -37,7 +37,7 @@ export async function createHttpServer(
       callback(null, false);
     },
     exposedHeaders: ["Mcp-Session-Id"],
-    allowedHeaders: ["Content-Type", "mcp-session-id", "authorization"],
+    allowedHeaders: ["Content-Type", "mcp-session-id", "authorization", "mcp-protocol-version"],
   }));
 
   function rejectUnauthorized(res: express.Response) {
