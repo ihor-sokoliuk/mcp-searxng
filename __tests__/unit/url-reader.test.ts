@@ -276,8 +276,8 @@ async function runTests() {
     assert.ok(result.includes('Reader Test'));
 
     const headers = capturedOptions?.headers as Record<string, string>;
-    assert.equal(headers['User-Agent'], 'ReaderBot/1.0');
-    assert.equal(headers['X-Custom-Token'], 'reader-token');
+    assert.equal(headers['user-agent'], 'ReaderBot/1.0');
+    assert.equal(headers['x-custom-token'], 'reader-token');
 
     fetchMocker.restore();
     envManager.restore();

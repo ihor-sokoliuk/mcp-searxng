@@ -67,6 +67,7 @@ Reads and converts web page content to Markdown format.
 ### Optional Environment Variables
 - \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Basic authentication for SearXNG
 - \`USER_AGENT\`: Global User-Agent header for outgoing requests
+- \`URL_READER_USER_AGENT\`: User-Agent for \`web_url_read\`, overrides \`USER_AGENT\`
 - \`SEARXNG_HEADERS\`: Extra JSON headers for SearXNG search requests
 - \`URL_READER_HEADERS\`: Extra JSON headers for URL read requests
 - \`HTTP_PROXY\` / \`HTTPS_PROXY\`: Proxy server configuration

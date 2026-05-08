@@ -332,9 +332,9 @@ async function runTests() {
 
     const options = getCapturedOptions();
     const headers = options?.headers as Record<string, string>;
-    assert.equal(headers['User-Agent'], 'MyCustomBot/1.0');
-    assert.equal(headers['CF-Access-Client-Id'], 'client-id.access');
-    assert.equal(headers['CF-Access-Client-Secret'], 'client-secret');
+    assert.equal(headers['user-agent'], 'MyCustomBot/1.0');
+    assert.equal(headers['cf-access-client-id'], 'client-id.access');
+    assert.equal(headers['cf-access-client-secret'], 'client-secret');
 
     fetchMocker.restore();
     envManager.restore();
@@ -352,6 +352,75 @@ async function runTests() {
     } catch (error: any) {
       assert.ok(error.message.includes('Configuration Error'));
       assert.ok(error.message.includes('SEARXNG_HEADERS'));
+    }
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_HEADERS trims and normalizes header names', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('USER_AGENT', 'MyCustomBot/1.0');
+    envManager.set('SEARXNG_HEADERS', JSON.stringify({
+      ' user-agent ': 'OverrideBot/1.0',
+      ' X-Token ': 'custom-token'
+    }));
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    const options = getCapturedOptions();
+    const headers = options?.headers as Record<string, string>;
+    assert.equal(headers['user-agent'], 'OverrideBot/1.0');
+    assert.equal(headers['x-token'], 'custom-token');
+    assert.ok(!headers['User-Agent']);
+    assert.ok(!headers[' X-Token ']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Reserved SEARXNG_HEADERS names throw configuration error', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HEADERS', '{"__proto__":"polluted"}');
+
+    const mockServer = createMockServer();
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected configuration error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('Configuration Error'));
+      assert.ok(error.message.includes('reserved header name'));
+    }
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Invalid SEARXNG_HEADERS names throw configuration error', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HEADERS', JSON.stringify({
+      'Bad Header': 'value'
+    }));
+
+    const mockServer = createMockServer();
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected configuration error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('Configuration Error'));
+      assert.ok(error.message.includes('invalid header name'));
     }
 
     envManager.restore();
