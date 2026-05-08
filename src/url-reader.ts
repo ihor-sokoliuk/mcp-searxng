@@ -5,6 +5,7 @@ import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
 import { getHttpSecurityConfig } from "./http-security.js";
+import { mergeHeaders, parseHeadersFromEnv } from "./headers.js";
 import {
   createURLFormatError,
   createURLSecurityPolicyError,
@@ -253,6 +254,11 @@ export async function fetchAndConvertToMarkdown(
         ...requestOptions.headers,
         'User-Agent': userAgent
       };
+    }
+
+    const additionalHeaders = parseHeadersFromEnv("URL_READER_HEADERS");
+    if (Object.keys(additionalHeaders).length > 0) {
+      requestOptions.headers = mergeHeaders(requestOptions.headers, additionalHeaders);
     }
 
     let response: Response;

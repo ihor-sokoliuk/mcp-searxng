@@ -202,6 +202,23 @@ curl http://localhost:3000/health
 
 Set `SEARXNG_URL` to your SearXNG instance URL. All other variables are optional.
 
+Protected SearXNG instances can receive extra search request headers through `SEARXNG_HEADERS`:
+
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "npx",
+      "args": ["-y", "mcp-searxng"],
+      "env": {
+        "SEARXNG_URL": "https://search.example.com",
+        "SEARXNG_HEADERS": "{\"CF-Access-Client-Id\":\"your-client-id.access\",\"CF-Access-Client-Secret\":\"your-client-secret\"}"
+      }
+    }
+  }
+}
+```
+
 Full environment variable reference: [CONFIGURATION.md](CONFIGURATION.md)
 
 ## Troubleshooting

@@ -308,6 +308,55 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('SEARXNG_HEADERS adds custom headers to search requests', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('USER_AGENT', 'MyCustomBot/1.0');
+    envManager.set('SEARXNG_HEADERS', JSON.stringify({
+      'CF-Access-Client-Id': 'client-id.access',
+      'CF-Access-Client-Secret': 'client-secret'
+    }));
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    const options = getCapturedOptions();
+    const headers = options?.headers as Record<string, string>;
+    assert.equal(headers['User-Agent'], 'MyCustomBot/1.0');
+    assert.equal(headers['CF-Access-Client-Id'], 'client-id.access');
+    assert.equal(headers['CF-Access-Client-Secret'], 'client-secret');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Invalid SEARXNG_HEADERS JSON throws configuration error', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HEADERS', '{invalid json');
+
+    const mockServer = createMockServer();
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected configuration error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('Configuration Error'));
+      assert.ok(error.message.includes('SEARXNG_HEADERS'));
+    }
+
+    envManager.restore();
+  }, results);
+
   await testFunction('User-Agent header absent when USER_AGENT env var not set', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.delete('USER_AGENT');

@@ -102,6 +102,19 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('createConfigResource - custom header env vars are exposed as booleans', () => {
+    envManager.set('SEARXNG_HEADERS', '{"X-Token":"search-secret"}');
+    envManager.set('URL_READER_HEADERS', '{"X-Token":"reader-secret"}');
+
+    const config = JSON.parse(createConfigResource());
+    assert.equal(config.environment.hasSearxngHeaders, true);
+    assert.equal(config.environment.hasUrlReaderHeaders, true);
+    assert.ok(!JSON.stringify(config).includes('search-secret'));
+    assert.ok(!JSON.stringify(config).includes('reader-secret'));
+
+    envManager.restore();
+  }, results);
+
   await testFunction('createConfigResource - transport includes http when MCP_HTTP_PORT set', () => {
     envManager.set('MCP_HTTP_PORT', '3000');
 

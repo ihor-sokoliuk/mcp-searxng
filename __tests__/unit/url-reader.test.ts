@@ -257,6 +257,32 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('URL_READER_HEADERS adds custom headers to URL reads', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    envManager.set('URL_READER_USER_AGENT', 'ReaderBot/1.0');
+    envManager.set('URL_READER_HEADERS', JSON.stringify({
+      'X-Custom-Token': 'reader-token'
+    }));
+
+    let capturedOptions: RequestInit | undefined;
+    fetchMocker.mock(async (_url, options) => {
+      capturedOptions = options;
+      return createMockFetch({ body: '<html><body><h1>Reader Test</h1></body></html>' })('', undefined);
+    });
+
+    const result = await fetchAndConvertToMarkdown(mockServer as any, 'https://reader-header-test.com');
+    assert.ok(result.includes('Reader Test'));
+
+    const headers = capturedOptions?.headers as Record<string, string>;
+    assert.equal(headers['User-Agent'], 'ReaderBot/1.0');
+    assert.equal(headers['X-Custom-Token'], 'reader-token');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('hardened mode blocks localhost URL reads', async () => {
     const mockServer = createMockServer();
     envManager.set('MCP_HTTP_HARDEN', 'true');

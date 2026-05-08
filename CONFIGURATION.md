@@ -22,6 +22,24 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 | `USER_AGENT` | No | — | Global User-Agent header for all outgoing requests (e.g. `MyBot/1.0`) |
 | `URL_READER_USER_AGENT` | No | — | User-Agent for `web_url_read` only — overrides `USER_AGENT` for URL reads |
 
+## Custom Headers
+
+Provide additional outgoing HTTP headers as JSON objects with string values.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARXNG_HEADERS` | No | — | Extra headers for `searxng_web_search` requests to the SearXNG API |
+| `URL_READER_HEADERS` | No | — | Extra headers for `web_url_read` requests |
+
+Example for Cloudflare Access in front of SearXNG:
+
+```json
+{
+  "CF-Access-Client-Id": "your-client-id.access",
+  "CF-Access-Client-Secret": "your-client-secret"
+}
+```
+
 ## Proxy
 
 Interface-specific proxies take priority over global proxies for their respective tools.
@@ -75,6 +93,8 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
         "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
+        "SEARXNG_HEADERS": "{\"CF-Access-Client-Id\":\"your-client-id.access\",\"CF-Access-Client-Secret\":\"your-client-secret\"}",
+        "URL_READER_HEADERS": "{\"X-Custom-Token\":\"reader-token\"}",
         "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
         "SEARCH_HTTPS_PROXY": "http://search-proxy.company.com:8080",
         "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
