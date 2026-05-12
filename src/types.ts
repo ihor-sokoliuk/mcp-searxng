@@ -27,8 +27,9 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
-    "Performs a web search using the SearXNG API, ideal for general queries, news, articles, and online content. " +
-    "Use this for broad information gathering, recent events, or when you need diverse web sources.",
+    "Searches the web using SearXNG. " +
+    "CRITICAL: The parameter name MUST be exactly `query` (not `prompt`, `q`, or any other name). " +
+    "Pass your search terms as the value of the `query` parameter.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -39,7 +40,7 @@ export const WEB_SEARCH_TOOL: Tool = {
       query: {
         type: "string",
         description:
-          "The search query. This is the main input for the web search",
+          "The search query string. This is the required parameter name — use exactly `query`, not `prompt` or `q`.",
       },
       pageno: {
         type: "number",
