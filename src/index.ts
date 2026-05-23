@@ -20,7 +20,7 @@ import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer } from "./http-server.js";
 
 // Use a static version string that will be updated by the version script
-const packageVersion = "1.0.3";
+const packageVersion = "1.0.4";
 
 // Export the version for use in other modules
 export { packageVersion };

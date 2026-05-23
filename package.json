@@ -1,6 +1,6 @@
 {
     "name": "mcp-searxng",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "mcpName": "io.github.ihor-sokoliuk/mcp-searxng",
     "description": "MCP server for SearXNG integration",
     "license": "MIT",
