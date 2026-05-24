@@ -1,10 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
+import { lookup as dnsLookup } from "node:dns";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
 import { getHttpSecurityConfig } from "./http-security.js";
+import { Agent } from "undici";
+import { getConnectOptions } from "./tls-config.js";
 import {
   createURLFormatError,
   createURLSecurityPolicyError,
@@ -66,6 +69,10 @@ function isPrivateIPv6(hostname: string): boolean {
   return false;
 }
 
+function isPrivateAddress(address: string): boolean {
+  return isPrivateIpv4(address) || isPrivateIPv6(address);
+}
+
 function assertUrlAllowed(url: URL): void {
   const security = getHttpSecurityConfig();
   if (!security.harden || security.allowPrivateUrls) {
@@ -75,6 +82,72 @@ function assertUrlAllowed(url: URL): void {
   if (isPrivateHostname(url.hostname) || isPrivateIpv4(url.hostname) || isPrivateIPv6(url.hostname)) {
     throw createURLSecurityPolicyError(url.toString());
   }
+}
+
+/**
+ * Custom DNS lookup that rejects resolved addresses pointing to private/loopback
+ * ranges. This prevents SSRF via DNS rebinding, where an attacker-controlled
+ * hostname initially resolves to a public IP (passing assertUrlAllowed) but
+ * later resolves to 127.0.0.1, 169.254.169.254, etc. when the actual socket
+ * connection is opened.
+ *
+ * By passing this as the socket `lookup` option, the address checked here is
+ * the exact address the socket will connect to — eliminating the TOCTOU window
+ * between a pre-flight DNS resolution and the connect() call.
+ */
+const ssrfGuardedLookup: LookupFunction = (hostname, options, callback) => {
+  // node:net's LookupFunction signature allows options to be the callback when
+  // called from some code paths; normalize that.
+  const opts = typeof options === "function" ? {} : options;
+  const cb = typeof options === "function" ? options : callback;
+
+  dnsLookup(hostname, opts as any, (err: any, addressOrList: any, family?: any) => {
+    if (err) {
+      return (cb as any)(err);
+    }
+
+    // dns.lookup may return either a single address (string) or, when
+    // { all: true } was requested (undici does this), an array of
+    // { address, family } records. Reject as soon as any resolved address
+    // falls into a private range.
+    const records: Array<{ address: string; family: number }> = Array.isArray(addressOrList)
+      ? addressOrList
+      : [{ address: addressOrList, family }];
+
+    for (const rec of records) {
+      if (typeof rec?.address === "string" && isPrivateAddress(rec.address)) {
+        const blocked: NodeJS.ErrnoException = new Error(
+          `Blocked attempt to connect to private address ${rec.address} for hostname "${hostname}"`
+        );
+        blocked.code = "ERR_SSRF_BLOCKED_ADDRESS";
+        return (cb as any)(blocked);
+      }
+    }
+
+    (cb as any)(err, addressOrList, family);
+  });
+};
+
+let _hardenedAgentInitialized = false;
+let _hardenedAgent: Agent | undefined;
+
+/**
+ * Returns an undici Agent that resolves hostnames through {@link ssrfGuardedLookup}.
+ * Used when MCP_HTTP_HARDEN is enabled and no explicit proxy is configured, so
+ * that direct outbound connections from `web_url_read` cannot be redirected to
+ * private/loopback addresses via DNS rebinding.
+ */
+function createHardenedAgent(): Agent {
+  if (!_hardenedAgentInitialized) {
+    _hardenedAgentInitialized = true;
+    _hardenedAgent = new Agent({
+      connect: {
+        ...getConnectOptions(),
+        lookup: ssrfGuardedLookup,
+      },
+    });
+  }
+  return _hardenedAgent!;
 }
 
 function applyCharacterPagination(content: string, startChar: number = 0, maxLength?: number): string {
@@ -241,7 +314,15 @@ export async function fetchAndConvertToMarkdown(
 
     // Add proxy or default dispatcher (includes system CA certs for TLS)
     const proxyAgent = createProxyAgent(url, ProxyType.URL_READER);
-    const dispatcher = proxyAgent ?? createDefaultAgent();
+    // When hardened (and not explicitly allowing private URLs), bind a custom
+    // socket lookup that rejects private/loopback IPs at connect time. This
+    // closes the DNS-rebinding TOCTOU between assertUrlAllowed() above and
+    // the actual fetch(). When a proxy is configured the proxy performs DNS
+    // resolution, so the rebinding vector doesn't apply at the client.
+    const security = getHttpSecurityConfig();
+    const useDnsRebindingGuard = security.harden && !security.allowPrivateUrls && !proxyAgent;
+    const dispatcher = proxyAgent
+      ?? (useDnsRebindingGuard ? createHardenedAgent() : createDefaultAgent());
     if (dispatcher) {
       (requestOptions as any).dispatcher = dispatcher;
     }
@@ -260,6 +341,13 @@ export async function fetchAndConvertToMarkdown(
       // Fetch the URL with the abort signal
       response = await fetch(url, requestOptions);
     } catch (error: any) {
+      // Surface DNS-rebinding blocks as a security policy error rather than
+      // a generic network failure, so callers/tests can distinguish them.
+      const cause = error?.cause;
+      if (error?.code === "ERR_SSRF_BLOCKED_ADDRESS"
+          || cause?.code === "ERR_SSRF_BLOCKED_ADDRESS") {
+        throw createURLSecurityPolicyError(url);
+      }
       const context: ErrorContext = {
         url,
         proxyAgent: !!dispatcher,

@@ -286,6 +286,67 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+
+  await testFunction('hardened mode blocks hostnames that resolve to private IPs (DNS rebinding)', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+
+    // Stand up a real HTTP server on loopback. "localtest.me" resolves to
+    // 127.0.0.1 / ::1 in public DNS, simulating a DNS-rebinding attacker who
+    // returns a private IP for an otherwise innocuous hostname.
+    const http = await import('node:http');
+    const dns = await import('node:dns');
+
+    let resolved: string;
+    try {
+      resolved = await new Promise<string>((res, rej) =>
+        dns.lookup('localtest.me', (err, addr) => err ? rej(err) : res(addr))
+      );
+    } catch {
+      // No outbound DNS available in this environment — skip.
+      envManager.restore();
+      return;
+    }
+
+    if (!['127.0.0.1', '::1'].includes(resolved)) {
+      // Unexpected DNS result — skip rather than produce a flaky test.
+      envManager.restore();
+      return;
+    }
+
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html><body><h1>LEAKED</h1></body></html>');
+    });
+    await new Promise<void>(r => server.listen(0, resolved, () => r()));
+    const port = (server.address() as any).port;
+
+    try {
+      try {
+        const body = await fetchAndConvertToMarkdown(
+          mockServer as any,
+          `http://localtest.me:${port}/`,
+          5000
+        );
+        assert.fail(`Expected rebinding fetch to be blocked, got body: ${body}`);
+      } catch (error: any) {
+        assert.ok(
+          error.message.includes('blocked by security policy'),
+          `Expected security policy block, got: ${error.message}`
+        );
+      }
+    } finally {
+      server.close();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('Section extraction - existing section', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
