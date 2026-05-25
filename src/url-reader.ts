@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isIP } from "node:net";
 import { NodeHtmlMarkdown } from "node-html-markdown";
+import { fetch as undiciFetch } from "undici";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
@@ -257,8 +258,11 @@ export async function fetchAndConvertToMarkdown(
 
     let response: Response;
     try {
-      // Fetch the URL with the abort signal
-      response = await fetch(url, requestOptions);
+      // Fetch the URL with the abort signal.
+      // Use undici's own fetch so it shares the same internal version as the
+      // Agent/ProxyAgent dispatcher — avoids the Node.js bundled-undici vs
+      // npm-undici version mismatch that breaks Content-Encoding decompression.
+      response = await (undiciFetch as unknown as typeof fetch)(url, requestOptions);
     } catch (error: any) {
       const context: ErrorContext = {
         url,
