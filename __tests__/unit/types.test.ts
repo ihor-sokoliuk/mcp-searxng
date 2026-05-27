@@ -7,7 +7,10 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { isSearXNGWebSearchArgs } from '../../src/types.js';
+import {
+  isSearXNGInstanceInfoArgs,
+  isSearXNGWebSearchArgs,
+} from '../../src/types.js';
 import { isWebUrlReadArgs } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -72,6 +75,21 @@ async function runTests() {
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', section: 123 }), false);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', paragraphRange: 123 }), false);
     assert.equal(isWebUrlReadArgs({ url: 'https://example.com', readHeadings: 'invalid' }), false);
+  }, results);
+
+  await testFunction('isSearXNGInstanceInfoArgs type guard - valid cases', () => {
+    assert.equal(isSearXNGInstanceInfoArgs(undefined), true);
+    assert.equal(isSearXNGInstanceInfoArgs({}), true);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeEngines: true }), true);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeDisabled: false, category: 'it' }), true);
+  }, results);
+
+  await testFunction('isSearXNGInstanceInfoArgs type guard - invalid cases', () => {
+    assert.equal(isSearXNGInstanceInfoArgs(null), false);
+    assert.equal(isSearXNGInstanceInfoArgs('string'), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeEngines: 'yes' }), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeDisabled: 1 }), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ category: '' }), false);
   }, results);
 
   printTestSummary(results, 'Types Module');

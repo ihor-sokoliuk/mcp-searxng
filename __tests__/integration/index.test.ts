@@ -12,7 +12,10 @@ import {
   isWebUrlReadArgs,
   createMcpServer
 } from '../../src/index.js';
-import { isSearXNGWebSearchArgs } from '../../src/types.js';
+import {
+  isSearXNGInstanceInfoArgs,
+  isSearXNGWebSearchArgs,
+} from '../../src/types.js';
 import { createConfigResource, createHelpResource } from '../../src/resources.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -30,6 +33,7 @@ async function runTests() {
   await testFunction('Call tool handler - unknown tool error', async () => {
     const unknownToolRequest = { name: 'unknown_tool', arguments: {} };
     assert.notEqual(unknownToolRequest.name, 'searxng_web_search');
+    assert.notEqual(unknownToolRequest.name, 'searxng_instance_info');
     assert.notEqual(unknownToolRequest.name, 'web_url_read');
 
     // Simulate error response
@@ -161,6 +165,13 @@ async function runTests() {
     assert.ok(!isSearXNGWebSearchArgs({}));
   }, results);
 
+  await testFunction('Tool arguments validation - instance info tool', () => {
+    assert.ok(isSearXNGInstanceInfoArgs(undefined));
+    assert.ok(isSearXNGInstanceInfoArgs({ includeEngines: true, category: 'it' }));
+    assert.ok(!isSearXNGInstanceInfoArgs({ includeDisabled: 'no' }));
+    assert.ok(!isSearXNGInstanceInfoArgs({ category: '' }));
+  }, results);
+
   await testFunction('Tool arguments validation - URL read tool', () => {
     // Valid cases with various pagination parameters
     assert.ok(isWebUrlReadArgs({ url: 'https://example.com' }));
@@ -193,6 +204,15 @@ async function runTests() {
     const server = createMcpServer();
     assert.ok(server, 'should return a truthy value');
     assert.ok(server.server, 'should expose underlying Server via .server');
+  }, results);
+
+  await testFunction('Config resource reflects all exposed tools', () => {
+    const config = JSON.parse(createConfigResource());
+    assert.deepEqual(config.capabilities.tools, [
+      'searxng_web_search',
+      'searxng_instance_info',
+      'web_url_read',
+    ]);
   }, results);
 
   await testFunction('createMcpServer returns independent instances per call', () => {

@@ -31,6 +31,7 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
+- **Instance Discovery**: Inspect live SearXNG categories, engine counts, plugins, locales, and optional engine details from `/config`.
 - **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
 - **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
 - **Pagination**: Control which page of results to retrieve.
@@ -74,6 +75,13 @@ AI Assistant (e.g. Claude)
     - `section` (string, optional): Extract content under a specific heading (searches for heading text)
     - `paragraphRange` (string, optional): Return specific paragraph ranges (e.g., '1-5', '3', '10-')
     - `readHeadings` (boolean, optional): Return only a list of headings instead of full content
+
+- **searxng_instance_info**
+  - Inspect the connected SearXNG instance using its `/config` endpoint
+  - Inputs:
+    - `includeEngines` (boolean, optional): Include matching engine details in the response (default `false`)
+    - `includeDisabled` (boolean, optional): Include disabled engines when returning engine details (default `false`)
+    - `category` (string, optional): Filter the engine list to a specific category such as `it`, `news`, or `science`
 
 ## Installation
 
