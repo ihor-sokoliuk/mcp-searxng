@@ -13,6 +13,20 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
+/**
+ * Safely normalize a value that should be a string array.
+ * LLM clients may send a comma-separated string instead of an array.
+ */
+function toArray(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return value.filter(v => typeof v === "string" && v.length > 0);
+  if (typeof value === "string") {
+    const items = value.split(",").map(s => s.trim()).filter(s => s.length > 0);
+    return items.length > 0 ? items : undefined;
+  }
+  return undefined;
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
@@ -24,6 +38,10 @@ export async function performWebSearch(
   categories?: string[]
 ) {
   const startTime = Date.now();
+  
+  // Normalize engines/categories: LLM may send string instead of array
+  const safeEngines = toArray(engines);
+  const safeCategories = toArray(categories);
   
   // Validate query is not empty/whitespace
   const trimmedQuery = query.trim();
@@ -37,8 +55,8 @@ export async function performWebSearch(
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
     safesearch ? `safesearch: ${safesearch}` : null,
-    engines && engines.length > 0 ? `engines: ${engines.join(",")}` : null,
-    categories && categories.length > 0 ? `categories: ${categories.join(",")}` : null
+    safeEngines && safeEngines.length > 0 ? `engines: ${safeEngines.join(",")}` : null,
+    safeCategories && safeCategories.length > 0 ? `categories: ${safeCategories.join(",")}` : null
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${trimmedQuery}" (${searchParams})`);
@@ -73,12 +91,12 @@ export async function performWebSearch(
     url.searchParams.set("safesearch", safesearch.toString());
   }
 
-  if (engines && engines.length > 0) {
-    url.searchParams.set("engines", engines.join(","));
+  if (safeEngines && safeEngines.length > 0) {
+    url.searchParams.set("engines", safeEngines.join(","));
   }
 
-  if (categories && categories.length > 0) {
-    url.searchParams.set("categories", categories.join(","));
+  if (safeCategories && safeCategories.length > 0) {
+    url.searchParams.set("categories", safeCategories.join(","));
   }
 
   // Prepare request options with headers
@@ -176,11 +194,11 @@ export async function performWebSearch(
   if (results.length === 0) {
     logMessage(mcpServer, "info", `No results found for query: "${trimmedQuery}"`);
     const warnings: string[] = [];
-    if (engines && engines.length > 0) {
-      warnings.push(`Engines [${engines.join(", ")}] may not support this query or are unavailable`);
+    if (safeEngines && safeEngines.length > 0) {
+      warnings.push(`Engines [${safeEngines.join(", ")}] may not support this query or are unavailable`);
     }
-    if (categories && categories.length > 0) {
-      warnings.push(`Categories [${categories.join(", ")}] may have limited results`);
+    if (safeCategories && safeCategories.length > 0) {
+      warnings.push(`Categories [${safeCategories.join(", ")}] may have limited results`);
     }
     if (language && language !== "all") {
       warnings.push(`Language "${language}" may limit available engines`);
@@ -209,6 +227,10 @@ export async function performMultiSearch(
 ) {
   const startTime = Date.now();
   
+  // Normalize engines/categories: LLM may send string instead of array
+  const safeEngines = toArray(engines);
+  const safeCategories = toArray(categories);
+  
   logMessage(mcpServer, "info", `Starting multi-search: ${queries.length} queries`);
 
   const validationError = validateEnvironment();
@@ -236,11 +258,11 @@ export async function performMultiSearch(
     if (safesearch !== undefined && [0, 1, 2].includes(safesearch)) {
       url.searchParams.set("safesearch", safesearch.toString());
     }
-    if (engines && engines.length > 0) {
-      url.searchParams.set("engines", engines.join(","));
+    if (safeEngines && safeEngines.length > 0) {
+      url.searchParams.set("engines", safeEngines.join(","));
     }
-    if (categories && categories.length > 0) {
-      url.searchParams.set("categories", categories.join(","));
+    if (safeCategories && safeCategories.length > 0) {
+      url.searchParams.set("categories", safeCategories.join(","));
     }
     return url;
   }
@@ -346,11 +368,11 @@ export async function performMultiSearch(
   // Add warnings when most/all queries returned empty results
   if (emptyCount === limitedQueries.length && limitedQueries.length > 0) {
     const warnings: string[] = [];
-    if (engines && engines.length > 0) {
-      warnings.push(`engines [${engines.join(", ")}] may not support these queries`);
+    if (safeEngines && safeEngines.length > 0) {
+      warnings.push(`engines [${safeEngines.join(", ")}] may not support these queries`);
     }
-    if (categories && categories.length > 0) {
-      warnings.push(`categories [${categories.join(", ")}] may have limited results`);
+    if (safeCategories && safeCategories.length > 0) {
+      warnings.push(`categories [${safeCategories.join(", ")}] may have limited results`);
     }
     if (language && language !== "all") {
       warnings.push(`language "${language}" may limit available engines`);
