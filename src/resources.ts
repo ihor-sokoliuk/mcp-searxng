@@ -23,7 +23,7 @@ export function createConfigResource() {
       currentLogLevel: getCurrentLogLevel()
     },
     capabilities: {
-      tools: ["searxng_web_search", "web_url_read"],
+      tools: ["searxng_web_search", "searxng_instance_info", "web_url_read"],
       logging: true,
       resources: true,
       transports: process.env.MCP_HTTP_PORT ? ["stdio", "http"] : ["stdio"]
@@ -51,7 +51,15 @@ Performs web searches using the configured SearXNG instance.
 - \`language\` (optional): Language code like "en", "fr", "de" (default: "all")
 - \`safesearch\` (optional): Safe search level - 0 (none), 1 (moderate), 2 (strict)
 
-### 2. web_url_read
+### 2. searxng_instance_info
+Retrieves live capability data from the configured SearXNG instance using the \`/config\` endpoint.
+
+**Parameters:**
+- \`includeEngines\` (optional): Include matching engine details in the response
+- \`includeDisabled\` (optional): Include disabled engines when returning engine details
+- \`category\` (optional): Filter the engine list to a specific SearXNG category
+
+### 3. web_url_read
 Reads and converts web page content to Markdown format.
 
 **Parameters:**
@@ -89,6 +97,12 @@ For network-exposed HTTP transport, enable:
 \`\`\`
 Tool: searxng_web_search
 Args: {"query": "latest AI developments", "time_range": "day"}
+\`\`\`
+
+### Inspect instance capabilities
+\`\`\`
+Tool: searxng_instance_info
+Args: {"includeEngines": true, "category": "it"}
 \`\`\`
 
 ### Read a specific article

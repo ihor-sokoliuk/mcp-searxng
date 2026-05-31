@@ -12,9 +12,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL, isSearXNGWebSearchArgs, isSearXNGMultiSearchArgs } from "./types.js";
+import { WEB_SEARCH_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL, INSTANCE_INFO_TOOL, isSearXNGWebSearchArgs, isSearXNGMultiSearchArgs, isSearXNGInstanceInfoArgs } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch, performMultiSearch } from "./search.js";
+import { getInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer } from "./http-server.js";
@@ -95,7 +96,7 @@ export function createMcpServer(): McpServer {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [WEB_SEARCH_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL],
+      tools: [WEB_SEARCH_TOOL, INSTANCE_INFO_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL],
     };
   });
 
@@ -167,6 +168,31 @@ export function createMcpServer(): McpServer {
           args.engines,
           args.categories
         );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } else if (name === "searxng_instance_info") {
+        if (!isSearXNGInstanceInfoArgs(args)) {
+          throw new Error("Invalid arguments for instance info");
+        }
+
+        const instanceInfoArgs = (args ?? {}) as {
+          includeEngines?: boolean;
+          includeDisabled?: boolean;
+          category?: string;
+        };
+
+        const result = await getInstanceInfo(mcpServer, {
+          includeEngines: instanceInfoArgs.includeEngines,
+          includeDisabled: instanceInfoArgs.includeDisabled,
+          category: instanceInfoArgs.category,
+        });
 
         return {
           content: [
