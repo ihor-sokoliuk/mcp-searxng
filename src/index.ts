@@ -12,9 +12,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
+import { WEB_SEARCH_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL, INSTANCE_INFO_TOOL, isSearXNGWebSearchArgs, isSearXNGMultiSearchArgs, isSearXNGInstanceInfoArgs } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
-import { performWebSearch } from "./search.js";
+import { performWebSearch, performMultiSearch } from "./search.js";
+import { getInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer } from "./http-server.js";
@@ -81,6 +82,7 @@ export function createMcpServer(): McpServer {
     },
     {
       capabilities: {
+        completions: {},
         logging: {},
         resources: {},
         tools: {},
@@ -94,7 +96,7 @@ export function createMcpServer(): McpServer {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
+      tools: [WEB_SEARCH_TOOL, INSTANCE_INFO_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL],
     };
   });
 
@@ -106,7 +108,10 @@ export function createMcpServer(): McpServer {
     try {
       if (name === "searxng_web_search") {
         if (!isSearXNGWebSearchArgs(args)) {
-          throw new Error("Invalid arguments for web search");
+          return {
+            content: [{ type: "text", text: "🔧 Invalid arguments for web search: 'query' must be a non-empty string." }],
+            isError: true,
+          };
         }
 
         const result = await performWebSearch(
@@ -115,7 +120,9 @@ export function createMcpServer(): McpServer {
           args.pageno,
           args.time_range,
           args.language,
-          args.safesearch
+          args.safesearch,
+          args.engines,
+          args.categories
         );
 
         return {
@@ -128,7 +135,10 @@ export function createMcpServer(): McpServer {
         };
       } else if (name === "web_url_read") {
         if (!isWebUrlReadArgs(args)) {
-          throw new Error("Invalid arguments for URL reading");
+          return {
+            content: [{ type: "text", text: "🔧 Invalid arguments for URL reading: 'url' must be a valid string." }],
+            isError: true,
+          };
         }
 
         const paginationOptions = {
@@ -149,12 +159,79 @@ export function createMcpServer(): McpServer {
             },
           ],
         };
+      } else if (name === "searxng_multi_search") {
+        if (!isSearXNGMultiSearchArgs(args)) {
+          const hint = !(args && "queries" in args)
+            ? "'queries' parameter is required."
+            : !Array.isArray((args as any).queries)
+              ? "'queries' must be an array of strings."
+              : (args as any).queries.length === 0
+                ? "'queries' must contain 1-5 non-empty search strings."
+                : (args as any).queries.length > 5
+                  ? "'queries' supports a maximum of 5 queries."
+                  : "'queries' contains empty strings — each query must be non-empty.";
+          return {
+            content: [{ type: "text", text: `🔧 Invalid arguments for multi search: ${hint}` }],
+            isError: true,
+          };
+        }
+
+        const result = await performMultiSearch(
+          mcpServer,
+          args.queries,
+          args.pageno,
+          args.time_range,
+          args.language,
+          args.safesearch,
+          args.engines,
+          args.categories
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } else if (name === "searxng_instance_info") {
+        if (!isSearXNGInstanceInfoArgs(args)) {
+          return {
+            content: [{ type: "text", text: "🔧 Invalid arguments for instance info." }],
+            isError: true,
+          };
+        }
+
+        const instanceInfoArgs = (args ?? {}) as {
+          includeEngines?: boolean;
+          includeDisabled?: boolean;
+          category?: string;
+        };
+
+        const result = await getInstanceInfo(mcpServer, {
+          includeEngines: instanceInfoArgs.includeEngines,
+          includeDisabled: instanceInfoArgs.includeDisabled,
+          category: instanceInfoArgs.category,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
       } else {
-        throw new Error(`Unknown tool: ${name}`);
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+          isError: true,
+        };
       }
     } catch (error) {
-      logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, { 
-        tool: name, 
+      logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, {
+        tool: name,
         args: args,
         error: error instanceof Error ? error.stack : String(error)
       });
@@ -279,10 +356,60 @@ async function main() {
       }
       console.error("📡 Waiting for MCP client connection via STDIO...\n");
     }
-    
+
+    // Graceful shutdown for STDIO transport.
+    // When launched via npx, signals may not propagate through the process
+    // tree (npx → npm exec → sh -c → node). Detect parent death via stdin
+    // EOF and signal handlers to prevent orphaned processes accumulating.
+    //
+    // Handlers are registered BEFORE server.connect() to avoid a race
+    // where the parent dies during startup before handlers are attached.
+    let isShuttingDown = false;
+    const shutdownStdio = async () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+
+      // Give the server a chance to clean up, then force exit
+      const forceExit = setTimeout(() => process.exit(0), 2000);
+      forceExit.unref();
+
+      await mcpServer.close().catch(() => {});
+      process.exit(0);
+    };
+
+    process.once('SIGINT', () => { shutdownStdio(); });
+    process.once('SIGTERM', () => { shutdownStdio(); });
+    process.once('SIGHUP', () => { shutdownStdio(); });
+
+    // Per MCP spec, when the parent closes stdin the server should exit
+    process.stdin.once('end', () => { shutdownStdio(); });
+    process.stdin.once('close', () => { shutdownStdio(); });
+
+    // Periodic parent liveness check — if the parent process dies, exit
+    // to avoid becoming an orphan (PPID=1 on Linux). This is a third
+    // safety layer for cases where signals don't propagate and stdin
+    // pipes aren't closed (e.g. parent killed with SIGKILL).
+    const parentPid = process.ppid;
+    if (parentPid && parentPid !== 1) {
+      const parentCheck = setInterval(() => {
+        try {
+          process.kill(parentPid, 0);
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === 'ESRCH') {
+            // Parent process no longer exists
+            clearInterval(parentCheck);
+            shutdownStdio();
+          }
+          // EPERM means process exists but not signalable — treat as alive
+        }
+      }, 5000);
+      parentCheck.unref();
+    }
+
     const transport = new StdioServerTransport();
     await mcpServer.connect(transport);
-    
+
     // Log after connection is established
     logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
     logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);

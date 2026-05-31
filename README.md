@@ -31,6 +31,7 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
+- **Multi-Query Parallel Search**: Execute multiple search queries simultaneously and aggregate results. Perfect for research tasks requiring multiple perspectives.
 - **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
 - **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
 - **Pagination**: Control which page of results to retrieve.
@@ -74,6 +75,18 @@ AI Assistant (e.g. Claude)
     - `section` (string, optional): Extract content under a specific heading (searches for heading text)
     - `paragraphRange` (string, optional): Return specific paragraph ranges (e.g., '1-5', '3', '10-')
     - `readHeadings` (boolean, optional): Return only a list of headings instead of full content
+
+- **searxng_multi_search**
+  - Execute multiple search queries in parallel and aggregate results. Ideal for research tasks requiring multiple perspectives or topics.
+  - Inputs:
+    - `queries` (array of strings, required): List of search queries to execute in parallel (1-5 queries)
+    - `pageno` (number, optional): Search page number, starts at 1 (default: 1)
+    - `time_range` (string, optional): Filter results by time range - one of: "day", "month", "year" (default: none)
+    - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
+    - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: 0)
+    - `engines` (array of strings, optional): Specific search engines to use (e.g., `["google", "bing", "duckduckgo"]`)
+    - `categories` (array of strings, optional): Search categories to filter (e.g., `["general", "images", "news", "videos"]`)
+  - Results are grouped by query with success/failure status for each. Requests are staggered (100ms apart) to avoid CAPTCHA.
 
 ## Installation
 
