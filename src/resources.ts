@@ -23,7 +23,7 @@ export function createConfigResource() {
       currentLogLevel: getCurrentLogLevel()
     },
     capabilities: {
-      tools: ["searxng_web_search", "searxng_instance_info", "web_url_read"],
+      tools: ["searxng_web_search", "searxng_multi_search", "searxng_instance_info", "web_url_read"],
       logging: true,
       resources: true,
       transports: process.env.MCP_HTTP_PORT ? ["stdio", "http"] : ["stdio"]
@@ -45,13 +45,26 @@ This is a Model Context Protocol (MCP) server that provides web search capabilit
 Performs web searches using the configured SearXNG instance.
 
 **Parameters:**
-- \`query\` (required): The search query string
+- \`query\` (required): The search query string (non-empty)
 - \`pageno\` (optional): Page number (default: 1)
 - \`time_range\` (optional): Filter by time - "day", "month", or "year"
-- \`language\` (optional): Language code like "en", "fr", "de" (default: "all")
+- \`language\` (optional): Language code like "en", "fr", "de" (default: "all"). Note: setting a specific language may reduce results.
 - \`safesearch\` (optional): Safe search level - 0 (none), 1 (moderate), 2 (strict)
+- \`engines\` (optional): Specific search engines (e.g., ["google", "bing"])
+- \`categories\` (optional): Search categories (e.g., ["general", "news"])
 
-### 2. searxng_instance_info
+### 2. searxng_multi_search
+Searches multiple queries in parallel for research tasks.
+
+**Parameters:**
+- \`queries\` (required): Array of 1-5 search query strings
+- \`pageno\` (optional): Page number (default: 1)
+- \`time_range\` (optional): Filter by time
+- \`language\` (optional): Language code (default: "all")
+- \`engines\` (optional): Specific search engines
+- \`categories\` (optional): Search categories
+
+### 3. searxng_instance_info
 Retrieves live capability data from the configured SearXNG instance using the \`/config\` endpoint.
 
 **Parameters:**
@@ -59,7 +72,7 @@ Retrieves live capability data from the configured SearXNG instance using the \`
 - \`includeDisabled\` (optional): Include disabled engines when returning engine details
 - \`category\` (optional): Filter the engine list to a specific SearXNG category
 
-### 3. web_url_read
+### 4. web_url_read
 Reads and converts web page content to Markdown format.
 
 **Parameters:**
@@ -84,8 +97,12 @@ Standard input/output transport for desktop clients like Claude Desktop.
 ### HTTP (Optional)
 RESTful HTTP transport for web applications. Set \`MCP_HTTP_PORT\` to enable.
 
+### Security (SSRF Protection)
+Private/loopback URLs are blocked by default for \`web_url_read\` to prevent SSRF attacks.
+To allow reading internal/private URLs, set:
+- \`MCP_HTTP_ALLOW_PRIVATE_URLS=true\`
+
 ### Hardened HTTP Mode (Optional)
-Default behavior remains compatible for existing deployments.
 For network-exposed HTTP transport, enable:
 - \`MCP_HTTP_HARDEN\`
 - \`MCP_HTTP_AUTH_TOKEN\`

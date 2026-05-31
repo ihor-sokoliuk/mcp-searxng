@@ -125,7 +125,8 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     typeof args === "object" &&
     args !== null &&
     "query" in args &&
-    typeof (args as { query: string }).query === "string"
+    typeof (args as { query: string }).query === "string" &&
+    (args as { query: string }).query.trim().length > 0
   );
 }
 
@@ -134,7 +135,9 @@ export const WEB_SEARCH_TOOL: Tool = {
   description:
     "Searches the web using SearXNG. " +
     "CRITICAL: The parameter name MUST be exactly `query` (not `prompt`, `q`, or any other name). " +
-    "Pass your search terms as the value of the `query` parameter.",
+    "Pass your search terms as the value of the `query` parameter. " +
+    "NOTE: SearXNG does not support `site:` operator — use it only for engines that support it directly (e.g., Google). " +
+    "For domain-specific searches, use the `engines` parameter instead.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -160,7 +163,8 @@ export const WEB_SEARCH_TOOL: Tool = {
       language: {
         type: "string",
         description:
-          "Language code for search results (e.g., 'en', 'fr', 'de'). Default is instance-dependent.",
+          "Language code for search results (e.g., 'en', 'fr', 'de'). Default is 'all'. " +
+          "WARNING: Setting a specific language may return fewer results if the instance doesn't have many engines supporting that language.",
         default: "all",
       },
       safesearch: {
@@ -283,7 +287,8 @@ export const MULTI_SEARCH_TOOL: Tool = {
       },
       language: {
         type: "string",
-        description: "Language code for search results (e.g., 'en', 'fr', 'de'). Default is 'all'.",
+        description: "Language code for search results (e.g., 'en', 'fr', 'de'). Default is 'all'. " +
+          "WARNING: Setting a specific language may return fewer results if the instance doesn't have many engines supporting that language.",
         default: "all",
       },
       safesearch: {

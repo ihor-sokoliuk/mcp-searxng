@@ -25,15 +25,23 @@ export async function performWebSearch(
 ) {
   const startTime = Date.now();
   
+  // Validate query is not empty/whitespace
+  const trimmedQuery = query.trim();
+  if (trimmedQuery.length === 0) {
+    throw new MCPSearXNGError("🔧 Search Error: Query cannot be empty. Provide a non-empty search term.");
+  }
+  
   // Build detailed log message with all parameters
   const searchParams = [
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null
+    safesearch ? `safesearch: ${safesearch}` : null,
+    engines && engines.length > 0 ? `engines: ${engines.join(",")}` : null,
+    categories && categories.length > 0 ? `categories: ${categories.join(",")}` : null
   ].filter(Boolean).join(", ");
   
-  logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
+  logMessage(mcpServer, "info", `Starting web search: "${trimmedQuery}" (${searchParams})`);
   
   const validationError = validateEnvironment();
   if (validationError) {
@@ -46,7 +54,7 @@ export async function performWebSearch(
 
   const url = new URL('search', parsedUrl);
 
-  url.searchParams.set("q", query);
+  url.searchParams.set("q", trimmedQuery);
   url.searchParams.set("format", "json");
   url.searchParams.set("pageno", pageno.toString());
 
@@ -154,7 +162,7 @@ export async function performWebSearch(
   }
 
   if (!data.results) {
-    const context: ErrorContext = { url: url.toString(), query };
+    const context: ErrorContext = { url: url.toString(), query: trimmedQuery };
     throw createDataError(data, context);
   }
 
@@ -166,8 +174,19 @@ export async function performWebSearch(
   }));
 
   if (results.length === 0) {
-    logMessage(mcpServer, "info", `No results found for query: "${query}"`);
-    return createNoResultsMessage(query);
+    logMessage(mcpServer, "info", `No results found for query: "${trimmedQuery}"`);
+    const warnings: string[] = [];
+    if (engines && engines.length > 0) {
+      warnings.push(`Engines [${engines.join(", ")}] may not support this query or are unavailable`);
+    }
+    if (categories && categories.length > 0) {
+      warnings.push(`Categories [${categories.join(", ")}] may have limited results`);
+    }
+    if (language && language !== "all") {
+      warnings.push(`Language "${language}" may limit available engines`);
+    }
+    const warningSuffix = warnings.length > 0 ? `\n⚠️ Possible reasons: ${warnings.join("; ")}` : "";
+    return createNoResultsMessage(trimmedQuery) + warningSuffix;
   }
 
   const duration = Date.now() - startTime;
@@ -300,6 +319,7 @@ export async function performMultiSearch(
   const duration = Date.now() - startTime;
   const successful = searchResults.filter(r => r.success).length;
   const failed = searchResults.filter(r => !r.success).length;
+  const emptyCount = searchResults.filter(r => r.success && r.results.length === 0).length;
 
   const parts: string[] = [];
   parts.push(`Multi-Search Results (${limitedQueries.length} queries, ${successful} successful, ${failed} failed) — ${duration}ms\n`);
@@ -320,6 +340,23 @@ export async function performMultiSearch(
       parts.push(`Score: ${r.score.toFixed(3)}`);
       if (r.content) parts.push(`Snippet: ${r.content.slice(0, 200)}`);
       parts.push('');
+    }
+  }
+
+  // Add warnings when most/all queries returned empty results
+  if (emptyCount === limitedQueries.length && limitedQueries.length > 0) {
+    const warnings: string[] = [];
+    if (engines && engines.length > 0) {
+      warnings.push(`engines [${engines.join(", ")}] may not support these queries`);
+    }
+    if (categories && categories.length > 0) {
+      warnings.push(`categories [${categories.join(", ")}] may have limited results`);
+    }
+    if (language && language !== "all") {
+      warnings.push(`language "${language}" may limit available engines`);
+    }
+    if (warnings.length > 0) {
+      parts.push(`⚠️ All queries returned empty. Possible reasons: ${warnings.join("; ")}`);
     }
   }
 

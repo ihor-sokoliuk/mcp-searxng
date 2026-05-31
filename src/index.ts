@@ -108,7 +108,10 @@ export function createMcpServer(): McpServer {
     try {
       if (name === "searxng_web_search") {
         if (!isSearXNGWebSearchArgs(args)) {
-          throw new Error("Invalid arguments for web search");
+          return {
+            content: [{ type: "text", text: "🔧 Invalid arguments for web search: 'query' must be a non-empty string." }],
+            isError: true,
+          };
         }
 
         const result = await performWebSearch(
@@ -132,7 +135,10 @@ export function createMcpServer(): McpServer {
         };
       } else if (name === "web_url_read") {
         if (!isWebUrlReadArgs(args)) {
-          throw new Error("Invalid arguments for URL reading");
+          return {
+            content: [{ type: "text", text: "🔧 Invalid arguments for URL reading: 'url' must be a valid string." }],
+            isError: true,
+          };
         }
 
         const paginationOptions = {
@@ -155,7 +161,19 @@ export function createMcpServer(): McpServer {
         };
       } else if (name === "searxng_multi_search") {
         if (!isSearXNGMultiSearchArgs(args)) {
-          throw new Error("Invalid arguments for multi search");
+          const hint = !(args && "queries" in args)
+            ? "'queries' parameter is required."
+            : !Array.isArray((args as any).queries)
+              ? "'queries' must be an array of strings."
+              : (args as any).queries.length === 0
+                ? "'queries' must contain 1-5 non-empty search strings."
+                : (args as any).queries.length > 5
+                  ? "'queries' supports a maximum of 5 queries."
+                  : "'queries' contains empty strings — each query must be non-empty.";
+          return {
+            content: [{ type: "text", text: `🔧 Invalid arguments for multi search: ${hint}` }],
+            isError: true,
+          };
         }
 
         const result = await performMultiSearch(
@@ -179,7 +197,10 @@ export function createMcpServer(): McpServer {
         };
       } else if (name === "searxng_instance_info") {
         if (!isSearXNGInstanceInfoArgs(args)) {
-          throw new Error("Invalid arguments for instance info");
+          return {
+            content: [{ type: "text", text: "🔧 Invalid arguments for instance info." }],
+            isError: true,
+          };
         }
 
         const instanceInfoArgs = (args ?? {}) as {
@@ -203,11 +224,14 @@ export function createMcpServer(): McpServer {
           ],
         };
       } else {
-        throw new Error(`Unknown tool: ${name}`);
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+          isError: true,
+        };
       }
     } catch (error) {
-      logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, { 
-        tool: name, 
+      logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, {
+        tool: name,
         args: args,
         error: error instanceof Error ? error.stack : String(error)
       });

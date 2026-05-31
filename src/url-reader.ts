@@ -76,7 +76,7 @@ function isPrivateAddress(address: string): boolean {
 
 function assertUrlAllowed(url: URL): void {
   const security = getHttpSecurityConfig();
-  if (!security.harden || security.allowPrivateUrls) {
+  if (security.allowPrivateUrls) {
     return;
   }
 
@@ -321,7 +321,7 @@ export async function fetchAndConvertToMarkdown(
     // the actual fetch(). When a proxy is configured the proxy performs DNS
     // resolution, so the rebinding vector doesn't apply at the client.
     const security = getHttpSecurityConfig();
-    const useDnsRebindingGuard = security.harden && !security.allowPrivateUrls && !proxyAgent;
+    const useDnsRebindingGuard = !security.allowPrivateUrls && !proxyAgent;
     const dispatcher = proxyAgent
       ?? (useDnsRebindingGuard ? createHardenedAgent() : createDefaultAgent());
     if (dispatcher) {
