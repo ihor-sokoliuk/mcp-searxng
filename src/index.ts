@@ -81,6 +81,7 @@ export function createMcpServer(): McpServer {
     },
     {
       capabilities: {
+        completions: {},
         logging: {},
         resources: {},
         tools: {},
@@ -305,10 +306,60 @@ async function main() {
       }
       console.error("📡 Waiting for MCP client connection via STDIO...\n");
     }
-    
+
+    // Graceful shutdown for STDIO transport.
+    // When launched via npx, signals may not propagate through the process
+    // tree (npx → npm exec → sh -c → node). Detect parent death via stdin
+    // EOF and signal handlers to prevent orphaned processes accumulating.
+    //
+    // Handlers are registered BEFORE server.connect() to avoid a race
+    // where the parent dies during startup before handlers are attached.
+    let isShuttingDown = false;
+    const shutdownStdio = async () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+
+      // Give the server a chance to clean up, then force exit
+      const forceExit = setTimeout(() => process.exit(0), 2000);
+      forceExit.unref();
+
+      await mcpServer.close().catch(() => {});
+      process.exit(0);
+    };
+
+    process.once('SIGINT', () => { shutdownStdio(); });
+    process.once('SIGTERM', () => { shutdownStdio(); });
+    process.once('SIGHUP', () => { shutdownStdio(); });
+
+    // Per MCP spec, when the parent closes stdin the server should exit
+    process.stdin.once('end', () => { shutdownStdio(); });
+    process.stdin.once('close', () => { shutdownStdio(); });
+
+    // Periodic parent liveness check — if the parent process dies, exit
+    // to avoid becoming an orphan (PPID=1 on Linux). This is a third
+    // safety layer for cases where signals don't propagate and stdin
+    // pipes aren't closed (e.g. parent killed with SIGKILL).
+    const parentPid = process.ppid;
+    if (parentPid && parentPid !== 1) {
+      const parentCheck = setInterval(() => {
+        try {
+          process.kill(parentPid, 0);
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === 'ESRCH') {
+            // Parent process no longer exists
+            clearInterval(parentCheck);
+            shutdownStdio();
+          }
+          // EPERM means process exists but not signalable — treat as alive
+        }
+      }, 5000);
+      parentCheck.unref();
+    }
+
     const transport = new StdioServerTransport();
     await mcpServer.connect(transport);
-    
+
     // Log after connection is established
     logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
     logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);
