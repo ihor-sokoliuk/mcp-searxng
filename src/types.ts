@@ -82,8 +82,14 @@ export function isSearXNGInstanceInfoArgs(
 export const INSTANCE_INFO_TOOL: Tool = {
   name: "searxng_instance_info",
   description:
-    "Retrieves live configuration details from the configured SearXNG instance using its /config endpoint. " +
-    "Use this before category-specific or engine-specific searches when you need to discover what the instance actually supports.",
+    "ℹ️ INSTANCE DISCOVERY — query the SearXNG instance for its live configuration, supported engines, categories, and plugins. " +
+    "USE THIS WHEN: You need to know WHAT the instance supports before searching — especially for engine-specific or category-specific queries. " +
+    "RETURNS: Instance name, default locale, safe search level, autocomplete status, all categories (31+), locales (60+), engines (60-250+), and plugins." +
+    "\n\n💡 BEST PRACTICES:" +
+    "\n• Call this FIRST if you're unsure which engines are available." +
+    "\n• Use `category: 'news'` to see only news-capable engines before searching news." +
+    "\n• Use `includeEngines: true` with a category to get exact engine names for the `engines` parameter in web_search." +
+    "\n• Use `includeDisabled: true` to see all engines including offline ones.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -94,19 +100,19 @@ export const INSTANCE_INFO_TOOL: Tool = {
       includeEngines: {
         type: "boolean",
         description:
-          "Include matching engine details in the response. Defaults to false.",
+          "🔧 Include full engine details (name, shortcut, categories, status). Defaults to false for a compact response.",
         default: false,
       },
       includeDisabled: {
         type: "boolean",
         description:
-          "Include disabled engines when returning engine details. Defaults to false.",
+          "🚫 Include disabled/offline engines in the list. Useful for debugging or capacity planning. Defaults to false.",
         default: false,
       },
       category: {
         type: "string",
         description:
-          "Optional category filter for the engine list. Supplying this also implies engine details should be included.",
+          "📂 Filter engines by category (e.g., 'general', 'news', 'images', 'videos'). Automatically enables engine details for matching engines.",
       },
     },
   },
@@ -133,11 +139,20 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
-    "Searches the web using SearXNG. " +
-    "CRITICAL: The parameter name MUST be exactly `query` (not `prompt`, `q`, or any other name). " +
-    "Pass your search terms as the value of the `query` parameter. " +
-    "NOTE: SearXNG does not support `site:` operator — use it only for engines that support it directly (e.g., Google). " +
-    "For domain-specific searches, use the `engines` parameter instead.",
+    "🔍 SEARCH THE WEB — your primary tool for finding real-time information from the internet. " +
+    "USE THIS WHEN: You need current facts, data, news, documentation, or any information not in your training data. " +
+    "ALWAYS prefer this over guessing — web search gives you ACCURATE, UP-TO-DATE answers. " +
+    "\n\n⚠️ CRITICAL RULES (violating these WILL cause errors):" +
+    "\n1. The parameter name MUST be exactly `query` — NOT `prompt`, NOT `q`, NOT anything else." +
+    "\n2. The `query` parameter MUST be a non-empty string — empty or whitespace-only queries are REJECTED." +
+    "\n3. SearXNG does NOT support `site:` operator — for domain-specific searches, use the `engines` parameter instead (e.g., engines: ['google'])." +
+    "\n4. When using `engines`, pass an array like ['google', 'bing'] — NOT a comma-separated string." +
+    "\n5. Setting `language` may return FEWER results if the SearXNG instance lacks engines for that language." +
+    "\n\n💡 BEST PRACTICES:" +
+    "\n• Start with a simple query — add filters only if needed." +
+    "\n• Use `time_range: 'month'` for recent events, `'year'` for this year's info." +
+    "\n• Use `categories: ['news']` for breaking news, `['images']` for visual content." +
+    "\n• For research, prefer `searxng_multi_search` to query multiple angles simultaneously.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -148,29 +163,29 @@ export const WEB_SEARCH_TOOL: Tool = {
       query: {
         type: "string",
         description:
-          "The search query string. This is the required parameter name — use exactly `query`, not `prompt` or `q`.",
+          "🔍 REQUIRED: Your search query. Must be non-empty. Examples: 'latest AI benchmarks 2025', 'Python asyncio tutorial', 'CVE-2025-1234'. " +
+          "DO NOT use 'prompt' or 'q' as the parameter name — use EXACTLY 'query'.",
       },
       pageno: {
         type: "number",
-        description: "Search page number (starts at 1)",
+        description: "Page number for pagination (starts at 1). Use for deep research — page 1 has the best results.",
         default: 1,
       },
       time_range: {
         type: "string",
-        description: "Time range of search (day, month, year)",
+        description: "🕐 Filter by time: 'day' (last 24h), 'month' (last 30 days), 'year' (last 12 months). Omit for all-time results.",
         enum: ["day", "month", "year"],
       },
       language: {
         type: "string",
         description:
-          "Language code for search results (e.g., 'en', 'fr', 'de'). Default is 'all'. " +
-          "WARNING: Setting a specific language may return fewer results if the instance doesn't have many engines supporting that language.",
+          "🌐 Language code (e.g., 'en', 'fr', 'de', 'ru'). Default: 'all' (all languages). " +
+          "⚠️ WARNING: Setting a specific language may SIGNIFICANTLY reduce results if the instance doesn't have engines for that language.",
         default: "all",
       },
       safesearch: {
         type: "number",
-        description:
-          "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
+        description: "🛡️ Safe search: 0=None (default), 1=Moderate, 2=Strict",
         enum: [0, 1, 2],
         default: 0,
       },
@@ -178,13 +193,16 @@ export const WEB_SEARCH_TOOL: Tool = {
         type: "array",
         items: { type: "string" },
         description:
-          "Specific search engines to use (optional). Examples: bing, yandex, wikipedia, mwmbl",
+          "🎯 Target specific search engines (array of strings). Examples: ['google'], ['bing', 'duckduckgo'], ['wikipedia']. " +
+          "Available engines: google, bing, duckduckgo, yandex, wikipedia, brave, qwant, mojeek, etc. " +
+          "Without this parameter, the instance's default engines are used.",
       },
       categories: {
         type: "array",
         items: { type: "string" },
         description:
-          "Search categories to filter (optional). Examples: general, images, news, videos",
+          "📂 Filter by category (array of strings). Examples: ['general'], ['news'], ['images'], ['videos', 'news']. " +
+          "Available: general, images, videos, news, music, files, it, science, social media, etc.",
       },
     },
     required: ["query"],
@@ -194,8 +212,19 @@ export const WEB_SEARCH_TOOL: Tool = {
 export const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:
-    "Read the content from an URL. " +
-    "Use this for further information retrieving to understand the content of each URL.",
+    "📖 READ ANY URL — fetches a web page and converts it to clean Markdown for easy reading. " +
+    "USE THIS WHEN: You have a URL from search results or know a specific page you need to read. " +
+    "ALWAYS use this after `searxng_web_search` to deep-dive into promising results. " +
+    "\n\n⚠️ RULES:" +
+    "\n1. The `url` parameter MUST be a valid HTTP/HTTPS URL — other protocols are BLOCKED for security." +
+    "\n2. Private/internal URLs (localhost, 127.0.0.1, 192.168.x.x) are BLOCKED by default (SSRF protection)." +
+    "\n3. For large pages, use `maxLength` to avoid reading unnecessary content." +
+    "\n\n💡 BEST PRACTICES:" +
+    "\n• After web search, read the top 2-3 result URLs to find the best information." +
+    "\n• Use `section` to extract only the relevant heading (e.g., section: 'Installation')." +
+    "\n• Use `readHeadings: true` to quickly scan page structure before reading full content." +
+    "\n• Use `paragraphRange: '1-5'` to read just the introduction/summary." +
+    "\n• Use `maxLength: 5000` to limit output for quick skimming.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -205,29 +234,29 @@ export const READ_URL_TOOL: Tool = {
     properties: {
       url: {
         type: "string",
-        description: "URL",
+        description: "🔗 The URL to read. Must be http:// or https://. Example: 'https://docs.python.org/3/asyncio.html'",
       },
       startChar: {
         type: "number",
-        description: "Starting character position for content extraction (default: 0)",
+        description: "📍 Start reading from this character position (default: 0). Useful for pagination of large pages.",
         minimum: 0,
       },
       maxLength: {
         type: "number",
-        description: "Maximum number of characters to return",
+        description: "📏 Maximum characters to return. Use 3000-5000 for summaries, 10000+ for full articles.",
         minimum: 1,
       },
       section: {
         type: "string",
-        description: "Extract content under a specific heading (searches for heading text)",
+        description: "🎯 Extract only the content under a specific heading. Example: 'Getting Started' or 'API Reference'.",
       },
       paragraphRange: {
         type: "string",
-        description: "Return specific paragraph ranges (e.g., '1-5', '3', '10-')",
+        description: "📄 Return specific paragraphs. Formats: '3' (single), '1-5' (range), '10-' (from 10 to end).",
       },
       readHeadings: {
         type: "boolean",
-        description: "Return only a list of headings instead of full content",
+        description: "📋 If true, return ONLY the list of headings (table of contents) — great for quick page structure scan.",
       },
     },
     required: ["url"],
@@ -258,9 +287,19 @@ export function isSearXNGMultiSearchArgs(args: unknown): args is {
 export const MULTI_SEARCH_TOOL: Tool = {
   name: "searxng_multi_search",
   description:
-    "Search multiple queries simultaneously using SearXNG. " +
-    "Fires parallel requests and aggregates results. " +
-    "Use for research tasks requiring multiple perspectives or topics.",
+    "⚡ MULTI-SEARCH — fire up to 5 queries in PARALLEL and get aggregated results in one shot. " +
+    "USE THIS WHEN: You need to research a topic from multiple angles, compare information, or save time on batch searches. " +
+    "THIS IS 3-5x FASTER than making separate web_search calls sequentially. " +
+    "\n\n⚠️ RULES:" +
+    "\n1. The `queries` parameter MUST be an array of 1-5 non-empty strings." +
+    "\n2. Each query is fired with a 100ms stagger to avoid CAPTCHA/rate limits." +
+    "\n3. Results are aggregated with per-query sections for easy comparison." +
+    "\n\n💡 BEST PRACTICES:" +
+    "\n• Use different phrasings of the same topic for comprehensive coverage." +
+    "\n• Example: ['AI model benchmarks 2025', 'LLM comparison chart', 'Claude vs GPT performance']." +
+    "\n• For competitive analysis: ['ProductX pricing', 'ProductY pricing', 'ProductZ reviews']." +
+    "\n• For fact-checking: ['claim topic pro', 'claim topic con', 'claim topic fact-check']." +
+    "\n• Max 5 queries — for more, batch them into multiple calls.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -271,41 +310,46 @@ export const MULTI_SEARCH_TOOL: Tool = {
       queries: {
         type: "array",
         items: { type: "string" },
-        description: "List of search queries to execute in parallel (1-5 queries)",
+        description:
+          "🔍 REQUIRED: Array of 1-5 search queries to execute in parallel. " +
+          "Example: ['query1', 'query2', 'query3']. Each must be a non-empty string.",
         minItems: 1,
         maxItems: 5,
       },
       pageno: {
         type: "number",
-        description: "Search page number (starts at 1)",
+        description: "📄 Page number for pagination (starts at 1). Applied to ALL queries.",
         default: 1,
       },
       time_range: {
         type: "string",
-        description: "Time range of search (day, month, year)",
+        description: "🕐 Filter by time (applied to ALL queries): 'day', 'month', 'year'.",
         enum: ["day", "month", "year"],
       },
       language: {
         type: "string",
-        description: "Language code for search results (e.g., 'en', 'fr', 'de'). Default is 'all'. " +
-          "WARNING: Setting a specific language may return fewer results if the instance doesn't have many engines supporting that language.",
+        description: "🌐 Language code (applied to ALL queries). Default: 'all'. ⚠️ May reduce results.",
         default: "all",
       },
       safesearch: {
         type: "number",
-        description: "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
+        description: "🛡️ Safe search: 0=None (default), 1=Moderate, 2=Strict",
         enum: [0, 1, 2],
         default: 0,
       },
       engines: {
         type: "array",
         items: { type: "string" },
-        description: "Specific search engines to use (optional). Examples: google, bing, duckduckgo",
+        description:
+          "🎯 Target specific engines (applied to ALL queries). " +
+          "Example: ['google', 'bing']. Available: google, bing, duckduckgo, yandex, wikipedia, etc.",
       },
       categories: {
         type: "array",
         items: { type: "string" },
-        description: "Search categories to filter (optional). Examples: general, images, news, videos",
+        description:
+          "📂 Filter by category (applied to ALL queries). " +
+          "Example: ['general'], ['news']. Available: general, images, videos, news, etc.",
       },
     },
     required: ["queries"],
