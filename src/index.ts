@@ -12,9 +12,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
+import { WEB_SEARCH_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL, isSearXNGWebSearchArgs, isSearXNGMultiSearchArgs } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
-import { performWebSearch } from "./search.js";
+import { performWebSearch, performMultiSearch } from "./search.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer } from "./http-server.js";
@@ -94,7 +94,7 @@ export function createMcpServer(): McpServer {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
+      tools: [WEB_SEARCH_TOOL, READ_URL_TOOL, MULTI_SEARCH_TOOL],
     };
   });
 
@@ -115,7 +115,9 @@ export function createMcpServer(): McpServer {
           args.pageno,
           args.time_range,
           args.language,
-          args.safesearch
+          args.safesearch,
+          args.engines,
+          args.categories
         );
 
         return {
@@ -140,6 +142,30 @@ export function createMcpServer(): McpServer {
         };
 
         const result = await fetchAndConvertToMarkdown(mcpServer, args.url, 10000, paginationOptions);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } else if (name === "searxng_multi_search") {
+        if (!isSearXNGMultiSearchArgs(args)) {
+          throw new Error("Invalid arguments for multi search");
+        }
+
+        const result = await performMultiSearch(
+          mcpServer,
+          args.queries,
+          args.pageno,
+          args.time_range,
+          args.language,
+          args.safesearch,
+          args.engines,
+          args.categories
+        );
 
         return {
           content: [

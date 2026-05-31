@@ -15,6 +15,8 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   time_range?: string;
   language?: string;
   safesearch?: number;
+  engines?: string[];
+  categories?: string[];
 } {
   return (
     typeof args === "object" &&
@@ -65,6 +67,18 @@ export const WEB_SEARCH_TOOL: Tool = {
         enum: [0, 1, 2],
         default: 0,
       },
+      engines: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Specific search engines to use (optional). Examples: bing, yandex, wikipedia, mwmbl",
+      },
+      categories: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Search categories to filter (optional). Examples: general, images, news, videos",
+      },
     },
     required: ["query"],
   },
@@ -110,5 +124,82 @@ export const READ_URL_TOOL: Tool = {
       },
     },
     required: ["url"],
+  },
+};
+
+export function isSearXNGMultiSearchArgs(args: unknown): args is {
+  queries: string[];
+  pageno?: number;
+  time_range?: string;
+  language?: string;
+  safesearch?: number;
+  engines?: string[];
+  categories?: string[];
+} {
+  const queries = (args as { queries: string[] }).queries;
+  return (
+    typeof args === "object" &&
+    args !== null &&
+    "queries" in args &&
+    Array.isArray(queries) &&
+    queries.length > 0 &&
+    queries.length <= 5 &&
+    queries.every(q => typeof q === "string" && q.trim().length > 0)
+  );
+}
+
+export const MULTI_SEARCH_TOOL: Tool = {
+  name: "searxng_multi_search",
+  description:
+    "Search multiple queries simultaneously using SearXNG. " +
+    "Fires parallel requests and aggregates results. " +
+    "Use for research tasks requiring multiple perspectives or topics.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      queries: {
+        type: "array",
+        items: { type: "string" },
+        description: "List of search queries to execute in parallel (1-5 queries)",
+        minItems: 1,
+        maxItems: 5,
+      },
+      pageno: {
+        type: "number",
+        description: "Search page number (starts at 1)",
+        default: 1,
+      },
+      time_range: {
+        type: "string",
+        description: "Time range of search (day, month, year)",
+        enum: ["day", "month", "year"],
+      },
+      language: {
+        type: "string",
+        description: "Language code for search results (e.g., 'en', 'fr', 'de'). Default is 'all'.",
+        default: "all",
+      },
+      safesearch: {
+        type: "number",
+        description: "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
+        enum: [0, 1, 2],
+        default: 0,
+      },
+      engines: {
+        type: "array",
+        items: { type: "string" },
+        description: "Specific search engines to use (optional). Examples: google, bing, duckduckgo",
+      },
+      categories: {
+        type: "array",
+        items: { type: "string" },
+        description: "Search categories to filter (optional). Examples: general, images, news, videos",
+      },
+    },
+    required: ["queries"],
   },
 };
