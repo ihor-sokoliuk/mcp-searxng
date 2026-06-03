@@ -7,12 +7,12 @@
     "url": "https://github.com/ihor-sokoliuk/mcp-searxng",
     "source": "github"
   },
-  "version": "1.0.5",
+  "version": "1.1.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mcp-searxng",
-      "version": "1.0.5",
+      "version": "1.1.0",
       "transport": {
         "type": "stdio"
       },
