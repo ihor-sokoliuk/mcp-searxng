@@ -18,6 +18,18 @@ interface Session {
   mcpServer: McpServer;
 }
 
+/**
+ * Resolves the bind host from the MCP_HTTP_HOST environment variable.
+ * Falls back to "0.0.0.0" (all interfaces) when the variable is absent or whitespace-only.
+ */
+export function resolveBindHost(envValue: string | undefined): string {
+  const trimmed = envValue?.trim();
+  if (!trimmed) {
+    return "0.0.0.0";
+  }
+  return trimmed;
+}
+
 export async function createHttpServer(
   createMcpServer: () => McpServer
 ): Promise<express.Application> {

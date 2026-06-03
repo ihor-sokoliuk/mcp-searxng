@@ -40,6 +40,7 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
+| `MCP_HTTP_HOST` | No | `0.0.0.0` | Interface address to bind to. Use `127.0.0.1` for localhost-only, `0.0.0.0` for all interfaces, or a specific IP |
 
 **HTTP endpoints (when HTTP mode is active):**
 - `POST/GET/DELETE /mcp` — MCP protocol
@@ -83,6 +84,7 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "HTTPS_PROXY": "http://global-proxy.company.com:8080",
         "NO_PROXY": "localhost,127.0.0.1,.local,.internal",
         "MCP_HTTP_PORT": "3000",
+        "MCP_HTTP_HOST": "0.0.0.0",
         "MCP_HTTP_HARDEN": "true",
         "MCP_HTTP_AUTH_TOKEN": "replace-me",
         "MCP_HTTP_ALLOWED_ORIGINS": "https://app.example.com",

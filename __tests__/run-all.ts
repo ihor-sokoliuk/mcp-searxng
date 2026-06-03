@@ -18,6 +18,7 @@ import { runTests as runResourcesTests } from './unit/resources.test.js';
 import { runTests as runSearchTests } from './unit/search.test.js';
 import { runTests as runUrlReaderTests } from './unit/url-reader.test.js';
 import { runTests as runTlsConfigTests } from './unit/tls-config.test.js';
+import { runTests as runHttpServerUnitTests } from './unit/http-server.test.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
 
@@ -38,6 +39,7 @@ const testSuites: TestSuite[] = [
   { name: 'Search', category: 'unit', run: runSearchTests },
   { name: 'URL Reader', category: 'unit', run: runUrlReaderTests },
   { name: 'TLS Config', category: 'unit', run: runTlsConfigTests },
+  { name: 'HTTP Server', category: 'unit', run: runHttpServerUnitTests },
 
   // Integration Tests
   { name: 'HTTP Server', category: 'integration', run: runHttpServerTests },
