@@ -17,7 +17,7 @@ import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
-import { createHttpServer } from "./http-server.js";
+import { createHttpServer, resolveBindHost } from "./http-server.js";
 
 // Use a static version string that will be updated by the version script
 const packageVersion = "1.0.5";
@@ -245,11 +245,13 @@ async function main() {
       process.exit(1);
     }
 
-    console.log(`Starting HTTP transport on port ${port}`);
+    const host = resolveBindHost(process.env.MCP_HTTP_HOST);
+    console.log(`Starting HTTP transport on ${host}:${port}`);
     const app = await createHttpServer(createMcpServer);
     
-    const httpServer = app.listen(port, () => {
-      console.log(`HTTP server listening on port ${port}`);
+    const httpServer = app.listen(port, host, () => {
+      console.log(`HTTP server listening on ${host}:${port}`);
+      // Health/MCP URLs shown as localhost for developer convenience
       console.log(`Health check: http://localhost:${port}/health`);
       console.log(`MCP endpoint: http://localhost:${port}/mcp`);
     });
