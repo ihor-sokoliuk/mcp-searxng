@@ -33,7 +33,7 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 }
 ```
 
-Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://search.example.com`).
+Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`).
 
 ## Features
 

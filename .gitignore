@@ -41,3 +41,6 @@ Thumbs.db
 
 # registry credentials
 .mcpregistry*
+
+# Docker files
+# docker-compose.yml
