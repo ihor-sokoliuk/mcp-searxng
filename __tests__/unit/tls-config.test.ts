@@ -59,7 +59,8 @@ async function runTests() {
   return results;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { fileURLToPath } from 'node:url';
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   runTests().then(r => process.exit(r.failed > 0 ? 1 : 0)).catch(console.error);
 }
 

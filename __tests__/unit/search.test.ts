@@ -402,12 +402,111 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('min_score filtering - filters results below threshold', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      return new Response(JSON.stringify({
+        results: [
+          { title: 'High score', content: 'Very relevant', url: 'https://high.com', score: 0.9 },
+          { title: 'Medium score', content: 'Somewhat relevant', url: 'https://medium.com', score: 0.6 },
+          { title: 'Low score', content: 'Not relevant', url: 'https://low.com', score: 0.2 },
+          { title: 'Very low score', content: 'Irrelevant', url: 'https://verylow.com', score: 0.05 }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0.5);
+    
+    // Should only include results with score >= 0.5
+    assert.ok(result.includes('High score'), 'Should include high score result');
+    assert.ok(result.includes('Medium score'), 'Should include medium score result (0.6 >= 0.5)');
+    assert.ok(!result.includes('Low score'), 'Should exclude low score result (0.2 < 0.5)');
+    assert.ok(!result.includes('Very low score'), 'Should exclude very low score result (0.05 < 0.5)');
+    assert.ok(result.includes('Relevance Score: 0.900'), 'Should include score in output');
+    assert.ok(result.includes('Relevance Score: 0.600'), 'Should include score in output');
+    
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('min_score filtering - includes all results when min_score is 0', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      return new Response(JSON.stringify({
+        results: [
+          { title: 'Result 1', content: 'Content 1', url: 'https://1.com', score: 0.8 },
+          { title: 'Result 2', content: 'Content 2', url: 'https://2.com', score: 0.3 }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0);
+    
+    // Should include all results when min_score is 0
+    assert.ok(result.includes('Result 1'), 'Should include result 1');
+    assert.ok(result.includes('Result 2'), 'Should include result 2');
+    
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('min_score filtering - no results when all below threshold', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      return new Response(JSON.stringify({
+        results: [
+          { title: 'Low 1', content: 'Low content 1', url: 'https://low1.com', score: 0.1 },
+          { title: 'Low 2', content: 'Low content 2', url: 'https://low2.com', score: 0.05 }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0.5);
+    
+    // Should return no results message when all filtered
+    assert.ok(result.includes('No results found') || result.includes('no results'), 'Should indicate no results');
+    assert.ok(!result.includes('Low 1'), 'Should not include any low-score results');
+    
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('min_score undefined - no filtering applied', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      return new Response(JSON.stringify({
+        results: [
+          { title: 'High', content: 'High content', url: 'https://high.com', score: 0.9 },
+          { title: 'Low', content: 'Low content', url: 'https://low.com', score: 0.1 }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, undefined);
+    
+    // Should include all results when min_score is undefined
+    assert.ok(result.includes('High'), 'Should include high score result');
+    assert.ok(result.includes('Low'), 'Should include low score result');
+    
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Search Module');
   return results;
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { fileURLToPath } from 'node:url';
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   runTests().then(results => {
     process.exit(results.failed > 0 ? 1 : 0);
   }).catch(console.error);

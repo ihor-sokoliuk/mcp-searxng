@@ -15,13 +15,27 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   time_range?: string;
   language?: string;
   safesearch?: number;
+  min_score?: number;
 } {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "query" in args &&
-    typeof (args as { query: string }).query === "string"
-  );
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("query" in args) ||
+    typeof (args as { query: string }).query !== "string"
+  ) {
+    return false;
+  }
+
+  const searchArgs = args as any;
+
+  // Validate min_score if provided
+  if (searchArgs.min_score !== undefined) {
+    if (typeof searchArgs.min_score !== "number" || Number.isNaN(searchArgs.min_score) || searchArgs.min_score < 0 || searchArgs.min_score > 1) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export const WEB_SEARCH_TOOL: Tool = {
@@ -64,6 +78,13 @@ export const WEB_SEARCH_TOOL: Tool = {
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
         enum: [0, 1, 2],
         default: 0,
+      },
+      min_score: {
+        type: "number",
+        description:
+          "Minimum relevance score threshold (0.0-1.0). Results below this score are filtered out. Use 0.5+ for high-quality results, 0.8+ for only the most relevant.",
+        minimum: 0,
+        maximum: 1,
       },
     },
     required: ["query"],

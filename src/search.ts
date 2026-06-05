@@ -19,7 +19,8 @@ export async function performWebSearch(
   pageno: number = 1,
   time_range?: string,
   language: string = "all",
-  safesearch?: number
+  safesearch?: number,
+  min_score?: number
 ) {
   const startTime = Date.now();
   
@@ -28,7 +29,8 @@ export async function performWebSearch(
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null
+    safesearch ? `safesearch: ${safesearch}` : null,
+    min_score !== undefined ? `min_score: ${min_score}` : null
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -148,15 +150,20 @@ export async function performWebSearch(
     throw createDataError(data, context);
   }
 
-  const results = data.results.map((result) => ({
-    title: result.title || "",
-    content: result.content || "",
-    url: result.url || "",
-    score: result.score || 0,
-  }));
+  const results = data.results
+    .map((result) => ({
+      title: result.title || "",
+      content: result.content || "",
+      url: result.url || "",
+      score: result.score || 0,
+    }))
+    .filter((r) => min_score === undefined || r.score >= min_score);
 
   if (results.length === 0) {
-    logMessage(mcpServer, "info", `No results found for query: "${query}"`);
+    const reason = min_score !== undefined
+      ? `No results found for query: "${query}" (all results filtered by min_score: ${min_score})`
+      : `No results found for query: "${query}"`;
+    logMessage(mcpServer, "info", reason);
     return createNoResultsMessage(query);
   }
 

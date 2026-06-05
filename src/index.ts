@@ -115,7 +115,8 @@ export function createMcpServer(): McpServer {
           args.pageno,
           args.time_range,
           args.language,
-          args.safesearch
+          args.safesearch,
+          args.min_score
         );
 
         return {
@@ -304,8 +305,12 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-// Start the server (CLI entrypoint)
-main().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
-});
+// Start the server (CLI entrypoint) — only when run directly, not when imported
+import { fileURLToPath } from 'node:url';
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMainModule) {
+  main().catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
+}

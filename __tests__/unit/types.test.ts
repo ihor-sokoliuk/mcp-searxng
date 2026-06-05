@@ -22,6 +22,22 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'day' }), true);
   }, results);
 
+  await testFunction('isSearXNGWebSearchArgs type guard - min_score valid cases', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 0.5 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 0 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 0.85 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 0.01 }), true);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs type guard - min_score invalid cases', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: -0.1 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1.1 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: '0.5' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: null }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: NaN }), false);
+  }, results);
+
   await testFunction('isSearXNGWebSearchArgs type guard - invalid cases', () => {
     assert.equal(isSearXNGWebSearchArgs({ notQuery: 'test' }), false);
     assert.equal(isSearXNGWebSearchArgs(null), false);
@@ -79,7 +95,9 @@ async function runTests() {
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { fileURLToPath } from 'node:url';
+const isMainModule = fileURLToPath(import.meta.url) === process.argv[1];
+if (isMainModule) {
   runTests().then(results => {
     process.exit(results.failed > 0 ? 1 : 0);
   }).catch(console.error);
