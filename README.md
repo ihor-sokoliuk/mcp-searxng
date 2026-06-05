@@ -44,6 +44,8 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 - **Time Filtering**: Filter results by time range (day, month, year).
 - **Language Selection**: Filter results by preferred language.
 - **Safe Search**: Control content filtering level for search results.
+- **Engine Selection**: Target specific search engines (e.g., google, bing, wikipedia).
+- **Category Filtering**: Filter results by category (e.g., news, images, videos).
 
 ## How It Works
 

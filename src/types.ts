@@ -15,13 +15,35 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   time_range?: string;
   language?: string;
   safesearch?: number;
+  engines?: string[];
+  categories?: string[];
 } {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "query" in args &&
-    typeof (args as { query: string }).query === "string"
-  );
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("query" in args) ||
+    typeof (args as { query: string }).query !== "string"
+  ) {
+    return false;
+  }
+  const a = args as Record<string, unknown>;
+  // Normalize engines: accept string[] or string
+  if (a.engines !== undefined) {
+    if (Array.isArray(a.engines)) {
+      if (!a.engines.every(e => typeof e === "string")) return false;
+    } else if (typeof a.engines !== "string") {
+      return false;
+    }
+  }
+  // Normalize categories: accept string[] or string
+  if (a.categories !== undefined) {
+    if (Array.isArray(a.categories)) {
+      if (!a.categories.every(c => typeof c === "string")) return false;
+    } else if (typeof a.categories !== "string") {
+      return false;
+    }
+  }
+  return true;
 }
 
 export const WEB_SEARCH_TOOL: Tool = {
@@ -66,6 +88,20 @@ export const WEB_SEARCH_TOOL: Tool = {
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
         enum: [0, 1, 2],
         default: 0,
+      },
+      engines: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Target specific search engines (e.g., [\"google\", \"bing\", \"wikipedia\"]). " +
+          "Without this parameter, the instance's default engines are used.",
+      },
+      categories: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Filter by category (e.g., [\"general\"], [\"news\"], [\"images\"]). " +
+          "Available: general, images, videos, news, music, files, it, science, social media, etc.",
       },
     },
     required: ["query"],

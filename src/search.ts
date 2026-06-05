@@ -13,22 +13,44 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
+/**
+ * Safely normalize a value that should be a string array.
+ * LLM clients may send a comma-separated string instead of an array.
+ */
+function toArray(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return value.filter(v => typeof v === "string" && v.length > 0);
+  if (typeof value === "string") {
+    const items = value.split(",").map(s => s.trim()).filter(s => s.length > 0);
+    return items.length > 0 ? items : undefined;
+  }
+  return undefined;
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
   pageno: number = 1,
   time_range?: string,
   language: string = "all",
-  safesearch?: number
+  safesearch?: number,
+  engines?: string[],
+  categories?: string[]
 ) {
   const startTime = Date.now();
   
+  // Normalize engines/categories: LLM may send string instead of array
+  const safeEngines = toArray(engines);
+  const safeCategories = toArray(categories);
+
   // Build detailed log message with all parameters
   const searchParams = [
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null
+    safesearch ? `safesearch: ${safesearch}` : null,
+    safeEngines && safeEngines.length > 0 ? `engines: ${safeEngines.join(",")}` : null,
+    safeCategories && safeCategories.length > 0 ? `categories: ${safeCategories.join(",")}` : null
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -61,6 +83,14 @@ export async function performWebSearch(
 
   if (safesearch !== undefined && [0, 1, 2].includes(safesearch)) {
     url.searchParams.set("safesearch", safesearch.toString());
+  }
+
+  if (safeEngines && safeEngines.length > 0) {
+    url.searchParams.set("engines", safeEngines.join(","));
+  }
+
+  if (safeCategories && safeCategories.length > 0) {
+    url.searchParams.set("categories", safeCategories.join(","));
   }
 
   // Prepare request options with headers
