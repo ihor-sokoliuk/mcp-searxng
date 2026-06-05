@@ -27,9 +27,11 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
-    "Searches the web using SearXNG. " +
-    "CRITICAL: The parameter name MUST be exactly `query` (not `prompt`, `q`, or any other name). " +
-    "Pass your search terms as the value of the `query` parameter.",
+    "Searches the web using SearXNG and returns a list of results, each with a title, URL, and content snippet. " +
+    "CRITICAL: The required parameter name is exactly `query` (not `prompt`, `q`, or any other name). " +
+    "Calls an external SearXNG instance; availability depends on the `SEARXNG_URL` configuration. " +
+    "Use `pageno` to paginate results; combine `time_range` and `language` to narrow scope. " +
+    "To read the full text of a result URL, follow up with `web_url_read`.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
@@ -73,8 +75,13 @@ export const WEB_SEARCH_TOOL: Tool = {
 export const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:
-    "Read the content from an URL. " +
-    "Use this for further information retrieving to understand the content of each URL.",
+    "Fetches a URL and returns its text content converted to markdown. " +
+    "Three modes: " +
+    "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
+    "(2) Section extraction — set `section` to return content under a specific heading. " +
+    "(3) Headings only — set `readHeadings: true` to list all headings (mutually exclusive with other filtering params). " +
+    "Returns an error string if the URL is unreachable or content cannot be extracted. " +
+    "Use after `searxng_web_search` to read the full content of individual result URLs.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,

@@ -43,4 +43,4 @@ Thumbs.db
 .mcpregistry*
 
 # Docker files
-# docker-compose.yml
+docker-compose.yml
