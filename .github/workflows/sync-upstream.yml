@@ -1,0 +1,137 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/ihor-sokoliuk/mcp-searxng.git
+  UPSTREAM_BRANCH: master
+  TARGET_BRANCH: main
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || github.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch origin and upstream
+        run: |
+          git remote remove upstream || true
+          git remote add upstream "${UPSTREAM_REPO}"
+          git fetch --prune origin
+          git fetch --prune upstream "${UPSTREAM_BRANCH}"
+
+      - name: Detect upstream changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          upstream_ref="upstream/${UPSTREAM_BRANCH}"
+          target_ref="origin/${TARGET_BRANCH}"
+          merge_base="$(git merge-base "${target_ref}" "${upstream_ref}")"
+          upstream_ahead_count="$(git rev-list --count "${merge_base}..${upstream_ref}")"
+
+          echo "merge_base=${merge_base}" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$(git rev-parse "${upstream_ref}")" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$(git rev-parse "${target_ref}")" >> "$GITHUB_OUTPUT"
+          echo "upstream_ahead_count=${upstream_ahead_count}" >> "$GITHUB_OUTPUT"
+
+          if [ "${upstream_ahead_count}" = "0" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream changes detected."
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream is ahead by ${upstream_ahead_count} commit(s)."
+          fi
+
+      - name: Rebase fork branch onto upstream
+        if: steps.detect.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+          git rebase "upstream/${UPSTREAM_BRANCH}"
+          git push origin "${TARGET_BRANCH}" --force-with-lease
+
+      - name: Create sync tag
+        if: steps.detect.outputs.has_changes == 'true'
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_sha="${{ steps.detect.outputs.upstream_sha }}"
+          short_sha="${short_sha:0:7}"
+          date_tag="$(date -u +%Y%m%d)"
+          tag="sync-${date_tag}-${short_sha}-${GITHUB_RUN_NUMBER}"
+          feature_head="$(git rev-parse HEAD)"
+
+          git tag "${tag}" "${feature_head}"
+          git push origin "${tag}"
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "feature_head=${feature_head}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        if: steps.detect.outputs.has_changes == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Sync ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ steps.tag.outputs.feature_head }}
+          generate_release_notes: true
+          body: |
+            Automated upstream sync for Docker publishing.
+
+            - Upstream repo: ${{ env.UPSTREAM_REPO }}
+            - Upstream branch: ${{ env.UPSTREAM_BRANCH }}
+            - Target branch before rebase: ${{ steps.detect.outputs.target_sha }}
+            - Merge base before rebase: ${{ steps.detect.outputs.merge_base }}
+            - New upstream HEAD: ${{ steps.detect.outputs.upstream_sha }}
+            - Upstream commits ahead: ${{ steps.detect.outputs.upstream_ahead_count }}
+            - Synced fork HEAD: ${{ steps.tag.outputs.feature_head }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
+
+      - name: No changes to sync
+        if: steps.detect.outputs.has_changes != 'true'
+        run: echo "Nothing to sync."
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          {
+            echo "## Upstream Sync"
+            echo ""
+            echo "- Upstream repo: ${UPSTREAM_REPO}"
+            echo "- Upstream branch: ${UPSTREAM_BRANCH}"
+            echo "- Target branch: ${TARGET_BRANCH}"
+            echo "- Previous fork HEAD: ${{ steps.detect.outputs.target_sha }}"
+            echo "- Merge base: ${{ steps.detect.outputs.merge_base }}"
+            echo "- Upstream HEAD: ${{ steps.detect.outputs.upstream_sha }}"
+            echo "- Upstream commits ahead: ${{ steps.detect.outputs.upstream_ahead_count }}"
+            echo "- Sync performed: ${{ steps.detect.outputs.has_changes }}"
+            echo "- Release tag: ${{ steps.tag.outputs.tag }}"
+          } >> "$GITHUB_STEP_SUMMARY"
