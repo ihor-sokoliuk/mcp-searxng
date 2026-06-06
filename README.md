@@ -73,6 +73,8 @@ AI Assistant (e.g. Claude)
     - `time_range` (string, optional): Filter results by time range - one of: "day", "month", "year" (default: none)
     - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
     - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
+    - `engines` (array, optional): Target specific search engines (e.g., ["google", "bing", "wikipedia"])
+    - `categories` (array, optional): Filter by category (e.g., ["general", "news", "images"])
 
 - **web_url_read**
   - Read and convert the content from a URL to markdown with advanced content extraction options
