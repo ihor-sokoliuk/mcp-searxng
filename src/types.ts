@@ -34,13 +34,12 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     }
     if (!Array.isArray(a.engines) || !a.engines.every(e => typeof e === "string")) return false;
   }
-  // Normalize categories: accept string[] or string
+  // Normalize categories: accept string[] or comma-separated string
   if (a.categories !== undefined) {
-    if (Array.isArray(a.categories)) {
-      if (!a.categories.every(c => typeof c === "string")) return false;
-    } else if (typeof a.categories !== "string") {
-      return false;
+    if (typeof a.categories === "string") {
+      a.categories = a.categories.split(",").map(s => s.trim()).filter(s => s.length > 0);
     }
+    if (!Array.isArray(a.categories) || !a.categories.every(c => typeof c === "string")) return false;
   }
   return true;
 }
