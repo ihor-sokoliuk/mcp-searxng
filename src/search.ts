@@ -19,7 +19,10 @@ import {
  */
 function toArray(value: unknown): string[] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (Array.isArray(value)) return value.filter(v => typeof v === "string" && v.length > 0);
+  if (Array.isArray(value)) {
+    const trimmed = value.map(v => typeof v === "string" ? v.trim() : "").filter(v => v.length > 0);
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
   if (typeof value === "string") {
     const items = value.split(",").map(s => s.trim()).filter(s => s.length > 0);
     return items.length > 0 ? items : undefined;
@@ -48,7 +51,7 @@ export async function performWebSearch(
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null,
+    safesearch !== undefined ? `safesearch: ${safesearch}` : null,
     safeEngines && safeEngines.length > 0 ? `engines: ${safeEngines.join(",")}` : null,
     safeCategories && safeCategories.length > 0 ? `categories: ${safeCategories.join(",")}` : null
   ].filter(Boolean).join(", ");
