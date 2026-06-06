@@ -27,13 +27,12 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     return false;
   }
   const a = args as Record<string, unknown>;
-  // Normalize engines: accept string[] or string
+  // Normalize engines: accept string[] or comma-separated string
   if (a.engines !== undefined) {
-    if (Array.isArray(a.engines)) {
-      if (!a.engines.every(e => typeof e === "string")) return false;
-    } else if (typeof a.engines !== "string") {
-      return false;
+    if (typeof a.engines === "string") {
+      a.engines = a.engines.split(",").map(s => s.trim()).filter(s => s.length > 0);
     }
+    if (!Array.isArray(a.engines) || !a.engines.every(e => typeof e === "string")) return false;
   }
   // Normalize categories: accept string[] or string
   if (a.categories !== undefined) {
