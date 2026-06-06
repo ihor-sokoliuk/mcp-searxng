@@ -17,7 +17,7 @@ concurrency:
 
 env:
   PLATFORMS: linux/amd64,linux/arm64
-  IMAGE_NAME: isokoliuk/mcp-searxng
+  IMAGE_NAME: cpxazn/mcp-searxng
 
 jobs:
   push_to_registry:
