@@ -20,9 +20,9 @@ ARG GIT_COMMIT
 ARG GIT_BRANCH
 ARG BUILD_DATE
 
-LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
-     org.opencontainers.image.source="https://github.com/ihor-sokoliuk/mcp-searxng"
-     org.opencontainers.image.version="${GIT_BRANCH}"
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.source="https://github.com/ihor-sokoliuk/mcp-searxng" \
+      org.opencontainers.image.version="${GIT_BRANCH}"
 
 ENV GIT_COMMIT=${GIT_COMMIT} \
     GIT_BRANCH=${GIT_BRANCH} \
