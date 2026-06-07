@@ -7,6 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { spawnSync } from 'node:child_process';
 import { 
   packageVersion, 
   isWebUrlReadArgs,
@@ -187,6 +188,32 @@ async function runTests() {
     assert.ok(typeof packageVersion === 'string');
 
     env.restore();
+  }, results);
+
+  await testFunction('Importing index.ts does not start the CLI server', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '-e',
+        "await import('./src/index.ts')",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MCP_HTTP_PORT: '',
+          SEARXNG_URL: '',
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      },
+    );
+
+    assert.equal(result.status, 0, `Import process failed: ${result.stderr}`);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, '');
   }, results);
 
   await testFunction('createMcpServer returns an McpServer instance', () => {
