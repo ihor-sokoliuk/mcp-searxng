@@ -19,6 +19,7 @@ class SimpleCache {
     this.cleanupInterval = setInterval(() => {
       this.cleanupExpired();
     }, cleanupIntervalMs);
+    this.cleanupInterval.unref();
   }
 
   private cleanupExpired(): void {

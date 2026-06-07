@@ -115,7 +115,8 @@ export function createMcpServer(): McpServer {
           args.pageno,
           args.time_range,
           args.language,
-          args.safesearch
+          args.safesearch,
+          args.min_score
         );
 
         return {

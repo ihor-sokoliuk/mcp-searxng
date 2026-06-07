@@ -81,6 +81,30 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('URL construction supports week time range', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_NETWORK_ERROR');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, 'week');
+    } catch {
+      // Expected to fail with mock error
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.searchParams.get('time_range'), 'week');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('URL construction with subpath', async () => {
     // Case 1: Subpath without trailing slash
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com/subpath');
@@ -277,6 +301,65 @@ async function runTests() {
     assert.ok(result.includes('Test Result 2'));
     assert.ok(result.includes('https://example.com/1'));
     assert.ok(result.includes('https://example.com/2'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('min_score filters out lower relevance results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'High Score Result',
+            content: 'Strong match',
+            url: 'https://example.com/high',
+            score: 0.92
+          },
+          {
+            title: 'Low Score Result',
+            content: 'Weak match',
+            url: 'https://example.com/low',
+            score: 0.31
+          }
+        ]
+      }
+    });
+
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0.5);
+    assert.ok(result.includes('High Score Result'));
+    assert.ok(!result.includes('Low Score Result'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('min_score returns no-results message when all results are filtered', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Low Score Result',
+            content: 'Weak match',
+            url: 'https://example.com/low',
+            score: 0.2
+          }
+        ]
+      }
+    });
+
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0.8);
+    assert.ok(result.includes('No results found'));
 
     fetchMocker.restore();
     envManager.restore();

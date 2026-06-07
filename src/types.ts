@@ -9,19 +9,63 @@ export interface SearXNGWeb {
   }>;
 }
 
+const VALID_TIME_RANGES = ["day", "week", "month", "year"] as const;
+const VALID_SAFESEARCH_VALUES = [0, 1, 2] as const;
+
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
   pageno?: number;
   time_range?: string;
   language?: string;
   safesearch?: number;
+  min_score?: number;
 } {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    "query" in args &&
-    typeof (args as { query: string }).query === "string"
-  );
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("query" in args) ||
+    typeof (args as { query: string }).query !== "string"
+  ) {
+    return false;
+  }
+
+  const searchArgs = args as {
+    pageno?: unknown;
+    time_range?: unknown;
+    language?: unknown;
+    safesearch?: unknown;
+    min_score?: unknown;
+  };
+
+  if (searchArgs.pageno !== undefined && (typeof searchArgs.pageno !== "number" || searchArgs.pageno < 1)) {
+    return false;
+  }
+  if (
+    searchArgs.time_range !== undefined &&
+    (typeof searchArgs.time_range !== "string" || !VALID_TIME_RANGES.includes(searchArgs.time_range as any))
+  ) {
+    return false;
+  }
+  if (searchArgs.language !== undefined && typeof searchArgs.language !== "string") {
+    return false;
+  }
+  if (
+    searchArgs.safesearch !== undefined &&
+    (typeof searchArgs.safesearch !== "number" || !VALID_SAFESEARCH_VALUES.includes(searchArgs.safesearch as any))
+  ) {
+    return false;
+  }
+  if (
+    searchArgs.min_score !== undefined &&
+    (typeof searchArgs.min_score !== "number" ||
+      Number.isNaN(searchArgs.min_score) ||
+      searchArgs.min_score < 0 ||
+      searchArgs.min_score > 1)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 export const WEB_SEARCH_TOOL: Tool = {
@@ -51,8 +95,8 @@ export const WEB_SEARCH_TOOL: Tool = {
       },
       time_range: {
         type: "string",
-        description: "Time range of search (day, month, year)",
-        enum: ["day", "month", "year"],
+        description: "Time range of search (day, week, month, year)",
+        enum: ["day", "week", "month", "year"],
       },
       language: {
         type: "string",
@@ -66,6 +110,13 @@ export const WEB_SEARCH_TOOL: Tool = {
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
         enum: [0, 1, 2],
         default: 0,
+      },
+      min_score: {
+        type: "number",
+        description:
+          "Minimum relevance score threshold from 0.0 to 1.0. Results below this score are filtered out.",
+        minimum: 0,
+        maximum: 1,
       },
     },
     required: ["query"],

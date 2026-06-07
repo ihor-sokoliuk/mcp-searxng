@@ -132,6 +132,16 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
+  await testFunction('Cache cleanup interval does not keep process alive', () => {
+    const testCache = new SimpleCache(1000, 1000);
+    const interval = (testCache as any).cleanupInterval;
+
+    assert.ok(interval, 'Expected cleanup interval to be created');
+    assert.equal(interval.hasRef(), false, 'Cleanup interval should be unref()ed');
+
+    testCache.destroy();
+  }, results);
+
   printTestSummary(results, 'Cache Module');
   return results;
 }

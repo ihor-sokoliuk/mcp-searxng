@@ -47,9 +47,10 @@ Performs web searches using the configured SearXNG instance.
 **Parameters:**
 - \`query\` (required): The search query string
 - \`pageno\` (optional): Page number (default: 1)
-- \`time_range\` (optional): Filter by time - "day", "month", or "year"
+- \`time_range\` (optional): Filter by time - "day", "week", "month", or "year"
 - \`language\` (optional): Language code like "en", "fr", "de" (default: "all")
 - \`safesearch\` (optional): Safe search level - 0 (none), 1 (moderate), 2 (strict)
+- \`min_score\` (optional): Minimum relevance score from 0.0 to 1.0
 
 ### 2. web_url_read
 Reads and converts web page content to Markdown format.
