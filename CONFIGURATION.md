@@ -56,8 +56,16 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 | `MCP_HTTP_AUTH_TOKEN` | No | — | Required bearer token for all HTTP requests in hardened mode |
 | `MCP_HTTP_ALLOWED_ORIGINS` | No | — | Comma-separated CORS origin allowlist (e.g. `https://app.example.com`) |
 | `MCP_HTTP_ALLOWED_HOSTS` | No | — | Comma-separated DNS rebinding protection allowlist override |
-| `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs in hardened mode |
+| `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs. Private URL reads are blocked by default in all modes. |
 | `MCP_HTTP_EXPOSE_FULL_CONFIG` | No | `false` | Expose full config details in `/health` response (for debugging) |
+
+## URL Reader Security
+
+`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, IPv6 loopback/ULA/link-local addresses, and IPv4-mapped IPv6 private addresses.
+
+Redirects are also checked before they are followed. A public URL that redirects to a private/internal URL is blocked.
+
+Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment.
 
 
 ## Full Example (All Options)

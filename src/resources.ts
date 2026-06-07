@@ -68,6 +68,10 @@ Reads and converts web page content to Markdown format.
 - \`HTTP_PROXY\` / \`HTTPS_PROXY\`: Proxy server configuration
 - \`NO_PROXY\` / \`no_proxy\`: Comma-separated list of hosts to bypass proxy
 - \`MCP_HTTP_PORT\`: Enable HTTP transport on specified port
+- \`MCP_HTTP_ALLOW_PRIVATE_URLS\`: Allow \`web_url_read\` to fetch private/internal URLs. Disabled by default in all modes.
+
+### URL Reader Security
+\`web_url_read\` blocks private/internal URLs and redirects to private/internal URLs by default. Set \`MCP_HTTP_ALLOW_PRIVATE_URLS=true\` only when internal URL reads are intentional.
 
 ## Transport Modes
 

@@ -40,9 +40,71 @@ interface TestServer {
   close: () => Promise<void>;
 }
 
-function startTestServer(opts: ServerOpts = {}): Promise<TestServer> {
+type ServerHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void;
+type ConnectProxyHandler = (authority: string, requestText: string) => {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string;
+};
+
+function startHttpServer(handler: ServerHandler): Promise<TestServer> {
   return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
+    const server = http.createServer(handler);
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as net.AddressInfo;
+      resolve({
+        url: `http://127.0.0.1:${addr.port}`,
+        close: () =>
+          new Promise<void>((res) => {
+            server.closeAllConnections();
+            server.close(() => res());
+          }),
+      });
+    });
+
+    server.once('error', reject);
+  });
+}
+
+function startConnectProxyServer(handler: ConnectProxyHandler): Promise<TestServer> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer();
+
+    server.on('connect', (req, socket) => {
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      socket.once('data', (data) => {
+        const response = handler(req.url || '', data.toString('utf8'));
+        const status = response.status ?? 200;
+        const headers = {
+          'content-type': 'text/html; charset=utf-8',
+          ...response.headers,
+        };
+        const headerLines = Object.entries(headers)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join('\r\n');
+        socket.end(`HTTP/1.1 ${status} OK\r\n${headerLines}\r\n\r\n${response.body ?? ''}`);
+      });
+    });
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as net.AddressInfo;
+      resolve({
+        url: `http://127.0.0.1:${addr.port}`,
+        close: () =>
+          new Promise<void>((res) => {
+            server.closeAllConnections();
+            server.close(() => res());
+          }),
+      });
+    });
+
+    server.once('error', reject);
+  });
+}
+
+function startTestServer(opts: ServerOpts = {}): Promise<TestServer> {
+  return startHttpServer((req, res) => {
       if (opts.closeImmediately) {
         req.socket.destroy();
         return;
@@ -58,21 +120,6 @@ function startTestServer(opts: ServerOpts = {}): Promise<TestServer> {
       };
       res.writeHead(status, headers);
       res.end(opts.body ?? '');
-    });
-
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as net.AddressInfo;
-      resolve({
-        url: `http://127.0.0.1:${addr.port}`,
-        close: () =>
-          new Promise<void>((res) => {
-            server.closeAllConnections(); // drop any lingering (hung) connections
-            server.close(() => res());
-          }),
-      });
-    });
-
-    server.once('error', reject);
   });
 }
 
@@ -95,6 +142,8 @@ function getFreePort(): Promise<number> {
 
 async function runTests() {
   console.log('🧪 Testing: url-reader.ts\n');
+  const originalAllowPrivateUrls = process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+  process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = 'true';
 
   // ── invalid URLs (blocked before any network call) ────────────────────────
 
@@ -409,6 +458,178 @@ async function runTests() {
 
   // ── security: hardened mode ───────────────────────────────────────────────
 
+  await testFunction('default mode blocks private URL reads', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    const privateUrls = [
+      'http://127.0.0.1:1/private',
+      'http://localhost:1/private',
+      'http://10.0.0.1/private',
+    ];
+
+    try {
+      for (const privateUrl of privateUrls) {
+        try {
+          await fetchAndConvertToMarkdown(mockServer as any, privateUrl, 50);
+          assert.fail(`Expected private URL to be blocked: ${privateUrl}`);
+        } catch (error: any) {
+          assert.ok(
+            error.message.includes('blocked by security policy'),
+            `Expected security policy error for ${privateUrl}, got: ${error.message}`,
+          );
+        }
+      }
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('default mode blocks 0.0.0.0 URL reads', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://0.0.0.0:1/private', 50);
+      assert.fail('Expected 0.0.0.0 URL to be blocked');
+    } catch (error: any) {
+      assert.ok(error.message.includes('blocked by security policy'));
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('default mode blocks hex IPv4-mapped IPv6 private URL reads', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://[::ffff:7f00:1]:1/private', 50);
+      assert.fail('Expected IPv4-mapped IPv6 URL to be blocked');
+    } catch (error: any) {
+      assert.ok(error.message.includes('blocked by security policy'));
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('redirects to private URLs are blocked', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    const proxy = await startConnectProxyServer((authority) => {
+      if (authority === 'public.example:80') {
+        return {
+          status: 302,
+          headers: { Location: 'http://127.0.0.1:12345/private' },
+        };
+      }
+
+      return {
+        body: '<html><body><h1>Internal redirect target</h1></body></html>',
+      };
+    });
+
+    envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+    envManager.delete('NO_PROXY');
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://public.example/article', 1000);
+      assert.fail('Expected redirect to private URL to be blocked');
+    } catch (error: any) {
+      assert.ok(
+        error.message.includes('blocked by security policy'),
+        `Expected security policy error, got: ${error.message}`,
+      );
+    } finally {
+      await proxy.close();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('redirects to public URLs are followed', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    const proxy = await startConnectProxyServer((authority, requestText) => {
+      if (authority === 'public.example:80' && requestText.startsWith('GET /start ')) {
+        return {
+          status: 302,
+          headers: { Location: 'http://safe.example/final' },
+        };
+      }
+
+      return {
+        body: '<html><body><h1>Public redirect target</h1></body></html>',
+      };
+    });
+
+    envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+    envManager.delete('NO_PROXY');
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, 'http://public.example/start', 1000);
+      assert.ok(result.includes('Public redirect target'), `Expected public redirect content, got: ${result}`);
+    } finally {
+      await proxy.close();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('redirect responses without Location are treated as server errors', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    const proxy = await startConnectProxyServer(() => ({
+      status: 302,
+      body: '<html><body>Missing location</body></html>',
+    }));
+
+    envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+    envManager.delete('NO_PROXY');
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://public.example/missing-location', 1000);
+      assert.fail('Expected redirect without Location to be treated as a server error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('Server Error') || error.message.includes('302'));
+    } finally {
+      await proxy.close();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('redirect chains are capped', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    let redirectCount = 0;
+    const proxy = await startConnectProxyServer(() => {
+      redirectCount++;
+      return {
+        status: 302,
+        headers: { Location: `http://loop.example/redirect-${redirectCount}` },
+      };
+    });
+
+    envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+    envManager.delete('NO_PROXY');
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://public.example/start-loop', 1000);
+      assert.fail('Expected redirect chain to be capped');
+    } catch (error: any) {
+      assert.ok(error.message.includes('Too many redirects'), `Unexpected error: ${error.message}`);
+    } finally {
+      await proxy.close();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('hardened mode blocks localhost URL reads', async () => {
     const mockServer = createMockServer();
     envManager.set('MCP_HTTP_HARDEN', 'true');
@@ -639,6 +860,12 @@ async function runTests() {
     }
   }, results);
 
+  if (originalAllowPrivateUrls === undefined) {
+    delete process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+  } else {
+    process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = originalAllowPrivateUrls;
+  }
+
   printTestSummary(results, 'URL Reader Module');
   return results;
 }
@@ -651,5 +878,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 export { runTests };
-
-

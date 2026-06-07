@@ -27,6 +27,9 @@ interface PaginationOptions {
   readHeadings?: boolean;
 }
 
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
+
 function isPrivateHostname(hostname: string): boolean {
   const lower = hostname.toLowerCase().replace(/\.+$/, "");
   return lower === "localhost" || lower.endsWith(".localhost");
@@ -38,6 +41,7 @@ function isPrivateIpv4(hostname: string): boolean {
   }
 
   return (
+    hostname.startsWith("0.") ||
     hostname.startsWith("10.") ||
     hostname.startsWith("127.") ||
     hostname.startsWith("192.168.") ||
@@ -64,18 +68,31 @@ function isPrivateIPv6(hostname: string): boolean {
   const mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
   if (mapped) return isPrivateIpv4(mapped[1]);
 
+  // IPv4-mapped ::ffff:<hhhh>:<hhhh> — convert the hex segments to dotted decimal
+  const hexMapped = addr.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexMapped) {
+    const high = parseInt(hexMapped[1], 16);
+    const low = parseInt(hexMapped[2], 16);
+    const ipv4 = `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+    return isPrivateIpv4(ipv4);
+  }
+
   return false;
 }
 
 function assertUrlAllowed(url: URL): void {
   const security = getHttpSecurityConfig();
-  if (!security.harden || security.allowPrivateUrls) {
+  if (security.allowPrivateUrls) {
     return;
   }
 
   if (isPrivateHostname(url.hostname) || isPrivateIpv4(url.hostname) || isPrivateIPv6(url.hostname)) {
     throw createURLSecurityPolicyError(url.toString());
   }
+}
+
+function isRedirectResponse(response: Response): boolean {
+  return REDIRECT_STATUS_CODES.has(response.status);
 }
 
 function applyCharacterPagination(content: string, startChar: number = 0, maxLength?: number): string {
@@ -232,17 +249,11 @@ export async function fetchAndConvertToMarkdown(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Prepare request options with proxy support
+    // Prepare base request options with proxy support
     const requestOptions: RequestInit = {
       signal: controller.signal,
+      redirect: "manual",
     };
-
-    // Add proxy or default dispatcher (includes system CA certs for TLS)
-    const proxyAgent = createProxyAgent(url, ProxyType.URL_READER);
-    const dispatcher = proxyAgent ?? createDefaultAgent();
-    if (dispatcher) {
-      (requestOptions as any).dispatcher = dispatcher;
-    }
 
     // Add User-Agent header if configured (URL_READER_USER_AGENT takes priority over USER_AGENT)
     const userAgent = process.env.URL_READER_USER_AGENT || process.env.USER_AGENT;
@@ -253,17 +264,53 @@ export async function fetchAndConvertToMarkdown(
       };
     }
 
-    let response: Response;
+    let response!: Response;
+    let currentUrl = parsedUrl;
+    let usedDispatcher = false;
     try {
-      // Fetch the URL with the abort signal.
-      // Use undici's own fetch so it shares the same internal version as the
-      // Agent/ProxyAgent dispatcher — avoids the Node.js bundled-undici vs
-      // npm-undici version mismatch that breaks Content-Encoding decompression.
-      response = await (undiciFetch as unknown as typeof fetch)(url, requestOptions);
+      for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+        // Add proxy or default dispatcher (includes system CA certs for TLS)
+        const proxyAgent = createProxyAgent(currentUrl.toString(), ProxyType.URL_READER);
+        const dispatcher = proxyAgent ?? createDefaultAgent();
+        usedDispatcher = !!dispatcher;
+        const currentRequestOptions = {
+          ...requestOptions,
+        };
+        if (dispatcher) {
+          (currentRequestOptions as any).dispatcher = dispatcher;
+        }
+
+        // Fetch the URL with the abort signal.
+        // Use undici's own fetch so it shares the same internal version as the
+        // Agent/ProxyAgent dispatcher — avoids the Node.js bundled-undici vs
+        // npm-undici version mismatch that breaks Content-Encoding decompression.
+        response = await (undiciFetch as unknown as typeof fetch)(currentUrl.toString(), currentRequestOptions);
+
+        if (!isRedirectResponse(response)) {
+          break;
+        }
+
+        const location = response.headers.get("location");
+        if (!location) {
+          break;
+        }
+
+        if (redirects === MAX_REDIRECTS) {
+          throw createContentError(`Too many redirects while fetching URL: ${url}`, url);
+        }
+
+        const nextUrl = new URL(location, currentUrl);
+        assertUrlAllowed(nextUrl);
+        currentUrl = nextUrl;
+      }
     } catch (error: any) {
+      if (error.name === 'MCPSearXNGError') {
+        throw error;
+      }
+
       const context: ErrorContext = {
-        url,
-        proxyAgent: !!dispatcher,
+        url: currentUrl.toString(),
+        proxyAgent: usedDispatcher,
         timeout: timeoutMs
       };
       throw createNetworkError(error, context);
