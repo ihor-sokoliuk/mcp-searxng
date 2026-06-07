@@ -41,9 +41,10 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 - **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
 - **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
 - **Pagination**: Control which page of results to retrieve.
-- **Time Filtering**: Filter results by time range (day, month, year).
+- **Time Filtering**: Filter results by time range (day, week, month, year).
 - **Language Selection**: Filter results by preferred language.
 - **Safe Search**: Control content filtering level for search results.
+- **Relevance Filtering**: Filter out low-scoring search results with `min_score`.
 
 ## How It Works
 
@@ -68,9 +69,10 @@ AI Assistant (e.g. Claude)
   - Inputs:
     - `query` (string): The search query. This string is passed to external search services.
     - `pageno` (number, optional): Search page number, starts at 1 (default 1)
-    - `time_range` (string, optional): Filter results by time range - one of: "day", "month", "year" (default: none)
+    - `time_range` (string, optional): Filter results by time range - one of: "day", "week", "month", "year" (default: none)
     - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
     - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
+    - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
 
 - **web_url_read**
   - Read and convert the content from a URL to markdown with advanced content extraction options
