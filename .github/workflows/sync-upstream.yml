@@ -14,7 +14,7 @@ concurrency:
 
 env:
   UPSTREAM_REPO: https://github.com/ihor-sokoliuk/mcp-searxng.git
-  UPSTREAM_BRANCH: master
+  UPSTREAM_BRANCH: main
   TARGET_BRANCH: main
 
 jobs:
