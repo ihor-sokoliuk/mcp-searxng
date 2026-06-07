@@ -13,6 +13,7 @@
 import { strict as assert } from 'node:assert';
 import * as http from 'node:http';
 import * as net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
 import { fetchAndConvertToMarkdown } from '../../src/url-reader.js';
 import { urlCache } from '../../src/cache.js';
@@ -871,7 +872,7 @@ async function runTests() {
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
   runTests().then(results => {
     process.exit(results.failed > 0 ? 1 : 0);
   }).catch(console.error);

@@ -7,6 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { fileURLToPath } from 'node:url';
 import { getSystemCACerts, getConnectOptions } from '../../src/tls-config.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -59,7 +60,7 @@ async function runTests() {
   return results;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
   runTests().then(r => process.exit(r.failed > 0 ? 1 : 0)).catch(console.error);
 }
 

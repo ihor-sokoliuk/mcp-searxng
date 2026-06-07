@@ -52,6 +52,7 @@ Create test file following pattern `[module-name].test.ts`:
 ```typescript
 #!/usr/bin/env tsx
 import { strict as assert } from 'node:assert';
+import { fileURLToPath } from 'node:url';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
 const results = createTestResults();
@@ -67,7 +68,7 @@ async function runTests() {
   return results;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
   runTests().then(results => {
     process.exit(results.failed > 0 ? 1 : 0);
   }).catch(console.error);

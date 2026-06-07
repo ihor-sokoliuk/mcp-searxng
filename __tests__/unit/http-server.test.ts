@@ -7,6 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { fileURLToPath } from 'node:url';
 import { resolveBindHost } from '../../src/http-server.js';
 import { testFunction, createTestResults, printTestSummary, TestResult } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
@@ -70,9 +71,7 @@ export async function runTests(): Promise<TestResult> {
 }
 
 // Allow running this file directly
-const isMain = process.argv[1]?.endsWith('http-server.test.ts') ||
-               process.argv[1]?.endsWith('http-server.test.js');
-if (isMain) {
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
   runTests().then(r => {
     if (r.failed > 0) process.exit(1);
   });
