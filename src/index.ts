@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -22,7 +23,14 @@ import { createHttpServer, resolveBindHost } from "./http-server.js";
 
 // Use a static version string that will be updated by the version script
 const packageVersion = "1.2.0";
-const isMainModule = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+const isMainModule = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return fileURLToPath(import.meta.url) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+})();
 
 // Export the version for use in other modules
 export { packageVersion };
