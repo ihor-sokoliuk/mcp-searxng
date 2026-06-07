@@ -2,6 +2,8 @@
 
 We welcome contributions! Follow these guidelines to get started.
 
+Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) when participating in this project.
+
 ## Getting Started
 
 ```bash
