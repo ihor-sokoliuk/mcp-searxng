@@ -25,8 +25,10 @@ export function getSystemCACerts(): string | null {
   }
 
   for (const caPath of CA_BUNDLE_PATHS) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
     if (existsSync(caPath)) {
       try {
+        // eslint-disable-next-line security/detect-non-literal-fs-filename
         return readFileSync(caPath, "utf8");
       } catch {
         // File exists but is unreadable (permissions); try next

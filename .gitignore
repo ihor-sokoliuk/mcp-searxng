@@ -39,8 +39,14 @@ Thumbs.db
 # Claude
 .claude
 
+# Codex
+.codex
+
 # registry credentials
 .mcpregistry*
 
 # Docker files
 docker-compose.yml
+
+# TODO list
+TODO.md

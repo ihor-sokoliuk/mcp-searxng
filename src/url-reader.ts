@@ -89,21 +89,17 @@ function applyCharacterPagination(content: string, startChar: number = 0, maxLen
   return content.slice(start, end);
 }
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function extractSection(markdownContent: string, sectionHeading: string): string {
   const lines = markdownContent.split('\n');
-  const sectionRegex = new RegExp(`^#{1,6}\\s*.*${escapeRegExp(sectionHeading)}.*$`, 'i');
+  const normalizedHeading = sectionHeading.toLowerCase();
 
   let startIndex = -1;
   let currentLevel = 0;
 
-  // Find the section start
+  // Find the section start — string match avoids RegExp constructor with user input
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (sectionRegex.test(line)) {
+    if (/^#{1,6}\s/.test(line) && line.toLowerCase().includes(normalizedHeading)) {
       startIndex = i;
       currentLevel = (line.match(/^#+/) || [''])[0].length;
       break;
@@ -132,6 +128,7 @@ function extractParagraphRange(markdownContent: string, range: string): string {
   const paragraphs = markdownContent.split('\n\n').filter(p => p.trim().length > 0);
 
   // Parse range (e.g., "1-5", "3", "10-")
+  // eslint-disable-next-line security/detect-unsafe-regex
   const rangeMatch = range.match(/^(\d+)(?:-(\d*))?$/);
   if (!rangeMatch) {
     return "";

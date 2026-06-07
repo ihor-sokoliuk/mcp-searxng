@@ -42,6 +42,8 @@
         "bootstrap": "npm install && npm run build",
         "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/index.js",
         "lint": "eslint src __tests__",
+        "audit:deps": "npm audit --audit-level=moderate",
+        "security": "npm run lint && npm run audit:deps",
         "postversion": "TAG=$(node scripts/update-version.js | tail -1) && git add src/index.ts .mcp/server.json && git commit --amend --no-edit && git tag -f $TAG"
     },
     "dependencies": {
@@ -61,6 +63,7 @@
         "c8": "^11.0.0",
         "cross-env": "^10.1.0",
         "eslint": "^10.1.0",
+        "eslint-plugin-security": "^4.0.0",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
         "tsx": "^4.21.0",
