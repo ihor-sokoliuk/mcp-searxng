@@ -48,5 +48,8 @@ Thumbs.db
 # Docker files
 docker-compose.yml
 
-# TODO list
+# TODO lists (private planning files)
 TODO.md
+TODO-features.md
+TODO-bugs.md
+TODO-security.md
