@@ -31,6 +31,7 @@ logs
 *.sln
 *.sw?
 .roo
+.agents
 
 # OS files
 .DS_Store
@@ -53,3 +54,4 @@ TODO.md
 TODO-features.md
 TODO-bugs.md
 TODO-security.md
+TODO-done.md
