@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { 
   packageVersion, 
+  handleCliMetadataRequest,
   isWebUrlReadArgs,
   createMcpServer
 } from '../../src/index.js';
@@ -27,6 +28,23 @@ async function runTests() {
     assert.ok(packageVersion);
     assert.ok(typeof packageVersion === 'string');
     assert.ok(packageVersion.length > 0);
+  }, results);
+
+  await testFunction('CLI metadata flag detection', () => {
+    const captured: unknown[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => captured.push(args);
+
+    try {
+      assert.equal(handleCliMetadataRequest(['--version']), true);
+      assert.equal(handleCliMetadataRequest(['-h']), true);
+      assert.equal(handleCliMetadataRequest([]), false);
+    } finally {
+      console.log = originalLog;
+    }
+
+    assert.equal((captured[0] as unknown[])[0], packageVersion);
+    assert.ok(String((captured[1] as unknown[])[0]).includes('Usage:'));
   }, results);
 
   await testFunction('Call tool handler - unknown tool error', async () => {
@@ -214,6 +232,59 @@ async function runTests() {
 
     assert.equal(result.status, 0, `Import process failed: ${result.stderr}`);
     assert.equal(result.stdout, '');
+    assert.equal(result.stderr, '');
+  }, results);
+
+  await testFunction('CLI --version prints package version without starting server', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'src/index.ts',
+        '--version',
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MCP_HTTP_PORT: '',
+          SEARXNG_URL: '',
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      },
+    );
+
+    assert.equal(result.status, 0, `Version process failed: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), packageVersion);
+    assert.equal(result.stderr, '');
+  }, results);
+
+  await testFunction('CLI --help prints usage without starting server', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'src/index.ts',
+        '--help',
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MCP_HTTP_PORT: '',
+          SEARXNG_URL: '',
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      },
+    );
+
+    assert.equal(result.status, 0, `Help process failed: ${result.stderr}`);
+    assert.ok(result.stdout.includes('Usage:'));
+    assert.ok(result.stdout.includes('MCP_HTTP_PORT'));
     assert.equal(result.stderr, '');
   }, results);
 

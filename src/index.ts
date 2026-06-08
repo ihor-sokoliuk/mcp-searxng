@@ -35,6 +35,30 @@ const isMainModule = (() => {
 // Export the version for use in other modules
 export { packageVersion };
 
+export function handleCliMetadataRequest(args: readonly string[] = process.argv.slice(2)): boolean {
+  if (args.includes("--version") || args.includes("-v")) {
+    console.log(packageVersion);
+    return true;
+  }
+
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`mcp-searxng v${packageVersion}
+
+Usage:
+  mcp-searxng [--help] [--version]
+
+Environment:
+  SEARXNG_URL        SearXNG instance URL for search requests
+  MCP_HTTP_PORT      Enable HTTP transport on this port
+  MCP_HTTP_HOST      Host to bind when HTTP transport is enabled
+
+Without MCP_HTTP_PORT, the server starts STDIO transport for MCP clients.`);
+    return true;
+  }
+
+  return false;
+}
+
 // Type guard for URL reading args
 export function isWebUrlReadArgs(args: unknown): args is {
   url: string;
@@ -247,6 +271,10 @@ export function createMcpServer(): McpServer {
 
 // Main function
 async function main() {
+  if (handleCliMetadataRequest()) {
+    return;
+  }
+
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
   if (httpPort) {
