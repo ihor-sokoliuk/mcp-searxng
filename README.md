@@ -46,6 +46,17 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 - **Safe Search**: Control content filtering level for search results.
 - **Relevance Filtering**: Filter out low-scoring search results with `min_score`.
 
+## Why mcp-searxng?
+
+| | Brave MCP | Exa MCP | Firecrawl MCP | **mcp-searxng** |
+|--|:---------:|:-------:|:-------------:|:---------------:|
+| Web Search | ✓ | ✓ | ✓ | ✓ |
+| Read URL | ✗ | ✓ | ✓ | ✓ |
+| Pagination | ✗ | ✗ | ✓ | ✓ |
+| Self-hosted | ✗ | ✗ | Partial | ✓ |
+| Privacy | ✗ | ✗ | ✗ | ✓ |
+| Free / No API key | ✗ | ✗ | ✗ | ✓ |
+
 ## How It Works
 
 `mcp-searxng` is a standalone MCP server — a separate Node.js process that your AI assistant connects to for web search. It queries any SearXNG instance via its HTTP JSON API.
