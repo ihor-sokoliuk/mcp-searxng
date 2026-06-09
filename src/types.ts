@@ -1,12 +1,33 @@
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 
+export interface SearXNGWebResult {
+  title: string;
+  content: string;
+  url: string;
+  score: number;
+  engine?: string;
+  engines?: string[];
+  category?: string;
+  publishedDate?: string;
+  thumbnail?: string;
+  img_src?: string;
+}
+
+export interface SearXNGWebInfobox {
+  infobox: string;
+  content?: string;
+  urls?: Array<{ title: string; url: string }>;
+}
+
 export interface SearXNGWeb {
-  results: Array<{
-    title: string;
-    content: string;
-    url: string;
-    score: number;
-  }>;
+  query: string;
+  number_of_results: number;
+  results: SearXNGWebResult[];
+  suggestions?: string[];
+  corrections?: string[];
+  answers?: string[];
+  infoboxes?: SearXNGWebInfobox[];
+  unresponsive_engines?: Array<[string, string]>;
 }
 
 const VALID_TIME_RANGES = ["day", "week", "month", "year"] as const;
