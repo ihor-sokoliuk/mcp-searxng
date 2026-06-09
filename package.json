@@ -54,20 +54,20 @@
         "express": "^5.2.1",
         "express-rate-limit": "^8.5.2",
         "node-html-markdown": "^2.0.0",
-        "undici": "^7.24.0"
+        "undici": "7.27.2"
     },
     "devDependencies": {
-        "@types/node": "^22.17.2",
+        "@types/node": "22.19.20",
         "@types/supertest": "^7.2.0",
-        "@typescript-eslint/eslint-plugin": "^8.58.0",
-        "@typescript-eslint/parser": "^8.58.0",
+        "@typescript-eslint/eslint-plugin": "8.61.0",
+        "@typescript-eslint/parser": "8.61.0",
         "c8": "^11.0.0",
         "cross-env": "^10.1.0",
-        "eslint": "^10.1.0",
+        "eslint": "10.4.1",
         "eslint-plugin-security": "^4.0.0",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
-        "tsx": "^4.21.0",
+        "tsx": "4.22.4",
         "typescript": "^5.8.3"
     }
 }
