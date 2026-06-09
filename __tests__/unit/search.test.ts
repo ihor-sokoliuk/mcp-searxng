@@ -300,8 +300,8 @@ async function runTests() {
     assert.ok(typeof result === 'string');
     assert.ok(result.includes('Test Result 1'));
     assert.ok(result.includes('Test Result 2'));
-    assert.ok(result.includes('https://example.com/1'));
-    assert.ok(result.includes('https://example.com/2'));
+    assert.ok(result.includes('URL: https://example.com/1'));
+    assert.ok(result.includes('URL: https://example.com/2'));
 
     fetchMocker.restore();
     envManager.restore();
