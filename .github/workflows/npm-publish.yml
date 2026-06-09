@@ -49,9 +49,15 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Install mcp-publisher
+      - name: Install and verify mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: "v1.7.9"
+          MCP_PUBLISHER_SHA256: "ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac"
         run: |
-          curl -sSL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar -xz -C /usr/local/bin mcp-publisher
+          curl -sSL "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            -o mcp-publisher.tar.gz
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check
+          tar -xz -C /usr/local/bin -f mcp-publisher.tar.gz mcp-publisher
           chmod +x /usr/local/bin/mcp-publisher
 
       - name: Login to MCP Registry (GitHub OIDC)
