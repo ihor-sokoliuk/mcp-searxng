@@ -3,6 +3,18 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.2] - 2026-06-09
+
+### Fixed
+- Expanded `SearXNGWeb` response interface to include all fields returned by the API.
+- Search requests now use `AbortController` to enforce the configured timeout and prevent hanging.
+
+### Security
+- Pinned all GitHub Actions workflow steps to full commit SHAs to guard against tag-swap supply-chain attacks.
+- Added CodeQL static analysis, Trivy Docker image scanning, and ClusterFuzzLite continuous fuzzing.
+- Added Dependabot for automated npm and GitHub Actions dependency updates.
+- Verified `mcp-publisher` binary integrity with SHA-256 checksum before use.
+
 ## [1.3.1] - 2026-06-09
 
 ### Fixed
