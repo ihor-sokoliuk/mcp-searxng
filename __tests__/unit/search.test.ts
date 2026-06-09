@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { performWebSearch } from '../../src/search.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
-import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
+import { FetchMocker, createMockFetch, createCapturingMockFetch, createAbortableMockFetch } from '../helpers/mock-fetch.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
 const results = createTestResults();
@@ -481,6 +481,91 @@ async function runTests() {
     }
 
     assert.ok(capturedOptions?.dispatcher, 'Expected dispatcher to be set when proxy configured');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Timeout fires when fetch never resolves (AbortError wrapped as network error)', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_TIMEOUT_MS', '100');
+
+    const mockServer = createMockServer();
+    // createAbortableMockFetch(50000) — resolves only after 50 s, but honours AbortSignal immediately
+    fetchMocker.mock(createAbortableMockFetch(50000));
+
+    const start = Date.now();
+    try {
+      await performWebSearch(mockServer as any, 'timeout test');
+      assert.fail('Expected search to reject due to timeout');
+    } catch (error: any) {
+      const elapsed = Date.now() - start;
+      // Should abort well within 2 s (timeout is 100 ms)
+      assert.ok(elapsed < 2000, `Expected abort within 2 s, took ${elapsed} ms`);
+      // Error is either an AbortError or a network error wrapping it
+      const isAbortOrNetwork =
+        error.name === 'AbortError' ||
+        error.name === 'MCPSearXNGError' ||
+        (typeof error.message === 'string' && (
+          error.message.includes('abort') ||
+          error.message.includes('Abort') ||
+          error.message.includes('Network') ||
+          error.message.includes('network') ||
+          error.message.includes('timed out') ||
+          error.message.includes('timeout')
+        ));
+      assert.ok(isAbortOrNetwork, `Unexpected error: ${error.name}: ${error.message}`);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_TIMEOUT_MS env override is respected (50 ms fires before 500 ms mock)', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_TIMEOUT_MS', '50');
+
+    const mockServer = createMockServer();
+    // Mock resolves via its own 500 ms timer; signal should abort it first
+    fetchMocker.mock(createAbortableMockFetch(500));
+
+    const start = Date.now();
+    try {
+      await performWebSearch(mockServer as any, 'env override test');
+      assert.fail('Expected search to reject due to timeout');
+    } catch (error: any) {
+      const elapsed = Date.now() - start;
+      // 50 ms timeout should fire well before the 500 ms mock delay
+      assert.ok(elapsed < 400, `Expected abort within 400 ms, took ${elapsed} ms`);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Successful response within timeout completes normally', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_TIMEOUT_MS', '5000');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Fast Result',
+            content: 'Returned before timeout',
+            url: 'https://example.com/fast',
+            score: 0.9
+          }
+        ]
+      }
+    });
+
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'fast query');
+    assert.ok(typeof result === 'string');
+    assert.ok(result.includes('Fast Result'));
 
     fetchMocker.restore();
     envManager.restore();

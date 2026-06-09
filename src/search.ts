@@ -97,12 +97,20 @@ export async function performWebSearch(
     };
   }
 
-  // Fetch with enhanced error handling
+  // Fetch with AbortController timeout and enhanced error handling
+  const SEARCH_TIMEOUT_MS = parseInt(process.env.SEARXNG_TIMEOUT_MS ?? "10000", 10);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+
   let response: Response;
   try {
     logMessage(mcpServer, "info", `Making request to: ${url.toString()}`);
-    response = await fetch(url.toString(), requestOptions);
+    response = await fetch(url.toString(), {
+      ...requestOptions,
+      signal: controller.signal,
+    });
   } catch (error: any) {
+    clearTimeout(timeoutId);
     logMessage(mcpServer, "error", `Network error during search request: ${error.message}`, { query, url: url.toString() });
     const context: ErrorContext = {
       url: url.toString(),
@@ -112,6 +120,7 @@ export async function performWebSearch(
     };
     throw createNetworkError(error, context);
   }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     let responseBody: string;
