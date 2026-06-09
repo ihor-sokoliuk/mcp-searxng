@@ -52,6 +52,7 @@
         "@types/express": "^5.0.6",
         "cors": "^2.8.6",
         "express": "^5.2.1",
+        "express-rate-limit": "^8.5.2",
         "node-html-markdown": "^2.0.0",
         "undici": "^7.24.0"
     },

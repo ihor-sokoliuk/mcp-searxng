@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -29,6 +30,43 @@ export function resolveBindHost(envValue: string | undefined): string {
     return "127.0.0.1";
   }
   return trimmed;
+}
+
+function makeRateLimiters() {
+  const windowMs = parseInt(process.env.MCP_RATE_WINDOW_MS ?? "60000", 10);
+
+  const initLimiter = rateLimit({
+    windowMs,
+    max: parseInt(process.env.MCP_RATE_INIT_MAX ?? "20", 10),
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      jsonrpc: "2.0",
+      error: { code: -32029, message: "Too many requests" },
+      id: null,
+    },
+  });
+
+  const sessionLimiter = rateLimit({
+    windowMs,
+    max: parseInt(process.env.MCP_RATE_SESSION_MAX ?? "300", 10),
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      jsonrpc: "2.0",
+      error: { code: -32029, message: "Too many requests" },
+      id: null,
+    },
+  });
+
+  const healthLimiter = rateLimit({
+    windowMs: 60000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  return { initLimiter, sessionLimiter, healthLimiter };
 }
 
 export async function createHttpServer(
@@ -64,11 +102,13 @@ export async function createHttpServer(
     });
   }
 
+  const { initLimiter, sessionLimiter, healthLimiter } = makeRateLimiters();
+
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
 
   // Handle POST requests for client-to-server communication
-  app.post('/mcp', async (req, res) => {
+  app.post('/mcp', initLimiter, sessionLimiter, async (req, res) => {
     if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
       rejectUnauthorized(res);
       return;
@@ -148,7 +188,7 @@ export async function createHttpServer(
   });
 
   // Handle GET requests for server-to-client notifications via SSE
-  app.get('/mcp', async (req, res) => {
+  app.get('/mcp', sessionLimiter, async (req, res) => {
     if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
       rejectUnauthorized(res);
       return;
@@ -179,7 +219,7 @@ export async function createHttpServer(
   });
 
   // Handle DELETE requests for session termination
-  app.delete('/mcp', async (req, res) => {
+  app.delete('/mcp', sessionLimiter, async (req, res) => {
     if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
       rejectUnauthorized(res);
       return;
@@ -212,7 +252,7 @@ export async function createHttpServer(
   });
 
   // Health check endpoint
-  app.get('/health', (_req, res) => {
+  app.get('/health', healthLimiter, (_req, res) => {
     res.json({ 
       status: 'healthy',
       server: 'ihor-sokoliuk/mcp-searxng',

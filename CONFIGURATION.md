@@ -46,6 +46,20 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 - `POST/GET/DELETE /mcp` — MCP protocol
 - `GET /health` — health check
 
+## Rate Limiting (HTTP mode)
+
+Rate limiting is always active in HTTP mode to prevent resource exhaustion. Two separate limits protect different request types.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MCP_RATE_WINDOW_MS` | No | `60000` | Sliding window duration in milliseconds for all rate limits |
+| `MCP_RATE_INIT_MAX` | No | `20` | Max POST `/mcp` requests per window (applied to all POSTs, guards against session-init flooding) |
+| `MCP_RATE_SESSION_MAX` | No | `300` | Max GET/DELETE `/mcp` requests per window (per-session calls; intentionally generous for AI agents) |
+
+Requests exceeding a limit receive HTTP 429 with a JSON-RPC error body (`code: -32029`). `/health` has a fixed limit of 60 requests per minute. Standard `RateLimit-*` headers are included on all responses.
+
+The in-memory store is per-process; for horizontally scaled deployments replace it with a shared Redis store via `express-rate-limit`'s `store` option.
+
 ## Hardened HTTP Mode
 
 Opt-in security layer for when you expose the HTTP transport on a network. Default HTTP behavior is unchanged — hardening must be explicitly enabled with `MCP_HTTP_HARDEN=true`.

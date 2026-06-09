@@ -285,6 +285,129 @@ async function runTests() {
     assert.equal(postRes.status, 400, 'request after DELETE should be rejected');
   }, results);
 
+  // --- Rate Limiting ---
+
+  await testFunction('Rate limiting: POST /mcp returns 429 after exceeding initLimiter limit', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '3');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: i });
+      assert.notEqual(res.status, 429, `Request ${i + 1} should not be rate limited yet`);
+    }
+
+    const res = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', method: 'tools/list', id: 4 });
+    assert.equal(res.status, 429, 'Should be rate limited on 4th request');
+    assert.equal(res.body.jsonrpc, '2.0');
+    assert.equal(res.body.error.code, -32029);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Rate limiting: GET /mcp returns 429 after exceeding sessionLimiter limit', async () => {
+    envManager.set('MCP_RATE_SESSION_MAX', '3');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .get('/mcp')
+        .set('mcp-session-id', 'nonexistent');
+      assert.notEqual(res.status, 429, `GET request ${i + 1} should not be rate limited yet`);
+    }
+
+    const res = await request(app)
+      .get('/mcp')
+      .set('mcp-session-id', 'nonexistent');
+    assert.equal(res.status, 429, 'Should be rate limited on 4th GET request');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Rate limiting: DELETE /mcp returns 429 after exceeding sessionLimiter limit', async () => {
+    envManager.set('MCP_RATE_SESSION_MAX', '3');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .delete('/mcp')
+        .set('mcp-session-id', 'nonexistent');
+      assert.notEqual(res.status, 429, `DELETE request ${i + 1} should not be rate limited yet`);
+    }
+
+    const res = await request(app)
+      .delete('/mcp')
+      .set('mcp-session-id', 'nonexistent');
+    assert.equal(res.status, 429, 'Should be rate limited on 4th DELETE request');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Rate limiting: RateLimit-* headers present on /mcp POST response', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    const res = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
+
+    assert.ok(
+      res.headers['ratelimit-limit'] || res.headers['x-ratelimit-limit'],
+      'RateLimit-Limit header should be present'
+    );
+    assert.ok(
+      res.headers['ratelimit-remaining'] || res.headers['x-ratelimit-remaining'],
+      'RateLimit-Remaining header should be present'
+    );
+  }, results);
+
+  await testFunction('Rate limiting: RateLimit-* headers present on /health response', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    const res = await request(app).get('/health');
+
+    assert.ok(
+      res.headers['ratelimit-limit'] || res.headers['x-ratelimit-limit'],
+      'RateLimit-Limit header should be present on /health'
+    );
+    assert.ok(
+      res.headers['ratelimit-remaining'] || res.headers['x-ratelimit-remaining'],
+      'RateLimit-Remaining header should be present on /health'
+    );
+  }, results);
+
+  await testFunction('Rate limiting: POST /mcp limit resets after window expires', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_WINDOW_MS', '200');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    // Exhaust the limit
+    for (let i = 0; i < 2; i++) {
+      await request(app).post('/mcp').set('Content-Type', 'application/json')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: i });
+    }
+    const blockedRes = await request(app).post('/mcp').set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', method: 'tools/list', id: 3 });
+    assert.equal(blockedRes.status, 429, 'Should be rate limited before window resets');
+
+    // Wait for the window to expire
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    const resetRes = await request(app).post('/mcp').set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', method: 'tools/list', id: 4 });
+    assert.notEqual(resetRes.status, 429, 'Should not be rate limited after window resets');
+
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'HTTP Server Integration');
   return results;
 }
