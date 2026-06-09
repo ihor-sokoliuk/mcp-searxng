@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { createProxyAgent, createDefaultAgent } from '../../src/proxy.js';
+import { createProxyAgent, createDefaultAgent, ProxyType } from '../../src/proxy.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -386,6 +386,70 @@ async function runTests() {
   await testFunction('createDefaultAgent has dispatch method when returned', () => {
     const agent = createDefaultAgent();
     if (agent) assert.ok(typeof agent.dispatch === 'function');
+  }, results);
+
+  await testFunction('shouldBypassProxy handles invalid URL without throwing (catch branch)', () => {
+    // Ensure HTTP_PROXY is set and NO_PROXY is set (triggers shouldBypassProxy)
+    // with invalid URL that triggers catch block
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.set('HTTP_PROXY', 'http://proxy.example.com:8080');
+    envManager.set('NO_PROXY', 'example.com');
+
+    // Invalid URL: shouldBypassProxy catches the URL parse error and returns false
+    // so the proxy IS used (no bypass). The function must not throw.
+    const agent = createProxyAgent('not-a-valid-url');
+    assert.ok(agent, 'agent should be created (not bypassed) for unparseable URL');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('URL_READER HTTPS proxy branch (117-123)', () => {
+    // Clear all proxies first to ensure clean state
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.delete('SEARCH_HTTP_PROXY');
+    envManager.delete('SEARCH_HTTPS_PROXY');
+    envManager.delete('search_http_proxy');
+    envManager.delete('search_https_proxy');
+    // Set URL_READER_HTTPS_PROXY to force the code path on lines 116-123
+    envManager.set('URL_READER_HTTPS_PROXY', 'http://proxy.example.com:8080');
+
+    // Calling with URL_READER type and HTTPS target URL
+    const agent = createProxyAgent('https://target.example.com', ProxyType.URL_READER);
+    assert.ok(agent, 'proxy agent should be created for URL_READER + HTTPS target');
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('no-type HTTPS proxy branch (138-140)', () => {
+    // Clear all proxies first to ensure clean state
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.delete('SEARCH_HTTP_PROXY');
+    envManager.delete('SEARCH_HTTPS_PROXY');
+    envManager.delete('search_http_proxy');
+    envManager.delete('search_https_proxy');
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.delete('URL_READER_HTTPS_PROXY');
+    envManager.delete('url_reader_http_proxy');
+    envManager.delete('url_reader_https_proxy');
+    // Set only HTTPS_PROXY to force lines 137-140 with isHttps=true
+    envManager.set('HTTPS_PROXY', 'http://proxy.example.com:8080');
+
+    // Call with no type and HTTPS target (triggers lines 136-140 for no-type branch)
+    const agent = createProxyAgent('https://target.example.com');
+    assert.ok(agent, 'proxy agent should be created when HTTPS_PROXY is set and target is https');
+    assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
   }, results);
 
   printTestSummary(results, 'Proxy Module');
