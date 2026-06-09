@@ -25,7 +25,7 @@
     ],
     "type": "module",
     "bin": {
-        "mcp-searxng": "dist/index.js"
+        "mcp-searxng": "dist/cli.js"
     },
     "main": "dist/index.js",
     "files": [
@@ -38,9 +38,9 @@
         "build": "tsc && shx chmod +x dist/*.js",
         "watch": "tsc --watch",
         "test": "cross-env SEARXNG_URL=https://test-searx.example.com tsx __tests__/run-all.ts",
-        "test:coverage": "cross-env SEARXNG_URL=https://test-searx.example.com c8 --reporter=text tsx __tests__/run-all.ts",
+        "test:coverage": "cross-env SEARXNG_URL=https://test-searx.example.com c8 --reporter=text --exclude 'dist/**' tsx __tests__/run-all.ts",
         "bootstrap": "npm install && npm run build",
-        "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/index.js",
+        "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/cli.js",
         "lint": "eslint src __tests__",
         "audit:deps": "npm audit --audit-level=moderate",
         "security": "npm run lint && npm run audit:deps",

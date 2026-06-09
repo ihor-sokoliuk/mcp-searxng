@@ -20,4 +20,4 @@ ENV NODE_ENV=production
 
 RUN npm ci --ignore-scripts --omit=dev && npm uninstall -g npm
 
-ENTRYPOINT ["node", "dist/index.js"]
+ENTRYPOINT ["node", "dist/cli.js"]
