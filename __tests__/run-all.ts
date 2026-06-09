@@ -24,6 +24,7 @@ import { runTests as runHttpSecurityTests } from './unit/http-security.test.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
 import { runTests as runMcpHandlersTests } from './integration/mcp-handlers.test.js';
+import { runTests as runCliTests } from './integration/cli.test.js';
 
 interface TestSuite {
   name: string;
@@ -50,6 +51,7 @@ const testSuites: TestSuite[] = [
   { name: 'HTTP Server', category: 'integration', run: runHttpServerTests },
   { name: 'Main Index', category: 'integration', run: runIndexTests },
   { name: 'MCP Handlers', category: 'integration', run: runMcpHandlersTests },
+  { name: 'CLI', category: 'integration', run: runCliTests },
 ];
 
 async function runAllTests() {
