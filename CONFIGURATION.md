@@ -40,7 +40,7 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
-| `MCP_HTTP_HOST` | No | `0.0.0.0` | Interface address to bind to. Use `127.0.0.1` for localhost-only, `0.0.0.0` for all interfaces, or a specific IP |
+| `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
 
 **HTTP endpoints (when HTTP mode is active):**
 - `POST/GET/DELETE /mcp` — MCP protocol
