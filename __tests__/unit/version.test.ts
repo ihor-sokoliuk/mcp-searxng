@@ -22,6 +22,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('packageVersion matches package.json', () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is a compile-time constant, not user input
     const pkgJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
     assert.equal(packageVersion, pkgJson.version);
   }, results);
