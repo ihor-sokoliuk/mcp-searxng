@@ -14,11 +14,11 @@ const require = createRequire(import.meta.url);
 const packageJson = require('../package.json');
 const version = packageJson.version;
 
-// Path to index.ts
-const indexPath = path.join(__dirname, '..', 'src', 'index.ts');
+// Path to version.ts (packageVersion was moved here from index.ts)
+const versionPath = path.join(__dirname, '..', 'src', 'version.ts');
 
 // Read the file
-let content = fs.readFileSync(indexPath, 'utf8');
+let content = fs.readFileSync(versionPath, 'utf8');
 
 // Define a static version string to replace
 const staticVersionRegex = /const packageVersion = "([\d\.]+|unknown)";/;
@@ -28,11 +28,11 @@ if (staticVersionRegex.test(content)) {
   content = content.replace(staticVersionRegex, `const packageVersion = "${version}";`);
 
   // Write the updated content
-  fs.writeFileSync(indexPath, content);
+  fs.writeFileSync(versionPath, content);
 
-  console.log(`Updated version in index.ts to ${version}`);
+  console.log(`Updated version in version.ts to ${version}`);
 } else {
-  console.error('Could not find static version declaration in index.ts');
+  console.error('Could not find static version declaration in version.ts');
   process.exit(1);
 }
 
