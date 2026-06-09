@@ -1,5 +1,5 @@
 import { getCurrentLogLevel } from "./logging.js";
-import { packageVersion } from "./index.js";
+import { packageVersion } from "./version.js";
 import { getHttpSecurityConfig } from "./http-security.js";
 
 export function createConfigResource() {

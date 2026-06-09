@@ -6,7 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { logMessage } from "./logging.js";
-import { packageVersion } from "./index.js";
+import { packageVersion } from "./version.js";
 import {
   getHttpSecurityConfig,
   isOriginAllowed,

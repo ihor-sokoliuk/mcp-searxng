@@ -17,11 +17,7 @@ import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
 
-// Use a static version string that will be updated by the version script
-const packageVersion = "1.3.1";
-
-// Export the version for use in other modules
-export { packageVersion };
+import { packageVersion } from "./version.js";
 
 // Type guard for URL reading args
 export function isWebUrlReadArgs(args: unknown): args is {

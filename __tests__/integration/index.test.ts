@@ -10,8 +10,8 @@ import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { 
-  packageVersion, 
+import { packageVersion } from '../../src/version.js';
+import {
   isWebUrlReadArgs,
   createMcpServer
 } from '../../src/index.js';
