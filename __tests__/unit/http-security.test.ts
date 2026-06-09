@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import {
   getHttpSecurityConfig,
+  validateHttpSecurityConfig,
   isRequestAuthorized,
   isOriginAllowed,
 } from '../../src/http-security.js';
@@ -63,6 +64,51 @@ async function runTests() {
     } as any;
     assert.equal(isOriginAllowed('https://evil.example.com', config), false);
     assert.equal(isOriginAllowed('https://app.example.com', config), true);
+  }, results);
+
+  await testFunction('validateHttpSecurityConfig throws when harden=true but no auth token', () => {
+    const config = {
+      harden: true,
+      requireAuth: true,
+      authToken: undefined,
+      restrictOrigins: true,
+      allowedOrigins: ['https://app.example.com'],
+      enableDnsRebindingProtection: true,
+      allowedHosts: ['localhost'],
+      exposeFullConfig: false,
+      allowPrivateUrls: false,
+    };
+    assert.throws(
+      () => validateHttpSecurityConfig(config),
+      /MCP_HTTP_AUTH_TOKEN/
+    );
+  }, results);
+
+  await testFunction('validateHttpSecurityConfig throws when harden=true but no allowed origins', () => {
+    const config = {
+      harden: true,
+      requireAuth: true,
+      authToken: 'secret',
+      restrictOrigins: true,
+      allowedOrigins: [],
+      enableDnsRebindingProtection: true,
+      allowedHosts: ['localhost'],
+      exposeFullConfig: false,
+      allowPrivateUrls: false,
+    };
+    assert.throws(
+      () => validateHttpSecurityConfig(config),
+      /MCP_HTTP_ALLOWED_ORIGINS/
+    );
+  }, results);
+
+  await testFunction('isOriginAllowed returns true when restrictOrigins=true but no origin header', () => {
+    const config = {
+      harden: true,
+      restrictOrigins: true,
+      allowedOrigins: ['https://app.example.com'],
+    } as any;
+    assert.equal(isOriginAllowed(undefined, config), true);
   }, results);
 
   printTestSummary(results, 'HTTP Security');

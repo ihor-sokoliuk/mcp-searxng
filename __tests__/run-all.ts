@@ -20,6 +20,7 @@ import { runTests as runUrlReaderTests } from './unit/url-reader.test.js';
 import { runTests as runTlsConfigTests } from './unit/tls-config.test.js';
 import { runTests as runHttpServerUnitTests } from './unit/http-server.test.js';
 import { runTests as runVersionTests } from './unit/version.test.js';
+import { runTests as runHttpSecurityTests } from './unit/http-security.test.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
 
@@ -42,6 +43,7 @@ const testSuites: TestSuite[] = [
   { name: 'TLS Config', category: 'unit', run: runTlsConfigTests },
   { name: 'HTTP Server', category: 'unit', run: runHttpServerUnitTests },
   { name: 'Version', category: 'unit', run: runVersionTests },
+  { name: 'HTTP Security', category: 'unit', run: runHttpSecurityTests },
 
   // Integration Tests
   { name: 'HTTP Server', category: 'integration', run: runHttpServerTests },
