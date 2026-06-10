@@ -1,0 +1,141 @@
+name: Rebuild Docker Image on Base Update
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # weekly, Monday 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read          # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
+  security-events: write  # for Trivy SARIF upload to GitHub Security tab
+
+jobs:
+  check_base_image:
+    name: Check for base image updates
+    runs-on: ubuntu-latest
+    outputs:
+      rebuild: ${{ steps.compare.outputs.rebuild }}
+      upstream_digest: ${{ steps.upstream.outputs.digest }}
+      release_tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine latest release tag
+        id: release
+        run: |
+          TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          if [ -z "$TAG" ]; then
+            echo "No v* release tag found" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Get current upstream base digest
+        id: upstream
+        run: |
+          DIGEST=$(docker buildx imagetools inspect node:lts-alpine --format '{{json .Manifest}}' | jq -r '.digest')
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Get published image base digest
+        id: published
+        run: |
+          # The label lives in each platform image config; handle single- and multi-platform output shapes.
+          DIGEST=$(docker buildx imagetools inspect isokoliuk/mcp-searxng:latest --format '{{json .Image}}' \
+            | jq -r '[.. | objects | select(has("config")) | .config.Labels["org.opencontainers.image.base.digest"] // empty] | first // ""')
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Compare digests
+        id: compare
+        run: |
+          UPSTREAM="${{ steps.upstream.outputs.digest }}"
+          PUBLISHED="${{ steps.published.outputs.digest }}"
+          echo "Upstream base:  $UPSTREAM"
+          echo "Published base: ${PUBLISHED:-<no base digest label>}"
+          if [ "$UPSTREAM" != "$PUBLISHED" ]; then
+            echo "Base image drift detected — rebuild required"
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Published image is up to date"
+            echo "rebuild=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  rebuild_and_publish:
+    name: Rebuild and republish with updated base
+    needs: check_base_image
+    if: needs.check_base_image.outputs.rebuild == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out latest release tag
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.check_base_image.outputs.release_tag }}
+
+      - name: Patch Dockerfile to current upstream base digest
+        run: |
+          sed -i -E "s|node:lts-alpine(@sha256:[a-f0-9]{64})?|node:lts-alpine@${{ needs.check_base_image.outputs.upstream_digest }}|g" Dockerfile
+          echo "Patched FROM lines:"
+          grep -n '^FROM' Dockerfile
+
+      - name: Compute version tags
+        id: tags
+        run: |
+          TAG="${{ needs.check_base_image.outputs.release_tag }}"
+          VERSION="${TAG#v}"
+          MAJOR_MINOR="${VERSION%.*}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major_minor=$MAJOR_MINOR" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image for vulnerability scan (amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          tags: isokoliuk/mcp-searxng:rebuild-scan
+
+      - name: Scan rebuilt image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: 'isokoliuk/mcp-searxng:rebuild-scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Upload Trivy scan results to Security tab
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # A failed Trivy scan (exit-code 1) stops the job above, blocking the push below.
+      # If Cosign signing (SEC-013) lands, sign the republished image after this push too.
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            isokoliuk/mcp-searxng:${{ steps.tags.outputs.version }}
+            isokoliuk/mcp-searxng:${{ steps.tags.outputs.major_minor }}
+            isokoliuk/mcp-searxng:latest
+          labels: |
+            org.opencontainers.image.base.name=docker.io/library/node:lts-alpine
+            org.opencontainers.image.base.digest=${{ needs.check_base_image.outputs.upstream_digest }}

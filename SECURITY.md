@@ -148,3 +148,14 @@ npm run audit:deps
 ```
 
 The `npm run security` script combines linting (including `eslint-plugin-security` rules) with the dependency audit.
+
+## Container Image Security
+
+The published Docker image (`isokoliuk/mcp-searxng`) is built from a digest-pinned `node:lts-alpine` base. Base-image updates are automated:
+
+- **Dependabot** opens a weekly PR when the digest behind `node:lts-alpine` moves, so new releases always build on a current base.
+- **A weekly rebuild workflow** compares the published image's base digest (recorded in its `org.opencontainers.image.base.digest` OCI label) against upstream. On drift, it rebuilds from the latest release tag with the patched base, re-scans with Trivy, and republishes the same version tags.
+
+As a result, version tags (e.g. `1.3.2`) are **mutable**: pulling the same tag after an upstream security fix returns the same application code on a patched base. Pin by image digest if you require immutability, and use the `org.opencontainers.image.base.digest` label to audit which base an image was built from.
+
+Every published image is scanned with Trivy (CRITICAL/HIGH severities, unfixed ignored) before release; results are uploaded to the repository's GitHub Security tab.

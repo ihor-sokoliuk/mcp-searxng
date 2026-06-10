@@ -1,4 +1,4 @@
-FROM node:lts-alpine AS builder
+FROM node:lts-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS builder
 
 WORKDIR /app
 
@@ -6,7 +6,7 @@ COPY ./ /app
 
 RUN --mount=type=cache,target=/root/.npm npm run bootstrap
 
-FROM node:lts-alpine AS release
+FROM node:lts-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS release
 
 RUN apk update && apk upgrade
 

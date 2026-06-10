@@ -39,6 +39,12 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
+      - name: Extract base image digest from Dockerfile
+        id: base
+        run: |
+          DIGEST=$(grep -m1 -oE 'sha256:[a-f0-9]{64}' Dockerfile)
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -46,7 +52,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.base.name=docker.io/library/node:lts-alpine
+            org.opencontainers.image.base.digest=${{ steps.base.outputs.digest }}
 
       - name: Scan Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
