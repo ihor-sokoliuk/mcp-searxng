@@ -102,7 +102,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build image for vulnerability scan (amd64)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           load: true
@@ -127,7 +127,7 @@ jobs:
       # A failed Trivy scan (exit-code 1) stops the job above, blocking the push below.
       # If Cosign signing (SEC-013) lands, sign the republished image after this push too.
       - name: Build and push multi-arch image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
