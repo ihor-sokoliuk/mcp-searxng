@@ -50,6 +50,10 @@ Thumbs.db
 # Docker files
 docker-compose.yml
 
+# AI process artifacts (plans, brainstorms, drafts) — must never be committed
+docs/superpowers/
+docs/plans/
+
 # TODO lists (private planning files)
 TODO.md
 TODO-features.md
