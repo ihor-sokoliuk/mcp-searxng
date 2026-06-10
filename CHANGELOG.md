@@ -3,6 +3,16 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] - 2026-06-10
+
+### Fixed
+- `test:coverage` script now enforces the coverage threshold mechanically.
+- Gitignored AI process artifacts (plans, drafts) so they can never be committed.
+
+### Security
+- Docker base image (`node:lts-alpine`) is now pinned by digest and bumped automatically via Dependabot.
+- Added a weekly rebuild workflow: when upstream patches the base image, the published Docker image is rebuilt from the latest release tag, re-scanned with Trivy, and republished under the same version tags. Published images now embed the `org.opencontainers.image.base.digest` OCI label for auditability.
+
 ## [1.3.2] - 2026-06-09
 
 ### Fixed
