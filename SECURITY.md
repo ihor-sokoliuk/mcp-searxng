@@ -159,3 +159,12 @@ The published Docker image (`isokoliuk/mcp-searxng`) is built from a digest-pinn
 As a result, version tags (e.g. `1.3.2`) are **mutable**: pulling the same tag after an upstream security fix returns the same application code on a patched base. Pin by image digest if you require immutability, and use the `org.opencontainers.image.base.digest` label to audit which base an image was built from.
 
 Every published image is scanned with Trivy (CRITICAL/HIGH severities, unfixed ignored) before release; results are uploaded to the repository's GitHub Security tab.
+
+Published images are signed with [Cosign](https://docs.sigstore.dev/cosign/) using GitHub Actions keyless OIDC identity. Verify an image signature before running it:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/ihor-sokoliuk/mcp-searxng/.github/workflows/(docker-publish|docker-rebuild)\.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  docker.io/isokoliuk/mcp-searxng:latest
+```

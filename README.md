@@ -130,15 +130,6 @@ npm install -g mcp-searxng
 docker pull isokoliuk/mcp-searxng:latest
 ```
 
-Verify the image signature with [Cosign](https://docs.sigstore.dev/cosign/):
-
-```bash
-cosign verify \
-  --certificate-identity-regexp 'https://github.com/ihor-sokoliuk/mcp-searxng/.github/workflows/(docker-publish|docker-rebuild)\.yml@.*' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  docker.io/isokoliuk/mcp-searxng:latest
-```
-
 ```json
 {
   "mcpServers": {
