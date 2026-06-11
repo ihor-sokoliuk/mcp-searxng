@@ -48,14 +48,12 @@ jobs:
           DIGEST=$(grep -m1 -oE 'sha256:[a-f0-9]{64}' Dockerfile)
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
-        id: build
+      - name: Build image for vulnerability scan
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          tags: isokoliuk/mcp-searxng:release-scan
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.base.name=docker.io/library/node:lts-alpine
@@ -64,7 +62,7 @@ jobs:
       - name: Scan Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: 'isokoliuk/mcp-searxng:latest'
+          image-ref: 'isokoliuk/mcp-searxng:release-scan'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -77,6 +75,19 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
+      - name: Build and push multi-arch image
+        id: publish
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.base.name=docker.io/library/node:lts-alpine
+            org.opencontainers.image.base.digest=${{ steps.base.outputs.digest }}
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
@@ -84,5 +95,5 @@ jobs:
 
       - name: Sign image (keyless OIDC)
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
         run: cosign sign --yes "docker.io/isokoliuk/mcp-searxng@${DIGEST}"

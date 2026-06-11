@@ -23,6 +23,21 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
 
+      - name: Verify npm provenance support
+        run: |
+          NPM_VERSION="$(npm --version)"
+          NPM_VERSION="$NPM_VERSION" node -e "
+            const versionText = process.env.NPM_VERSION;
+            const version = versionText.split('.').map(Number);
+            if (version.length < 2 || version.some(Number.isNaN)) {
+              throw new Error('Unable to determine npm version');
+            }
+            const [major, minor] = version;
+            if (major < 9 || (major === 9 && minor < 5)) {
+              throw new Error('npm >= 9.5.0 is required for npm publish --provenance');
+            }
+          "
+
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
