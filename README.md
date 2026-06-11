@@ -130,6 +130,8 @@ npm install -g mcp-searxng
 docker pull isokoliuk/mcp-searxng:latest
 ```
 
+Image signatures can be verified with Cosign — see [SECURITY.md](SECURITY.md) for instructions.
+
 ```json
 {
   "mcpServers": {
