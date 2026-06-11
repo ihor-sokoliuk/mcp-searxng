@@ -46,6 +46,8 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ""  # clear setup-node's auto-injected github.token so npm uses OIDC trusted publishing
 
   publish-mcp-registry:
     name: Publish to MCP Registry
