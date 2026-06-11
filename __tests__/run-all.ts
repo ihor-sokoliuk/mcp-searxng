@@ -21,6 +21,7 @@ import { runTests as runTlsConfigTests } from './unit/tls-config.test.js';
 import { runTests as runHttpServerUnitTests } from './unit/http-server.test.js';
 import { runTests as runVersionTests } from './unit/version.test.js';
 import { runTests as runHttpSecurityTests } from './unit/http-security.test.js';
+import { runTests as runFuzzTests } from './fuzz/search-params.fuzz.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
 import { runTests as runMcpHandlersTests } from './integration/mcp-handlers.test.js';
@@ -46,6 +47,7 @@ const testSuites: TestSuite[] = [
   { name: 'HTTP Server', category: 'unit', run: runHttpServerUnitTests },
   { name: 'Version', category: 'unit', run: runVersionTests },
   { name: 'HTTP Security', category: 'unit', run: runHttpSecurityTests },
+  { name: 'Fuzz Properties', category: 'unit', run: runFuzzTests },
 
   // Integration Tests
   { name: 'HTTP Server', category: 'integration', run: runHttpServerTests },

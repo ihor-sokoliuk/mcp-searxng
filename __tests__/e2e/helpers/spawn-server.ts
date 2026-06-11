@@ -28,6 +28,7 @@ export function checkSkipConditions(requireLiveUrl = true): string | null {
   if (requireLiveUrl && !LIVE_URL) {
     return '[SKIP] SEARXNG_LIVE_URL not set — skipping live e2e tests';
   }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
   if (!existsSync(DIST_CLI)) {
     return '[SKIP] dist/cli.js not found — run `npm run build` first';
   }
