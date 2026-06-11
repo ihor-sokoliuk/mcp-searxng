@@ -3,6 +3,18 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.4] - 2026-06-11
+
+### Security
+- Docker images are now signed with Cosign (keyless OIDC). Verify a published image with:
+  ```bash
+  cosign verify docker.io/isokoliuk/mcp-searxng:latest \
+    --certificate-identity-regexp 'https://github.com/ihor-sokoliuk/mcp-searxng/.github/workflows/docker-publish.yml@.*' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  ```
+- Expanded fuzz test coverage: search parameter handling and URL read arguments are now fuzz-tested on every CI run.
+- Tightened GitHub Actions workflow permissions to least-privilege and switched to reproducible `npm ci` installs in the publish pipeline.
+
 ## [1.3.3] - 2026-06-10
 
 ### Fixed
