@@ -7,12 +7,14 @@ on:
 
 permissions:
   contents: read       # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
-  security-events: write  # for Trivy SARIF upload to GitHub Security tab
 
 jobs:
   push_to_registry:
     name: Push Docker image to Docker Hub
     runs-on: ubuntu-latest
+    permissions:
+      contents: read       # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
+      security-events: write  # for Trivy SARIF upload to GitHub Security tab
     steps:
       - name: Check out the repo
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

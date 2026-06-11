@@ -7,12 +7,13 @@ on:
 
 permissions:
   contents: read          # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
-  security-events: write  # for Trivy SARIF upload to GitHub Security tab
 
 jobs:
   check_base_image:
     name: Check for base image updates
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       rebuild: ${{ steps.compare.outputs.rebuild }}
       upstream_digest: ${{ steps.upstream.outputs.digest }}
@@ -68,6 +69,9 @@ jobs:
     needs: check_base_image
     if: needs.check_base_image.outputs.rebuild == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read          # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
+      security-events: write  # for Trivy SARIF upload to GitHub Security tab
     steps:
       - name: Check out latest release tag
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
