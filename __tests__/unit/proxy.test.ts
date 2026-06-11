@@ -89,7 +89,7 @@ async function runTests() {
     envManager.set('HTTP_PROXY', 'socks5://proxy:1080');
     
     try {
-      const agent = createProxyAgent();
+      createProxyAgent();
       assert.fail('Should have thrown error for unsupported protocol');
     } catch (error) {
       assert.ok(error instanceof Error);
@@ -106,7 +106,7 @@ async function runTests() {
       envManager.set('HTTP_PROXY', 'http://proxy:8080');
       
       try {
-        const agent = createProxyAgent();
+        const agent = createProxyAgent(url);
         assert.ok(agent === undefined || agent !== null);
       } catch (error) {
         // Some URL schemes might not be supported, that's ok

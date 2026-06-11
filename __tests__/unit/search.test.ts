@@ -55,10 +55,10 @@ async function runTests() {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     
     const mockServer = createMockServer();
-    const { mockFetch, getCapturedUrl, getCapturedOptions } = createCapturingMockFetch();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
 
     fetchMocker.mock(async (url, options) => {
-      const result = await mockFetch(url, options);
+      await mockFetch(url, options);
       throw new Error('MOCK_NETWORK_ERROR');
     });
 
@@ -162,7 +162,7 @@ async function runTests() {
     const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
 
     fetchMocker.mock(async (url, options) => {
-      const result = await mockFetch(url, options);
+      await mockFetch(url, options);
       throw new Error('MOCK_NETWORK_ERROR');
     });
 
