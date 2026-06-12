@@ -25,7 +25,7 @@ jobs:
 
       - name: Update npm
         # Keep npm pinned: npm publish --provenance relies on modern trusted publishing support.
-        run: npm install -g npm@11.17.0 --integrity sha512-PurxiZexEHDTE4SSaLI3ZrnbAGiZfeyUcQcxcP5D+hfytNAze/D1IzDuInTn9XVLIbAQUnQuSPXJx02LHjLvQw==
+        run: npm install -g npm@11.17.0
 
       - name: Verify npm provenance support
         run: |
