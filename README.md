@@ -95,6 +95,14 @@ AI Assistant (e.g. Claude)
     - `query` (string): Partial or complete query to autocomplete.
     - `language` (string, optional): Language code for suggestions (e.g., "en", "fr", "de") or "all" (default: "all")
 
+- **searxng_instance_info**
+  - Discover categories, engines, defaults, locales, and plugins exposed by the configured SearXNG instance
+  - Inputs:
+    - `includeEngines` (boolean, optional): Include enabled engine names in the response. (default: false)
+    - `includeDisabled` (boolean, optional): Include disabled engine names when `includeEngines` is true. (default: false)
+    - `category` (string, optional): Filter categories and engines to a single category name.
+    - `refresh` (boolean, optional): Bypass the process cache and fetch fresh `/config` data. (default: false)
+
 - **web_url_read**
   - Read and convert the content from a URL to markdown with advanced content extraction options
   - Inputs:

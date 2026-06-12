@@ -100,13 +100,14 @@ async function runTests() {
 
   // ── tools/list ──────────────────────────────────────────────────────────────
 
-  await testFunction('tools/list returns searxng_web_search, searxng_search_suggestions, and web_url_read', async () => {
+  await testFunction('tools/list returns all search, discovery, and URL tools', async () => {
     const { client } = await connect();
     const result = await client.listTools();
 
-    assert.equal(result.tools.length, 3);
+    assert.equal(result.tools.length, 4);
     assert.ok(result.tools.find((t) => t.name === 'searxng_web_search'), 'missing searxng_web_search');
     assert.ok(result.tools.find((t) => t.name === 'searxng_search_suggestions'), 'missing searxng_search_suggestions');
+    assert.ok(result.tools.find((t) => t.name === 'searxng_instance_info'), 'missing searxng_instance_info');
     assert.ok(result.tools.find((t) => t.name === 'web_url_read'), 'missing web_url_read');
 
     await client.close();
@@ -119,12 +120,14 @@ async function runTests() {
     const { client } = await connect();
     const result = await client.listTools();
 
-    assert.equal(result.tools.length, 3);
+    assert.equal(result.tools.length, 4);
     const searchTool = result.tools.find((t) => t.name === 'searxng_web_search');
     const suggestionsTool = result.tools.find((t) => t.name === 'searxng_search_suggestions');
+    const instanceInfoTool = result.tools.find((t) => t.name === 'searxng_instance_info');
     const readTool = result.tools.find((t) => t.name === 'web_url_read');
     assert.ok(searchTool, 'searxng_web_search must be registered');
     assert.ok(suggestionsTool, 'searxng_search_suggestions must be registered');
+    assert.ok(instanceInfoTool, 'searxng_instance_info must be registered');
     assert.ok(readTool, 'web_url_read must be registered');
 
     const searchProps = searchTool.inputSchema.properties as Record<string, unknown>;
@@ -139,6 +142,9 @@ async function runTests() {
     const suggestionProps = suggestionsTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(suggestionProps.query, 'lite suggestions tool must have query');
     assert.ok(!suggestionProps.language, 'lite suggestions tool must NOT have language');
+
+    const instanceInfoProps = instanceInfoTool.inputSchema.properties as Record<string, unknown>;
+    assert.equal(Object.keys(instanceInfoProps).length, 0, 'lite instance info tool must have no optional controls');
 
     delete process.env.SEARXNG_LITE_TOOLS;
     await client.close();
@@ -159,6 +165,11 @@ async function runTests() {
     assert.ok(suggestionsTool);
     const suggestionProps = suggestionsTool!.inputSchema.properties as Record<string, unknown>;
     assert.ok(suggestionProps.language, 'full suggestions tool must have language');
+
+    const instanceInfoTool = result.tools.find((t) => t.name === 'searxng_instance_info');
+    assert.ok(instanceInfoTool);
+    const instanceInfoProps = instanceInfoTool!.inputSchema.properties as Record<string, unknown>;
+    assert.ok(instanceInfoProps.includeEngines, 'full instance info tool must have includeEngines');
 
     await client.close();
   }, results);
@@ -304,6 +315,39 @@ async function runTests() {
       query: 'type',
       suggestions: ['typescript', 'typescript tutorial'],
     });
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call searxng_instance_info returns JSON instance info', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({
+      body: JSON.stringify({
+        categories: { general: {}, news: {} },
+        engines: [
+          { name: 'google', categories: ['general'], disabled: false },
+          { name: 'bing', categories: ['general'], disabled: true },
+        ],
+        search: { safe_search: 1 },
+        default_theme: 'simple',
+        plugins: [],
+      }),
+    }));
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: 'searxng_instance_info',
+      arguments: { includeEngines: true, includeDisabled: true },
+    });
+
+    assert.equal(result.content[0].type, 'text');
+    const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
+    assert.equal(payload.available, true);
+    assert.deepEqual(payload.categories, ['general', 'news']);
+    assert.deepEqual(payload.engines.enabled, ['google']);
+    assert.deepEqual(payload.engines.disabled, ['bing']);
 
     fetchMocker.restore();
     delete process.env.SEARXNG_URL;

@@ -13,16 +13,20 @@ import {
 import {
   WEB_SEARCH_TOOL,
   SUGGESTIONS_TOOL,
+  INSTANCE_INFO_TOOL,
   READ_URL_TOOL,
   LITE_WEB_SEARCH_TOOL,
   LITE_SUGGESTIONS_TOOL,
+  LITE_INSTANCE_INFO_TOOL,
   LITE_READ_URL_TOOL,
   isSearXNGWebSearchArgs,
   isSearXNGSearchSuggestionsArgs,
+  isSearXNGInstanceInfoArgs,
 } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { performSearchSuggestions } from "./suggestions.js";
+import { fetchInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
@@ -135,13 +139,14 @@ export function createMcpServer(): McpServer {
   const useLiteTools = process.env.SEARXNG_LITE_TOOLS === "true";
   const searchTool = useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL;
   const suggestionsTool = useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL;
+  const instanceInfoTool = useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL;
   const readUrlTool = useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL;
 
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [searchTool, suggestionsTool, readUrlTool],
+      tools: [searchTool, suggestionsTool, instanceInfoTool, readUrlTool],
     };
   });
 
@@ -192,6 +197,27 @@ export function createMcpServer(): McpServer {
             {
               type: "text",
               text: JSON.stringify({ query: args.query, suggestions }, null, 2),
+            },
+          ],
+        };
+      } else if (name === "searxng_instance_info") {
+        if (!isSearXNGInstanceInfoArgs(args)) {
+          throw new Error("Invalid arguments for instance info");
+        }
+
+        const result = await fetchInstanceInfo(
+          mcpServer,
+          args.includeEngines,
+          args.includeDisabled,
+          args.category,
+          args.refresh,
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
             },
           ],
         };

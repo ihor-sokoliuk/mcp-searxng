@@ -12,11 +12,14 @@ import {
   WEB_SEARCH_TOOL,
   READ_URL_TOOL,
   SUGGESTIONS_TOOL,
+  INSTANCE_INFO_TOOL,
   LITE_WEB_SEARCH_TOOL,
   LITE_READ_URL_TOOL,
   LITE_SUGGESTIONS_TOOL,
+  LITE_INSTANCE_INFO_TOOL,
   isSearXNGWebSearchArgs,
   isSearXNGSearchSuggestionsArgs,
+  isSearXNGInstanceInfoArgs,
   SearXNGWeb,
   SearXNGWebResult,
   SearXNGWebInfobox,
@@ -295,6 +298,37 @@ async function runTests() {
     assert.ok(props.query, 'LITE_SUGGESTIONS_TOOL must have query property');
     assert.equal(Object.keys(props).length, 1, 'LITE_SUGGESTIONS_TOOL must have exactly one property');
     assert.deepEqual(LITE_SUGGESTIONS_TOOL.inputSchema.required, ['query']);
+  }, results);
+
+  await testFunction('isSearXNGInstanceInfoArgs accepts optional controls', () => {
+    assert.equal(isSearXNGInstanceInfoArgs({}), true);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeEngines: true }), true);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeDisabled: true, category: 'news', refresh: true }), true);
+  }, results);
+
+  await testFunction('isSearXNGInstanceInfoArgs rejects invalid controls', () => {
+    assert.equal(isSearXNGInstanceInfoArgs(null), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeEngines: 'yes' }), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ includeDisabled: 'no' }), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ category: 123 }), false);
+    assert.equal(isSearXNGInstanceInfoArgs({ refresh: 'true' }), false);
+  }, results);
+
+  await testFunction('INSTANCE_INFO_TOOL schema exposes capability controls', () => {
+    const props = INSTANCE_INFO_TOOL.inputSchema.properties as Record<string, any>;
+    assert.equal(INSTANCE_INFO_TOOL.name, 'searxng_instance_info');
+    assert.ok(props.includeEngines);
+    assert.ok(props.includeDisabled);
+    assert.ok(props.category);
+    assert.ok(props.refresh);
+    assert.deepEqual(INSTANCE_INFO_TOOL.inputSchema.required, []);
+  }, results);
+
+  await testFunction('LITE_INSTANCE_INFO_TOOL schema has no optional controls', () => {
+    const props = LITE_INSTANCE_INFO_TOOL.inputSchema.properties as Record<string, any>;
+    assert.equal(LITE_INSTANCE_INFO_TOOL.name, 'searxng_instance_info');
+    assert.equal(Object.keys(props).length, 0);
+    assert.deepEqual(LITE_INSTANCE_INFO_TOOL.inputSchema.required, []);
   }, results);
 
   printTestSummary(results, 'Types Module');

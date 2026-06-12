@@ -14,6 +14,7 @@
 import { LIVE_URL } from './helpers/spawn-server.js';
 import { runTests as runSearchTests } from './search.e2e.js';
 import { runTests as runSuggestionsTests } from './suggestions.e2e.js';
+import { runTests as runInstanceInfoTests } from './instance-info.e2e.js';
 import { runTests as runUrlReaderTests } from './url-reader.e2e.js';
 import { runTests as runTimeoutTests } from './timeout.e2e.js';
 
@@ -33,6 +34,7 @@ async function main() {
   for (const { name, run } of [
     { name: 'Web Search (live)', run: runSearchTests },
     { name: 'Search Suggestions (live)', run: runSuggestionsTests },
+    { name: 'Instance Info (live)', run: runInstanceInfoTests },
     { name: 'URL Reader (live)', run: runUrlReaderTests },
     { name: 'Timeout (local)', run: runTimeoutTests },
   ]) {

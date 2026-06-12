@@ -127,6 +127,38 @@ export function isSearXNGSearchSuggestionsArgs(args: unknown): args is {
   return true;
 }
 
+export function isSearXNGInstanceInfoArgs(args: unknown): args is {
+  includeEngines?: boolean;
+  includeDisabled?: boolean;
+  category?: string;
+  refresh?: boolean;
+} {
+  if (typeof args !== "object" || args === null) {
+    return false;
+  }
+
+  const infoArgs = args as {
+    includeEngines?: unknown;
+    includeDisabled?: unknown;
+    category?: unknown;
+    refresh?: unknown;
+  };
+  if (infoArgs.includeEngines !== undefined && typeof infoArgs.includeEngines !== "boolean") {
+    return false;
+  }
+  if (infoArgs.includeDisabled !== undefined && typeof infoArgs.includeDisabled !== "boolean") {
+    return false;
+  }
+  if (infoArgs.category !== undefined && typeof infoArgs.category !== "string") {
+    return false;
+  }
+  if (infoArgs.refresh !== undefined && typeof infoArgs.refresh !== "boolean") {
+    return false;
+  }
+
+  return true;
+}
+
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
@@ -220,6 +252,41 @@ export const SUGGESTIONS_TOOL: Tool = {
   },
 };
 
+export const INSTANCE_INFO_TOOL: Tool = {
+  name: "searxng_instance_info",
+  description:
+    "Discovers capabilities from the configured SearXNG instance via /config, including categories, engines, defaults, locales, and plugins.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      includeEngines: {
+        type: "boolean",
+        description: "Include enabled engine names in the response.",
+        default: false,
+      },
+      includeDisabled: {
+        type: "boolean",
+        description: "Include disabled engine names when includeEngines is true.",
+        default: false,
+      },
+      category: {
+        type: "string",
+        description: "Filter categories and engines to a single category name.",
+      },
+      refresh: {
+        type: "boolean",
+        description: "Bypass the process cache and fetch fresh /config data.",
+        default: false,
+      },
+    },
+    required: [],
+  },
+};
+
 export const LITE_WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description: "Web search. Returns titles, URLs, snippets.",
@@ -237,6 +304,16 @@ export const LITE_SUGGESTIONS_TOOL: Tool = {
     type: "object",
     properties: { query: { type: "string", description: "Query prefix." } },
     required: ["query"],
+  },
+};
+
+export const LITE_INSTANCE_INFO_TOOL: Tool = {
+  name: "searxng_instance_info",
+  description: "Discover SearXNG instance capabilities.",
+  inputSchema: {
+    type: "object",
+    properties: {},
+    required: [],
   },
 };
 
