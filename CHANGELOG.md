@@ -3,6 +3,28 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-06-11
+
+### Added
+
+- **Result count control:** `num_results` parameter on `searxng_web_search` (1–20) lets callers request only as many results as they need. `SEARXNG_MAX_RESULTS` env var sets an operator-level hard cap that applies even when `num_results` is omitted — useful for reducing token spend across all callers.
+
+- **Token budget limits:** `SEARXNG_MAX_RESULT_CHARS` env var truncates each search result snippet to a character limit (appending `…`) before returning. `URL_READ_MAX_CHARS` env var sets a default `maxLength` for URL reads when the caller omits it — both controls are recommended for local models with small context windows.
+
+- **HEAD preflight for URL reader:** A fast HEAD request is made before every URL fetch to check `Content-Length`. If the server reports a size above `URL_READ_MAX_CONTENT_LENGTH_BYTES` (default 5 MB), the download is blocked and a descriptive message with `readHeadings`/`section` pagination hints is returned instead of downloading an unbounded body.
+
+- **`categories` parameter on `searxng_web_search`:** Routes searches to specific SearXNG categories — `general`, `news`, `images`, `videos`, `it`, `science`, `files`, `social media`. Omitting the parameter uses the SearXNG instance default (`general`).
+
+- **Configurable search defaults:** `SEARXNG_DEFAULT_LANGUAGE` and `SEARXNG_DEFAULT_SAFESEARCH` env vars set operator-level defaults for language and safe-search level. Per-call parameters still take precedence. Invalid `SEARXNG_DEFAULT_SAFESEARCH` values (not `0`, `1`, or `2`) are logged and ignored.
+
+- **Configurable timeouts:** `SEARXNG_TIMEOUT_MS` controls the search request timeout and `FETCH_TIMEOUT_MS` controls the URL reader fetch timeout (both default to `10000` ms).
+
+- **Lite tool schemas (`SEARXNG_LITE_TOOLS=true`):** When set, registers minimal `query`-only and `url`-only tool schemas instead of the full parameter list. Reduces context overhead for local models with small context windows while still forwarding any extra arguments the caller provides.
+
+### Security
+
+- Pinned the npm trusted publishing installer step in the publish workflow to a full commit SHA to guard against tag-swap supply-chain attacks.
+
 ## [1.3.4] - 2026-06-11
 
 ### Security
