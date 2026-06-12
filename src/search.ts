@@ -90,7 +90,8 @@ export async function performWebSearch(
   language?: string,
   safesearch?: number,
   min_score?: number,
-  num_results?: number
+  num_results?: number,
+  categories?: string
 ) {
   const startTime = Date.now();
   const operatorMax = getOperatorMaxResults(mcpServer);
@@ -110,6 +111,7 @@ export async function performWebSearch(
     effectiveSafesearch !== undefined ? `safesearch: ${effectiveSafesearch}` : null,
     min_score !== undefined ? `min_score: ${min_score}` : null,
     effectiveMax !== undefined ? `num_results: ${effectiveMax}` : null,
+    categories ? `categories: ${categories}` : null,
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -142,6 +144,10 @@ export async function performWebSearch(
 
   if (effectiveSafesearch !== undefined && [0, 1, 2].includes(effectiveSafesearch)) {
     url.searchParams.set("safesearch", effectiveSafesearch.toString());
+  }
+
+  if (categories) {
+    url.searchParams.set("categories", categories);
   }
 
   // Prepare request options with headers

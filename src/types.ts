@@ -41,6 +41,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   safesearch?: number;
   min_score?: number;
   num_results?: number;
+  categories?: string;
 } {
   if (
     typeof args !== "object" ||
@@ -58,6 +59,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     safesearch?: unknown;
     min_score?: unknown;
     num_results?: unknown;
+    categories?: unknown;
   };
 
   if (searchArgs.pageno !== undefined && (typeof searchArgs.pageno !== "number" || searchArgs.pageno < 1)) {
@@ -95,6 +97,9 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
       searchArgs.num_results < 1 ||
       searchArgs.num_results > 20)
   ) {
+    return false;
+  }
+  if (searchArgs.categories !== undefined && typeof searchArgs.categories !== "string") {
     return false;
   }
 
@@ -157,6 +162,11 @@ export const WEB_SEARCH_TOOL: Tool = {
           "Maximum number of results to return (1-20). Operator cap SEARXNG_MAX_RESULTS applies as a ceiling.",
         minimum: 1,
         maximum: 20,
+      },
+      categories: {
+        type: "string",
+        description:
+          "Comma-separated SearXNG categories. Supported: general, news, images, videos, it, science, files, social media. Default: general (SearXNG instance default).",
       },
     },
     required: ["query"],

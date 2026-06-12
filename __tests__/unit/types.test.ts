@@ -208,6 +208,23 @@ async function runTests() {
     assert.equal(fullInfobox.urls![1].title, 'docs');
   }, results);
 
+  await testFunction('isSearXNGWebSearchArgs accepts categories string', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'news' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'it,science' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'general' }), true);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs rejects non-string categories', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 123 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: ['news'] }), false);
+  }, results);
+
+  await testFunction('WEB_SEARCH_TOOL schema includes categories property', () => {
+    const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(properties.categories, 'WEB_SEARCH_TOOL must expose categories parameter');
+    assert.equal(properties.categories.type, 'string');
+  }, results);
+
   await testFunction('LITE_WEB_SEARCH_TOOL schema has only query property', () => {
     const props = LITE_WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(props.query, 'LITE_WEB_SEARCH_TOOL must have query property');

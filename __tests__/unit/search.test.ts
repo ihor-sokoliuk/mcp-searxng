@@ -746,6 +746,78 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('categories="news" adds categories=news to SearXNG request URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, 'news');
+    } catch {
+      // expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.searchParams.get('categories'), 'news', 'Expected categories=news in URL');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('categories="it,science" adds categories param to URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, 'it,science');
+    } catch {
+      // expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.searchParams.get('categories'), 'it,science', 'Expected categories=it,science in URL');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Omitting categories sends no categories param to SearXNG', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.searchParams.get('categories'), null, 'No categories param should be sent when omitted');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('SEARXNG_DEFAULT_LANGUAGE sets language when per-call language is omitted', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.set('SEARXNG_DEFAULT_LANGUAGE', 'fr');
