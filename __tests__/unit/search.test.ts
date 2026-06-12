@@ -18,6 +18,15 @@ const results = createTestResults();
 const fetchMocker = new FetchMocker();
 const envManager = new EnvManager();
 
+function makeMockSearchResults(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    title: `Result ${index + 1}`,
+    content: `Content ${index + 1}`,
+    url: `https://example.com/${index + 1}`,
+    score: 1 - index * 0.05,
+  }));
+}
+
 async function runTests() {
   console.log('🧪 Testing: search.ts\n');
 
@@ -361,6 +370,90 @@ async function runTests() {
 
     const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0.8);
     assert.ok(result.includes('No results found'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('num_results limits formatted results after min_score filtering', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          { title: 'Low Score Result', content: 'Filtered first', url: 'https://example.com/low', score: 0.1 },
+          ...makeMockSearchResults(5),
+        ]
+      }
+    });
+
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, 0.5, 3);
+    assert.ok(!result.includes('Low Score Result'));
+    assert.ok(result.includes('Result 1'));
+    assert.ok(result.includes('Result 2'));
+    assert.ok(result.includes('Result 3'));
+    assert.ok(!result.includes('Result 4'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_MAX_RESULTS caps results when num_results is omitted', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULTS', '5');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: makeMockSearchResults(10) } }));
+
+    const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Result 5'));
+    assert.ok(!result.includes('Result 6'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_MAX_RESULTS is an operator ceiling over num_results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULTS', '5');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: makeMockSearchResults(10) } }));
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, 'all', undefined, undefined, 10);
+    assert.ok(result.includes('Result 5'));
+    assert.ok(!result.includes('Result 6'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Invalid SEARXNG_MAX_RESULTS is ignored', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULTS', 'not-a-number');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: makeMockSearchResults(4) } }));
+
+    const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Result 4'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Omitted num_results and unset SEARXNG_MAX_RESULTS preserves all results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARXNG_MAX_RESULTS');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: makeMockSearchResults(6) } }));
+
+    const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Result 6'));
 
     fetchMocker.restore();
     envManager.restore();

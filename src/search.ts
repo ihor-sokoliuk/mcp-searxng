@@ -13,6 +13,25 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
+function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
+  const rawValue = process.env.SEARXNG_MAX_RESULTS;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return undefined;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || parsed <= 0 || parsed > 20) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid SEARXNG_MAX_RESULTS="${rawValue}". Expected an integer from 1 to 20.`,
+    );
+    return undefined;
+  }
+
+  return parsed;
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
@@ -20,16 +39,23 @@ export async function performWebSearch(
   time_range?: string,
   language: string = "all",
   safesearch?: number,
-  min_score?: number
+  min_score?: number,
+  num_results?: number
 ) {
   const startTime = Date.now();
+  const operatorMax = getOperatorMaxResults(mcpServer);
+  const effectiveMax = operatorMax !== undefined
+    ? (num_results !== undefined ? Math.min(num_results, operatorMax) : operatorMax)
+    : num_results;
   
   // Build detailed log message with all parameters
   const searchParams = [
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null
+    safesearch ? `safesearch: ${safesearch}` : null,
+    min_score !== undefined ? `min_score: ${min_score}` : null,
+    effectiveMax !== undefined ? `num_results: ${effectiveMax}` : null,
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -166,17 +192,24 @@ export async function performWebSearch(
       score: result.score || 0,
     }))
     .filter((result) => min_score === undefined || result.score >= min_score);
+  const slicedResults = effectiveMax !== undefined
+    ? results.slice(0, effectiveMax)
+    : results;
 
-  if (results.length === 0) {
-    const filterNote = min_score === undefined ? "" : ` after applying min_score=${min_score}`;
+  if (slicedResults.length === 0) {
+    const appliedFilters = [
+      min_score === undefined ? null : `min_score=${min_score}`,
+      effectiveMax === undefined ? null : `num_results=${effectiveMax}`,
+    ].filter(Boolean).join(" ");
+    const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     return createNoResultsMessage(query);
   }
 
   const duration = Date.now() - startTime;
-  logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${results.length} results in ${duration}ms`);
+  logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${slicedResults.length} results in ${duration}ms`);
 
-  return results
+  return slicedResults
     .map((r) => `Title: ${r.title}\nDescription: ${r.content}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
     .join("\n\n");
 }

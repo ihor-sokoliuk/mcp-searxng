@@ -110,7 +110,8 @@ export function createMcpServer(): McpServer {
           args.time_range,
           args.language,
           args.safesearch,
-          args.min_score
+          args.min_score,
+          args.num_results
         );
 
         return {
@@ -287,4 +288,3 @@ export async function main() {
     logMessage(mcpServer, "info", `SearXNG URL: ${process.env.SEARXNG_URL || 'not configured'}`);
   }
 }
-

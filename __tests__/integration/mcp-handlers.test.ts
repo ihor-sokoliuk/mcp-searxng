@@ -44,6 +44,15 @@ const SEARXNG_RESPONSE = JSON.stringify({
   ],
 });
 
+const MANY_SEARXNG_RESULTS_RESPONSE = JSON.stringify({
+  results: Array.from({ length: 5 }, (_, index) => ({
+    title: `Result ${index + 1}`,
+    url: `https://example.com/${index + 1}`,
+    content: `Snippet ${index + 1}`,
+    score: 1 - index * 0.1,
+  })),
+});
+
 /** Minimal HTML for URL reader */
 const HTML_RESPONSE = '<html><body><h1>Hello</h1><p>World</p></body></html>';
 
@@ -105,6 +114,29 @@ async function runTests() {
     });
 
     assert.equal(result.content[0].type, 'text');
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call searxng_web_search honors num_results', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({ body: MANY_SEARXNG_RESULTS_RESPONSE }));
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: 'searxng_web_search',
+      arguments: {
+        query: 'test',
+        num_results: 2,
+      },
+    });
+
+    const text = (result.content[0] as { type: string; text: string }).text;
+    assert.ok(text.includes('Result 1'));
+    assert.ok(text.includes('Result 2'));
+    assert.ok(!text.includes('Result 3'));
 
     fetchMocker.restore();
     delete process.env.SEARXNG_URL;

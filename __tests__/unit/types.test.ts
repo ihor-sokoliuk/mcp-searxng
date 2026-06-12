@@ -24,6 +24,8 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'week', safesearch: 2 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 0 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 1 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 20 }), true);
   }, results);
 
   await testFunction('isSearXNGWebSearchArgs type guard - invalid cases', () => {
@@ -46,14 +48,22 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: -0.1 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1.1 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: Number.NaN }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 0 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 21 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 1.5 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: Number.NaN }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: '3' }), false);
   }, results);
 
-  await testFunction('WEB_SEARCH_TOOL schema includes week and min_score', () => {
+  await testFunction('WEB_SEARCH_TOOL schema includes week, min_score, and num_results', () => {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.time_range.enum.includes('week'));
     assert.equal(properties.min_score.type, 'number');
     assert.equal(properties.min_score.minimum, 0);
     assert.equal(properties.min_score.maximum, 1);
+    assert.equal(properties.num_results.type, 'number');
+    assert.equal(properties.num_results.minimum, 1);
+    assert.equal(properties.num_results.maximum, 20);
   }, results);
 
   await testFunction('isWebUrlReadArgs type guard - basic valid cases', () => {

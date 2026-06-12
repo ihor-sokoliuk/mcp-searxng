@@ -40,6 +40,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   language?: string;
   safesearch?: number;
   min_score?: number;
+  num_results?: number;
 } {
   if (
     typeof args !== "object" ||
@@ -56,6 +57,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     language?: unknown;
     safesearch?: unknown;
     min_score?: unknown;
+    num_results?: unknown;
   };
 
   if (searchArgs.pageno !== undefined && (typeof searchArgs.pageno !== "number" || searchArgs.pageno < 1)) {
@@ -82,6 +84,16 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
       Number.isNaN(searchArgs.min_score) ||
       searchArgs.min_score < 0 ||
       searchArgs.min_score > 1)
+  ) {
+    return false;
+  }
+  if (
+    searchArgs.num_results !== undefined &&
+    (typeof searchArgs.num_results !== "number" ||
+      Number.isNaN(searchArgs.num_results) ||
+      !Number.isInteger(searchArgs.num_results) ||
+      searchArgs.num_results < 1 ||
+      searchArgs.num_results > 20)
   ) {
     return false;
   }
@@ -138,6 +150,13 @@ export const WEB_SEARCH_TOOL: Tool = {
           "Minimum relevance score threshold from 0.0 to 1.0. Results below this score are filtered out.",
         minimum: 0,
         maximum: 1,
+      },
+      num_results: {
+        type: "number",
+        description:
+          "Maximum number of results to return (1-20). Operator cap SEARXNG_MAX_RESULTS applies as a ceiling.",
+        minimum: 1,
+        maximum: 20,
       },
     },
     required: ["query"],

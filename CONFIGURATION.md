@@ -21,6 +21,12 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 |---|---|---|---|
 | `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a SearXNG search response. The request is aborted and a network error is returned if the server does not respond within this window. |
 
+## Search Result Controls
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARXNG_MAX_RESULTS` | No | â€” | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
+
 ## User-Agent
 
 | Variable | Required | Default | Description |
@@ -101,6 +107,7 @@ Complete MCP client configuration with every variable. Mix and match as needed â
       "env": {
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "SEARXNG_TIMEOUT_MS": "10000",
+        "SEARXNG_MAX_RESULTS": "10",
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
