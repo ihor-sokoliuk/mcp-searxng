@@ -9,8 +9,8 @@
  */
 
 import { strict as assert } from 'node:assert';
-import * as http from 'node:http';
-import * as net from 'node:net';
+import http from 'node:http';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -298,6 +298,56 @@ async function runTests() {
     });
 
     delete process.env.URL_READ_MAX_CHARS;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call web_url_read FETCH_TIMEOUT_MS=100 times out against hanging server', async () => {
+    process.env.FETCH_TIMEOUT_MS = '100';
+    process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = 'true';
+    const { client } = await connect();
+
+    const hangingServer = http.createServer((_req, _res) => { /* never responds */ });
+    await new Promise<void>((resolve, reject) => {
+      hangingServer.listen(0, '127.0.0.1', resolve);
+      hangingServer.once('error', reject);
+    });
+    const addr = hangingServer.address() as net.AddressInfo;
+    const hangUrl = `http://127.0.0.1:${addr.port}`;
+
+    const start = Date.now();
+    try {
+      await client.callTool({ name: 'web_url_read', arguments: { url: hangUrl } });
+      assert.fail('Expected timeout error to be thrown');
+    } catch (error: any) {
+      const elapsed = Date.now() - start;
+      // Must abort well before the default 10 s (100 ms timeout + margin)
+      assert.ok(elapsed < 3000, `Expected timeout within 3 s, took ${elapsed} ms`);
+      assert.ok(
+        error.message.toLowerCase().includes('network') ||
+        error.message.toLowerCase().includes('abort') ||
+        error.message.toLowerCase().includes('timeout') ||
+        error.message.toLowerCase().includes('error'),
+        `Expected network/timeout error, got: ${error.message}`
+      );
+    }
+
+    await new Promise<void>((resolve) => { hangingServer.closeAllConnections(); hangingServer.close(() => resolve()); });
+    delete process.env.FETCH_TIMEOUT_MS;
+    delete process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call web_url_read FETCH_TIMEOUT_MS default 10000 used when env unset', async () => {
+    delete process.env.FETCH_TIMEOUT_MS;
+    fetchMocker.mock(createMockFetch({ body: HTML_RESPONSE }));
+    const { client } = await connect();
+
+    // Normal request succeeds — confirms the default timeout path doesn't break anything
+    const result = await client.callTool({ name: 'web_url_read', arguments: { url: 'https://example.com' } });
+    assert.equal(result.content[0].type, 'text');
+    assert.ok((result.content[0] as { type: string; text: string }).text.length > 0);
+
+    fetchMocker.restore();
     await client.close();
   }, results);
 

@@ -63,6 +63,25 @@ export function isWebUrlReadArgs(args: unknown): args is {
   return true;
 }
 
+function getFetchTimeoutMs(mcpServer: McpServer): number {
+  const rawValue = process.env.FETCH_TIMEOUT_MS;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return 10000;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid FETCH_TIMEOUT_MS="${rawValue}". Expected a positive integer. Using default 10000.`,
+    );
+    return 10000;
+  }
+
+  return parsed;
+}
+
 function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
   const rawValue = process.env.URL_READ_MAX_CHARS;
   if (rawValue === undefined || rawValue.trim() === "") {
@@ -155,7 +174,7 @@ export function createMcpServer(): McpServer {
           readHeadings: args.readHeadings,
         };
 
-        const result = await fetchAndConvertToMarkdown(mcpServer, args.url, 10000, paginationOptions);
+        const result = await fetchAndConvertToMarkdown(mcpServer, args.url, getFetchTimeoutMs(mcpServer), paginationOptions);
 
         return {
           content: [
