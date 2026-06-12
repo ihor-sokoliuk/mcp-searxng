@@ -196,6 +196,39 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('tools/call searxng_web_search returns prepended search metadata', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({
+      body: JSON.stringify({
+        answers: ['Paris'],
+        suggestions: ['capital of France'],
+        results: [
+          {
+            title: 'France Result',
+            url: 'https://example.com/france',
+            content: 'France snippet',
+            score: 1.0,
+          },
+        ],
+      }),
+    }));
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: 'searxng_web_search',
+      arguments: { query: 'capital france' },
+    });
+
+    const text = (result.content[0] as { type: string; text: string }).text;
+    assert.ok(text.startsWith('Direct answer: Paris'), text);
+    assert.ok(text.includes('Suggestions: capital of France'), text);
+    assert.ok(text.includes('Title: France Result'), text);
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
   await testFunction('tools/call searxng_web_search with all optional params succeeds', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: SEARXNG_RESPONSE }));

@@ -53,6 +53,10 @@ async function runTests() {
     // The formatted output always includes a URL line
     assert.ok(text.includes('URL:'), 'response should contain URL: field');
     assert.ok(text.includes('Title:'), 'response should contain Title: field');
+    assert.ok(
+      !text.includes('undefined'),
+      'response should not contain undefined metadata placeholders'
+    );
   }, results);
 
   await testFunction('search with time_range=day returns results', async () => {

@@ -943,6 +943,121 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('text output prepends answers before result list', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        answers: ['42'],
+        results: [
+          {
+            title: 'Answer Result',
+            content: 'Result content',
+            url: 'https://example.com/answer',
+            score: 1,
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'answer query');
+    assert.ok(result.startsWith('Direct answer: 42\n\n---\n\nTitle: Answer Result'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('text output prepends corrections and suggestions only when present', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        corrections: ['typescript'],
+        suggestions: ['typescript tutorial', 'typescript handbook'],
+        results: [
+          {
+            title: 'TS Result',
+            content: 'Typed JS',
+            url: 'https://example.com/ts',
+            score: 0.9,
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'typscript');
+    assert.ok(result.includes('Spelling correction: did you mean "typescript"?'), result);
+    assert.ok(result.includes('Suggestions: typescript tutorial, typescript handbook'), result);
+    assert.ok(!result.includes('Direct answer:'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('text output prepends infoboxes and unresponsive engines when present', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        infoboxes: [
+          {
+            infobox: 'Ada Lovelace',
+            content: 'English mathematician and writer',
+            urls: [{ title: 'Biography', url: 'https://example.com/ada' }],
+          },
+        ],
+        unresponsive_engines: [['brave', 'timeout']],
+        results: [
+          {
+            title: 'Ada Result',
+            content: 'Computing pioneer',
+            url: 'https://example.com/result',
+            score: 0.8,
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'Ada Lovelace');
+    assert.ok(result.includes('Infobox: Ada Lovelace'), result);
+    assert.ok(result.includes('English mathematician and writer'), result);
+    assert.ok(result.includes('Biography: https://example.com/ada'), result);
+    assert.ok(result.includes('Unresponsive engines: brave (timeout)'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('text output is unchanged when optional metadata is absent', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Plain Result',
+            content: 'Plain content',
+            url: 'https://example.com/plain',
+            score: 0.75,
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'plain query');
+    assert.equal(
+      result,
+      'Title: Plain Result\nDescription: Plain content\nURL: https://example.com/plain\nRelevance Score: 0.750',
+    );
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Search Module');
   return results;
 }

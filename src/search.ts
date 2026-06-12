@@ -59,6 +59,51 @@ function truncateResultContent(content: string, maxResultChars?: number): string
   return `${content.slice(0, maxResultChars)}…`;
 }
 
+function hasItems<T>(items: T[] | undefined): items is T[] {
+  return Array.isArray(items) && items.length > 0;
+}
+
+function formatSearchMetadata(data: SearXNGWeb): string {
+  const sections: string[] = [];
+
+  if (hasItems(data.answers)) {
+    sections.push(data.answers.map((answer) => `Direct answer: ${answer}`).join("\n"));
+  }
+
+  if (hasItems(data.corrections)) {
+    sections.push(data.corrections.map((correction) => `Spelling correction: did you mean "${correction}"?`).join("\n"));
+  }
+
+  if (hasItems(data.suggestions)) {
+    sections.push(`Suggestions: ${data.suggestions.join(", ")}`);
+  }
+
+  if (hasItems(data.infoboxes)) {
+    const infoboxText = data.infoboxes
+      .map((infobox) => {
+        const lines = [`Infobox: ${infobox.infobox}`];
+        if (infobox.content) {
+          lines.push(infobox.content);
+        }
+        if (hasItems(infobox.urls)) {
+          lines.push(...infobox.urls.map((entry) => `${entry.title}: ${entry.url}`));
+        }
+        return lines.join("\n");
+      })
+      .join("\n\n");
+    sections.push(infoboxText);
+  }
+
+  if (hasItems(data.unresponsive_engines)) {
+    const engines = data.unresponsive_engines
+      .map(([engine, reason]) => reason ? `${engine} (${reason})` : engine)
+      .join(", ");
+    sections.push(`Unresponsive engines: ${engines}`);
+  }
+
+  return sections.join("\n\n");
+}
+
 function getDefaultLanguage(): string {
   return process.env.SEARXNG_DEFAULT_LANGUAGE ?? "all";
 }
@@ -269,7 +314,10 @@ export async function performWebSearch(
   const duration = Date.now() - startTime;
   logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${slicedResults.length} results in ${duration}ms`);
 
-  return slicedResults
+  const formattedResults = slicedResults
     .map((r) => `Title: ${r.title}\nDescription: ${truncateResultContent(r.content, maxResultChars)}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
     .join("\n\n");
+  const metadata = formatSearchMetadata(data);
+
+  return metadata ? `${metadata}\n\n---\n\n${formattedResults}` : formattedResults;
 }
