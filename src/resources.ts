@@ -23,7 +23,12 @@ export function createConfigResource() {
       currentLogLevel: getCurrentLogLevel()
     },
     capabilities: {
-      tools: ["searxng_web_search", "web_url_read"],
+      tools: [
+        "searxng_web_search",
+        "searxng_search_suggestions",
+        "searxng_instance_info",
+        "web_url_read"
+      ],
       logging: true,
       resources: true,
       transports: process.env.MCP_HTTP_PORT ? ["stdio", "http"] : ["stdio"]
@@ -37,7 +42,7 @@ export function createHelpResource() {
   return `# SearXNG MCP Server Help
 
 ## Overview
-This is a Model Context Protocol (MCP) server that provides web search capabilities through SearXNG and URL content reading functionality.
+This is a Model Context Protocol (MCP) server that provides web search, autocomplete suggestions, instance capability discovery, and URL content reading through SearXNG.
 
 ## Available Tools
 
@@ -51,12 +56,38 @@ Performs web searches using the configured SearXNG instance.
 - \`language\` (optional): Language code like "en", "fr", "de" (default: "all")
 - \`safesearch\` (optional): Safe search level - 0 (none), 1 (moderate), 2 (strict)
 - \`min_score\` (optional): Minimum relevance score from 0.0 to 1.0
+- \`num_results\` (optional): Maximum result count from 1 to 20
+- \`categories\` (optional): Comma-separated SearXNG categories such as "news" or "it,science"
+- \`response_format\` (optional): "text" for formatted output or "json" for raw SearXNG-shaped JSON
 
-### 2. web_url_read
+Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`.
+
+### 2. searxng_search_suggestions
+Returns autocomplete suggestions from the configured SearXNG instance.
+
+**Parameters:**
+- \`query\` (required): Partial or complete query to autocomplete
+- \`language\` (optional): Language code like "en", "fr", "de" or "all" (default: "all")
+
+### 3. searxng_instance_info
+Discovers categories, engines, defaults, locales, and plugins exposed by the configured SearXNG instance.
+
+**Parameters:**
+- \`includeEngines\` (optional): Include enabled engine names
+- \`includeDisabled\` (optional): Include disabled engine names when \`includeEngines\` is true
+- \`category\` (optional): Filter categories and engines to one category
+- \`refresh\` (optional): Bypass the process cache and fetch fresh \`/config\` data
+
+### 4. web_url_read
 Reads and converts web page content to Markdown format.
 
 **Parameters:**
 - \`url\` (required): The URL to fetch and convert
+- \`startChar\` (optional): Starting character position
+- \`maxLength\` (optional): Maximum number of characters to return
+- \`section\` (optional): Extract content under a heading
+- \`paragraphRange\` (optional): Return a paragraph range such as "1-5" or "10-"
+- \`readHeadings\` (optional): Return only headings
 
 ## Configuration
 
@@ -100,6 +131,18 @@ Args: {"query": "latest AI developments", "time_range": "day"}
 \`\`\`
 Tool: web_url_read  
 Args: {"url": "https://example.com/article"}
+\`\`\`
+
+### Get query suggestions
+\`\`\`
+Tool: searxng_search_suggestions
+Args: {"query": "typescr"}
+\`\`\`
+
+### Discover instance capabilities
+\`\`\`
+Tool: searxng_instance_info
+Args: {"includeEngines": true}
 \`\`\`
 
 ## Troubleshooting

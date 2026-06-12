@@ -53,6 +53,30 @@ async function runTests() {
     assert.ok(help.includes('searxng') || help.includes('search') || help.includes('SearXNG'));
   }, results);
 
+  await testFunction('config resource advertises all registered tools', () => {
+    const config = JSON.parse(createConfigResource());
+
+    assert.deepEqual(config.capabilities.tools, [
+      'searxng_web_search',
+      'searxng_search_suggestions',
+      'searxng_instance_info',
+      'web_url_read',
+    ]);
+  }, results);
+
+  await testFunction('help resource documents all tools and current search parameters', () => {
+    const help = createHelpResource();
+
+    assert.ok(help.includes('### 1. searxng_web_search'), 'missing search tool section');
+    assert.ok(help.includes('`num_results`'), 'missing num_results parameter');
+    assert.ok(help.includes('`categories`'), 'missing categories parameter');
+    assert.ok(help.includes('`response_format`'), 'missing response_format parameter');
+    assert.ok(help.includes('metadata sections'), 'missing metadata/direct-answer output note');
+    assert.ok(help.includes('### 2. searxng_search_suggestions'), 'missing suggestions tool section');
+    assert.ok(help.includes('### 3. searxng_instance_info'), 'missing instance info tool section');
+    assert.ok(help.includes('### 4. web_url_read'), 'missing URL reader tool section');
+  }, results);
+
   await testFunction('createConfigResource - hasAuth true when both credentials set', () => {
     envManager.set('AUTH_USERNAME', 'testuser');
     envManager.set('AUTH_PASSWORD', 'testpass');
