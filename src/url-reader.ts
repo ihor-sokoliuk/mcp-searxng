@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isIP } from "node:net";
 import { NodeHtmlMarkdown } from "node-html-markdown";
-import { fetch as undiciFetch } from "undici";
+import { fetch as undiciFetch, type Dispatcher } from "undici";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
@@ -29,6 +29,8 @@ interface PaginationOptions {
 
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
+export const DEFAULT_MAX_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
+const HEAD_TIMEOUT_CAP_MS = 3000;
 
 function isPrivateHostname(hostname: string): boolean {
   const lower = hostname.toLowerCase().replace(/\.+$/, "");
@@ -214,6 +216,72 @@ function applyPaginationOptions(markdownContent: string, options: PaginationOpti
   return result;
 }
 
+export async function checkContentLength(
+  mcpServer: McpServer,
+  url: string,
+  timeoutMs: number,
+  dispatcher?: Dispatcher,
+  baseRequestOptions: RequestInit = {},
+): Promise<number | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), Math.min(timeoutMs, HEAD_TIMEOUT_CAP_MS));
+
+  try {
+    const requestOptions: RequestInit = {
+      ...baseRequestOptions,
+      method: "HEAD",
+      signal: controller.signal,
+      redirect: "manual",
+    };
+
+    if (dispatcher) {
+      (requestOptions as any).dispatcher = dispatcher;
+    }
+
+    const response = await (undiciFetch as unknown as typeof fetch)(url, requestOptions);
+    const contentLength = response.headers.get("content-length");
+    if (!contentLength) {
+      return null;
+    }
+
+    const parsed = parseInt(contentLength, 10);
+    return Number.isNaN(parsed) || parsed < 0 ? null : parsed;
+  } catch (error: any) {
+    logMessage(mcpServer, "warning", `HEAD check failed (proceeding with GET): ${error.message}`);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function getMaxContentLengthBytes(mcpServer: McpServer): number {
+  const rawValue = process.env.URL_READ_MAX_CONTENT_LENGTH_BYTES;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return DEFAULT_MAX_CONTENT_LENGTH_BYTES;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid URL_READ_MAX_CONTENT_LENGTH_BYTES="${rawValue}". Expected a positive integer; using default ${DEFAULT_MAX_CONTENT_LENGTH_BYTES}.`,
+    );
+    return DEFAULT_MAX_CONTENT_LENGTH_BYTES;
+  }
+
+  return parsed;
+}
+
+function createContentTooLargeMessage(contentLength: number, maxBytes: number): string {
+  const sizeMB = (contentLength / (1024 * 1024)).toFixed(1);
+  const limitMB = (maxBytes / (1024 * 1024)).toFixed(1);
+  return (
+    `Content too large: server reports Content-Length of ${sizeMB} MB (limit: ${limitMB} MB). ` +
+    `Try using readHeadings or section to fetch only the relevant parts.`
+  );
+}
+
 export async function fetchAndConvertToMarkdown(
   mcpServer: McpServer,
   url: string,
@@ -243,6 +311,7 @@ export async function fetchAndConvertToMarkdown(
   }
 
   assertUrlAllowed(parsedUrl);
+  const maxContentLengthBytes = getMaxContentLengthBytes(mcpServer);
 
   // Create an AbortController instance
   const controller = new AbortController();
@@ -278,6 +347,17 @@ export async function fetchAndConvertToMarkdown(
         };
         if (dispatcher) {
           (currentRequestOptions as any).dispatcher = dispatcher;
+        }
+
+        const contentLength = await checkContentLength(
+          mcpServer,
+          currentUrl.toString(),
+          timeoutMs,
+          dispatcher,
+          currentRequestOptions,
+        );
+        if (contentLength !== null && contentLength > maxContentLengthBytes) {
+          return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
         }
 
         // Fetch the URL with the abort signal.

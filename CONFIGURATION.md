@@ -33,6 +33,7 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | â€” | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
+| `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum `Content-Length` allowed by the `web_url_read` HEAD preflight before downloading a page. Invalid values fall back to the default. HEAD failures are non-fatal and the GET proceeds. |
 
 ## User-Agent
 
@@ -117,6 +118,7 @@ Complete MCP client configuration with every variable. Mix and match as needed â
         "SEARXNG_MAX_RESULTS": "10",
         "SEARXNG_MAX_RESULT_CHARS": "500",
         "URL_READ_MAX_CHARS": "2000",
+        "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",

@@ -15,7 +15,7 @@ import * as http from 'node:http';
 import * as net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
-import { fetchAndConvertToMarkdown } from '../../src/url-reader.js';
+import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
@@ -243,6 +243,142 @@ async function runTests() {
     }
   }, results);
 
+  // ── HEAD content-length preflight ─────────────────────────────────────────
+
+  await testFunction('HEAD preflight returns Content-Length when present', async () => {
+    const mockServer = createMockServer();
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': '1234' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body>GET fallback</body></html>');
+    });
+
+    try {
+      const contentLength = await checkContentLength(mockServer as any, url, 1000);
+      assert.equal(contentLength, 1234);
+    } finally {
+      await close();
+    }
+  }, results);
+
+  await testFunction('HEAD preflight returns null when Content-Length is absent', async () => {
+    const mockServer = createMockServer();
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body>GET fallback</body></html>');
+    });
+
+    try {
+      const contentLength = await checkContentLength(mockServer as any, url, 1000);
+      assert.equal(contentLength, null);
+    } finally {
+      await close();
+    }
+  }, results);
+
+  await testFunction('HEAD preflight failure is non-fatal and returns null', async () => {
+    const mockServer = createMockServer();
+    const port = await getFreePort();
+
+    const contentLength = await checkContentLength(mockServer as any, `http://127.0.0.1:${port}`, 100);
+
+    assert.equal(contentLength, null);
+  }, results);
+
+  await testFunction('HEAD preflight blocks GET when Content-Length exceeds URL_READ_MAX_CONTENT_LENGTH_BYTES', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '100');
+
+    const seenMethods: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenMethods.push(req.method || 'UNKNOWN');
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': '101' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body><h1>Should not download</h1></body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Content too large'));
+      assert.ok(result.includes('0.0 MB'));
+      assert.deepEqual(seenMethods, ['HEAD']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('HEAD preflight allows GET when Content-Length is within limit', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '1000');
+
+    const seenMethods: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenMethods.push(req.method || 'UNKNOWN');
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': '1000' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body><h1>Allowed Content</h1></body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Allowed Content'));
+      assert.deepEqual(seenMethods, ['HEAD', 'GET']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Invalid URL_READ_MAX_CONTENT_LENGTH_BYTES falls back to default cap', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', 'not-a-number');
+
+    const seenMethods: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenMethods.push(req.method || 'UNKNOWN');
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': String(6 * 1024 * 1024) });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body><h1>Should not download</h1></body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Content too large'));
+      assert.deepEqual(seenMethods, ['HEAD']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
   // ── empty / whitespace body ───────────────────────────────────────────────
 
   await testFunction('Empty content handling', async () => {
@@ -418,7 +554,7 @@ async function runTests() {
       const result1 = await fetchAndConvertToMarkdown(mockServer as any, serverUrl, 10000, {
         maxLength: 50,
       });
-      assert.equal(requestCount, 1);
+      assert.equal(requestCount, 2);
       assert.ok(typeof result1 === 'string');
 
       // Second call with different pagination options must hit the cache.
@@ -426,7 +562,7 @@ async function runTests() {
         startChar: 10,
         maxLength: 30,
       });
-      assert.equal(requestCount, 1, 'Second call should use the cache, not re-fetch');
+      assert.equal(requestCount, 2, 'Second call should use the cache, not re-fetch');
       assert.ok(typeof result2 === 'string');
     } finally {
       server.closeAllConnections();
@@ -578,6 +714,44 @@ async function runTests() {
     } finally {
       await proxy.close();
       envManager.restore();
+    }
+  }, results);
+
+  await testFunction('HEAD preflight checks redirected final URL before downloading it', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '100');
+
+    const seenRequests: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenRequests.push(`${req.method} ${req.url}`);
+      if (req.url === '/start' && req.method === 'HEAD') {
+        res.writeHead(302, { location: '/final' });
+        res.end();
+        return;
+      }
+      if (req.url === '/start' && req.method === 'GET') {
+        res.writeHead(302, { location: '/final' });
+        res.end();
+        return;
+      }
+      if (req.url === '/final' && req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': '101' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body><h1>Should not download final</h1></body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, `${url}/start`);
+      assert.ok(result.includes('Content too large'));
+      assert.deepEqual(seenRequests, ['HEAD /start', 'GET /start', 'HEAD /final']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
     }
   }, results);
 
