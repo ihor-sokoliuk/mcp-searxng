@@ -10,9 +10,19 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, LITE_WEB_SEARCH_TOOL, LITE_READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
+import {
+  WEB_SEARCH_TOOL,
+  SUGGESTIONS_TOOL,
+  READ_URL_TOOL,
+  LITE_WEB_SEARCH_TOOL,
+  LITE_SUGGESTIONS_TOOL,
+  LITE_READ_URL_TOOL,
+  isSearXNGWebSearchArgs,
+  isSearXNGSearchSuggestionsArgs,
+} from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
+import { performSearchSuggestions } from "./suggestions.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
@@ -124,13 +134,14 @@ export function createMcpServer(): McpServer {
 
   const useLiteTools = process.env.SEARXNG_LITE_TOOLS === "true";
   const searchTool = useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL;
+  const suggestionsTool = useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL;
   const readUrlTool = useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL;
 
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [searchTool, readUrlTool],
+      tools: [searchTool, suggestionsTool, readUrlTool],
     };
   });
 
@@ -162,6 +173,25 @@ export function createMcpServer(): McpServer {
             {
               type: "text",
               text: result,
+            },
+          ],
+        };
+      } else if (name === "searxng_search_suggestions") {
+        if (!isSearXNGSearchSuggestionsArgs(args)) {
+          throw new Error("Invalid arguments for search suggestions");
+        }
+
+        const suggestions = await performSearchSuggestions(
+          mcpServer,
+          args.query,
+          args.language,
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ query: args.query, suggestions }, null, 2),
             },
           ],
         };

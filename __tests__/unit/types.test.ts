@@ -8,7 +8,19 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, LITE_WEB_SEARCH_TOOL, LITE_READ_URL_TOOL, isSearXNGWebSearchArgs, SearXNGWeb, SearXNGWebResult, SearXNGWebInfobox } from '../../src/types.js';
+import {
+  WEB_SEARCH_TOOL,
+  READ_URL_TOOL,
+  SUGGESTIONS_TOOL,
+  LITE_WEB_SEARCH_TOOL,
+  LITE_READ_URL_TOOL,
+  LITE_SUGGESTIONS_TOOL,
+  isSearXNGWebSearchArgs,
+  isSearXNGSearchSuggestionsArgs,
+  SearXNGWeb,
+  SearXNGWebResult,
+  SearXNGWebInfobox,
+} from '../../src/types.js';
 import { isWebUrlReadArgs } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -255,6 +267,34 @@ async function runTests() {
     assert.ok(props.url);
     assert.ok(props.maxLength, 'Full tool must expose maxLength parameter');
     assert.ok(Object.keys(props).length > 1, 'Full tool must have more than one property');
+  }, results);
+
+  await testFunction('isSearXNGSearchSuggestionsArgs accepts query and optional language', () => {
+    assert.equal(isSearXNGSearchSuggestionsArgs({ query: 'type' }), true);
+    assert.equal(isSearXNGSearchSuggestionsArgs({ query: 'type', language: 'fr' }), true);
+  }, results);
+
+  await testFunction('isSearXNGSearchSuggestionsArgs rejects invalid arguments', () => {
+    assert.equal(isSearXNGSearchSuggestionsArgs({}), false);
+    assert.equal(isSearXNGSearchSuggestionsArgs({ query: 123 }), false);
+    assert.equal(isSearXNGSearchSuggestionsArgs({ query: 'type', language: 123 }), false);
+    assert.equal(isSearXNGSearchSuggestionsArgs(null), false);
+  }, results);
+
+  await testFunction('SUGGESTIONS_TOOL schema exposes query and language', () => {
+    const props = SUGGESTIONS_TOOL.inputSchema.properties as Record<string, any>;
+    assert.equal(SUGGESTIONS_TOOL.name, 'searxng_search_suggestions');
+    assert.ok(props.query, 'SUGGESTIONS_TOOL must have query property');
+    assert.ok(props.language, 'SUGGESTIONS_TOOL must have language property');
+    assert.deepEqual(SUGGESTIONS_TOOL.inputSchema.required, ['query']);
+  }, results);
+
+  await testFunction('LITE_SUGGESTIONS_TOOL schema has only query property', () => {
+    const props = LITE_SUGGESTIONS_TOOL.inputSchema.properties as Record<string, any>;
+    assert.equal(LITE_SUGGESTIONS_TOOL.name, 'searxng_search_suggestions');
+    assert.ok(props.query, 'LITE_SUGGESTIONS_TOOL must have query property');
+    assert.equal(Object.keys(props).length, 1, 'LITE_SUGGESTIONS_TOOL must have exactly one property');
+    assert.deepEqual(LITE_SUGGESTIONS_TOOL.inputSchema.required, ['query']);
   }, results);
 
   printTestSummary(results, 'Types Module');

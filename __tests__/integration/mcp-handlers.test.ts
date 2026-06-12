@@ -100,12 +100,13 @@ async function runTests() {
 
   // ── tools/list ──────────────────────────────────────────────────────────────
 
-  await testFunction('tools/list returns searxng_web_search and web_url_read', async () => {
+  await testFunction('tools/list returns searxng_web_search, searxng_search_suggestions, and web_url_read', async () => {
     const { client } = await connect();
     const result = await client.listTools();
 
-    assert.equal(result.tools.length, 2);
+    assert.equal(result.tools.length, 3);
     assert.ok(result.tools.find((t) => t.name === 'searxng_web_search'), 'missing searxng_web_search');
+    assert.ok(result.tools.find((t) => t.name === 'searxng_search_suggestions'), 'missing searxng_search_suggestions');
     assert.ok(result.tools.find((t) => t.name === 'web_url_read'), 'missing web_url_read');
 
     await client.close();
@@ -118,10 +119,12 @@ async function runTests() {
     const { client } = await connect();
     const result = await client.listTools();
 
-    assert.equal(result.tools.length, 2);
+    assert.equal(result.tools.length, 3);
     const searchTool = result.tools.find((t) => t.name === 'searxng_web_search');
+    const suggestionsTool = result.tools.find((t) => t.name === 'searxng_search_suggestions');
     const readTool = result.tools.find((t) => t.name === 'web_url_read');
     assert.ok(searchTool, 'searxng_web_search must be registered');
+    assert.ok(suggestionsTool, 'searxng_search_suggestions must be registered');
     assert.ok(readTool, 'web_url_read must be registered');
 
     const searchProps = searchTool.inputSchema.properties as Record<string, unknown>;
@@ -132,6 +135,10 @@ async function runTests() {
     const readProps = readTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(readProps.url, 'lite read tool must have url');
     assert.ok(!readProps.maxLength, 'lite read tool must NOT have maxLength');
+
+    const suggestionProps = suggestionsTool.inputSchema.properties as Record<string, unknown>;
+    assert.ok(suggestionProps.query, 'lite suggestions tool must have query');
+    assert.ok(!suggestionProps.language, 'lite suggestions tool must NOT have language');
 
     delete process.env.SEARXNG_LITE_TOOLS;
     await client.close();
@@ -147,6 +154,11 @@ async function runTests() {
     const searchProps = searchTool!.inputSchema.properties as Record<string, unknown>;
     assert.ok(searchProps.language, 'full search tool must have language');
     assert.ok(searchProps.safesearch, 'full search tool must have safesearch');
+
+    const suggestionsTool = result.tools.find((t) => t.name === 'searxng_search_suggestions');
+    assert.ok(suggestionsTool);
+    const suggestionProps = suggestionsTool!.inputSchema.properties as Record<string, unknown>;
+    assert.ok(suggestionProps.language, 'full suggestions tool must have language');
 
     await client.close();
   }, results);
@@ -270,6 +282,28 @@ async function runTests() {
     assert.ok(text.includes('Result 1'));
     assert.ok(text.includes('Result 2'));
     assert.ok(!text.includes('Result 3'));
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call searxng_search_suggestions returns JSON suggestions', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({ body: JSON.stringify(['type', ['typescript', 'typescript tutorial']]) }));
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: 'searxng_search_suggestions',
+      arguments: { query: 'type', language: 'en' },
+    });
+
+    assert.equal(result.content[0].type, 'text');
+    const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
+    assert.deepEqual(payload, {
+      query: 'type',
+      suggestions: ['typescript', 'typescript tutorial'],
+    });
 
     fetchMocker.restore();
     delete process.env.SEARXNG_URL;

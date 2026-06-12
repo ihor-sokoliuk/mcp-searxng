@@ -106,6 +106,27 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   return true;
 }
 
+export function isSearXNGSearchSuggestionsArgs(args: unknown): args is {
+  query: string;
+  language?: string;
+} {
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("query" in args) ||
+    typeof (args as { query: string }).query !== "string"
+  ) {
+    return false;
+  }
+
+  const suggestionArgs = args as { language?: unknown };
+  if (suggestionArgs.language !== undefined && typeof suggestionArgs.language !== "string") {
+    return false;
+  }
+
+  return true;
+}
+
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
@@ -173,12 +194,48 @@ export const WEB_SEARCH_TOOL: Tool = {
   },
 };
 
+export const SUGGESTIONS_TOOL: Tool = {
+  name: "searxng_search_suggestions",
+  description:
+    "Returns autocomplete suggestions from the configured SearXNG instance. " +
+    "Use this to refine vague or partial queries before searching.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "Partial or complete query to autocomplete.",
+      },
+      language: {
+        type: "string",
+        description: "Language code for suggestions (e.g., 'en', 'fr', 'de') or 'all'. Default: all.",
+        default: "all",
+      },
+    },
+    required: ["query"],
+  },
+};
+
 export const LITE_WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description: "Web search. Returns titles, URLs, snippets.",
   inputSchema: {
     type: "object",
     properties: { query: { type: "string", description: "Search query." } },
+    required: ["query"],
+  },
+};
+
+export const LITE_SUGGESTIONS_TOOL: Tool = {
+  name: "searxng_search_suggestions",
+  description: "Autocomplete search query suggestions.",
+  inputSchema: {
+    type: "object",
+    properties: { query: { type: "string", description: "Query prefix." } },
     required: ["query"],
   },
 };

@@ -89,6 +89,12 @@ AI Assistant (e.g. Claude)
     - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
     - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). Supported values: `general`, `news`, `images`, `videos`, `it`, `science`, `files`, `social media`. Default: SearXNG instance default (usually `general`).
 
+- **searxng_search_suggestions**
+  - Get autocomplete suggestions for refining search queries
+  - Inputs:
+    - `query` (string): Partial or complete query to autocomplete.
+    - `language` (string, optional): Language code for suggestions (e.g., "en", "fr", "de") or "all" (default: "all")
+
 - **web_url_read**
   - Read and convert the content from a URL to markdown with advanced content extraction options
   - Inputs:
