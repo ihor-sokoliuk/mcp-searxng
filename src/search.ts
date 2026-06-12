@@ -94,13 +94,6 @@ function formatSearchMetadata(data: SearXNGWeb): string {
     sections.push(infoboxText);
   }
 
-  if (hasItems(data.unresponsive_engines)) {
-    const engines = data.unresponsive_engines
-      .map(([engine, reason]) => reason ? `${engine} (${reason})` : engine)
-      .join(", ");
-    sections.push(`Unresponsive engines: ${engines}`);
-  }
-
   return sections.join("\n\n");
 }
 
@@ -300,6 +293,8 @@ export async function performWebSearch(
     return JSON.stringify({ ...data, results: slicedResults }, null, 2);
   }
 
+  const metadata = formatSearchMetadata(data);
+
   if (slicedResults.length === 0) {
     const appliedFilters = [
       min_score === undefined ? null : `min_score=${min_score}`,
@@ -307,7 +302,8 @@ export async function performWebSearch(
     ].filter(Boolean).join(" ");
     const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
-    return createNoResultsMessage(query);
+    const noResultsMessage = createNoResultsMessage(query);
+    return metadata ? `${metadata}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
   }
 
   const duration = Date.now() - startTime;
@@ -319,7 +315,6 @@ export async function performWebSearch(
       return `Title: ${r.title || ""}\nDescription: ${truncateResultContent(r.content || "", maxResultChars)}\nURL: ${r.url || ""}\nRelevance Score: ${score.toFixed(3)}`;
     })
     .join("\n\n");
-  const metadata = formatSearchMetadata(data);
 
   return metadata ? `${metadata}\n\n---\n\n${formattedResults}` : formattedResults;
 }

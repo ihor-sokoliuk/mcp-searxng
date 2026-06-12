@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
+import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
 
 export async function performSearchSuggestions(
   mcpServer: McpServer,
@@ -19,9 +20,16 @@ export async function performSearchSuggestions(
   }
 
   try {
-    const response = await fetch(url.toString(), {
+    const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
-    });
+    };
+    const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
+    const dispatcher = proxyAgent ?? createDefaultAgent();
+    if (dispatcher) {
+      (requestOptions as any).dispatcher = dispatcher;
+    }
+
+    const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
       return [];
     }

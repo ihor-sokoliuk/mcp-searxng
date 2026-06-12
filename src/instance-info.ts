@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
+import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
 
 type SearXNGConfig = Record<string, any>;
 
@@ -119,9 +120,16 @@ export async function fetchInstanceInfo(
   const url = new URL("config", parsedBase);
 
   try {
-    const response = await fetch(url.toString(), {
+    const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
-    });
+    };
+    const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
+    const dispatcher = proxyAgent ?? createDefaultAgent();
+    if (dispatcher) {
+      (requestOptions as any).dispatcher = dispatcher;
+    }
+
+    const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
       return unavailable(`SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`, response.status);
     }

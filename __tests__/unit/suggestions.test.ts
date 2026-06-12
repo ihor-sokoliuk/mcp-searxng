@@ -131,6 +131,25 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('autocompleter request uses search proxy dispatcher when configured', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARCH_HTTP_PROXY', 'http://proxy.example.com:8080');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    assert.ok((getCapturedOptions() as any)?.dispatcher, 'expected search dispatcher in fetch options');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Suggestions Module');
   return results;
 }

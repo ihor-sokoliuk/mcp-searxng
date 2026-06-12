@@ -203,6 +203,25 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('config request uses search proxy dispatcher when configured', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARCH_HTTP_PROXY', 'http://proxy.example.com:8080');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    await fetchInstanceInfo(mockServer as any);
+
+    assert.ok((getCapturedOptions() as any)?.dispatcher, 'expected search dispatcher in fetch options');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Instance Info Module');
   return results;
 }

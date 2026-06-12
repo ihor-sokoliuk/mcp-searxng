@@ -996,7 +996,7 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('text output prepends infoboxes and unresponsive engines when present', async () => {
+  await testFunction('text output prepends infoboxes but omits unresponsive engines', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
     const mockServer = createMockServer();
@@ -1025,7 +1025,35 @@ async function runTests() {
     assert.ok(result.includes('Infobox: Ada Lovelace'), result);
     assert.ok(result.includes('English mathematician and writer'), result);
     assert.ok(result.includes('Biography: https://example.com/ada'), result);
-    assert.ok(result.includes('Unresponsive engines: brave (timeout)'), result);
+    assert.ok(!result.includes('Unresponsive engines:'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('text output preserves metadata when filters remove all results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'capital of France',
+        answers: ['The capital of France is Paris'],
+        results: [
+          {
+            title: 'Low Score Result',
+            content: 'Paris information',
+            url: 'https://example.com/paris',
+            score: 0.3,
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'capital of France', 1, undefined, undefined, undefined, 0.9);
+    assert.ok(result.startsWith('Direct answer: The capital of France is Paris\n\n---\n\n'), result);
+    assert.ok(result.includes('No results found for "capital of France"'), result);
+    assert.ok(!result.includes('Title: Low Score Result'), result);
 
     fetchMocker.restore();
     envManager.restore();
