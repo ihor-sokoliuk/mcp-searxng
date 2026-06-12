@@ -63,6 +63,25 @@ export function isWebUrlReadArgs(args: unknown): args is {
   return true;
 }
 
+function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
+  const rawValue = process.env.URL_READ_MAX_CHARS;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return undefined;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid URL_READ_MAX_CHARS="${rawValue}". Expected a positive integer.`,
+    );
+    return undefined;
+  }
+
+  return parsed;
+}
+
 /**
  * Creates and configures a new McpServer with all handlers registered.
  * Called once per HTTP session, or once for STDIO mode.
@@ -127,9 +146,10 @@ export function createMcpServer(): McpServer {
           throw new Error("Invalid arguments for URL reading");
         }
 
+        const defaultMaxLength = getDefaultUrlReadMaxChars(mcpServer);
         const paginationOptions = {
           startChar: args.startChar,
-          maxLength: args.maxLength,
+          maxLength: args.maxLength ?? defaultMaxLength,
           section: args.section,
           paragraphRange: args.paragraphRange,
           readHeadings: args.readHeadings,

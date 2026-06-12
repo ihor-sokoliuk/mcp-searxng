@@ -9,6 +9,8 @@
  */
 
 import { strict as assert } from 'node:assert';
+import * as http from 'node:http';
+import * as net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -55,6 +57,43 @@ const MANY_SEARXNG_RESULTS_RESPONSE = JSON.stringify({
 
 /** Minimal HTML for URL reader */
 const HTML_RESPONSE = '<html><body><h1>Hello</h1><p>World</p></body></html>';
+const LONG_HTML_RESPONSE = '<html><body><p>abcdefghijklmnopqrstuvwxyz</p></body></html>';
+
+async function withLocalHtmlServer(body: string, test: (url: string) => Promise<void>) {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(body);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, '127.0.0.1', resolve);
+    server.once('error', reject);
+  });
+
+  const address = server.address() as net.AddressInfo;
+  try {
+    await test(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve) => {
+      server.closeAllConnections();
+      server.close(() => resolve());
+    });
+  }
+}
+
+async function withPrivateUrlReadsAllowed(test: () => Promise<void>) {
+  const originalValue = process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+  process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = 'true';
+  try {
+    await test();
+  } finally {
+    if (originalValue === undefined) {
+      delete process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+    } else {
+      process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = originalValue;
+    }
+  }
+}
 
 async function runTests() {
   console.log('🧪 Integration Testing: MCP handler dispatch (InMemoryTransport)\n');
@@ -197,6 +236,68 @@ async function runTests() {
     assert.equal(result.content[0].type, 'text');
 
     fetchMocker.restore();
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call web_url_read uses URL_READ_MAX_CHARS when maxLength is omitted', async () => {
+    process.env.URL_READ_MAX_CHARS = '10';
+    const { client } = await connect();
+
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(LONG_HTML_RESPONSE, async (url) => {
+        const result = await client.callTool({
+          name: 'web_url_read',
+          arguments: { url },
+        });
+
+        const text = (result.content[0] as { type: string; text: string }).text;
+        assert.ok(text.length <= 10);
+        assert.ok(text.startsWith('abcde'));
+      });
+    });
+
+    delete process.env.URL_READ_MAX_CHARS;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call web_url_read maxLength overrides URL_READ_MAX_CHARS', async () => {
+    process.env.URL_READ_MAX_CHARS = '10';
+    const { client } = await connect();
+
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(LONG_HTML_RESPONSE, async (url) => {
+        const result = await client.callTool({
+          name: 'web_url_read',
+          arguments: { url, maxLength: 5 },
+        });
+
+        const text = (result.content[0] as { type: string; text: string }).text;
+        assert.ok(text.length <= 5);
+        assert.ok(text.startsWith('abcde'));
+      });
+    });
+
+    delete process.env.URL_READ_MAX_CHARS;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call web_url_read ignores invalid URL_READ_MAX_CHARS', async () => {
+    process.env.URL_READ_MAX_CHARS = '0';
+    const { client } = await connect();
+
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(LONG_HTML_RESPONSE, async (url) => {
+        const result = await client.callTool({
+          name: 'web_url_read',
+          arguments: { url },
+        });
+
+        const text = (result.content[0] as { type: string; text: string }).text;
+        assert.ok(text.includes('abcdefghijklmnopqrstuvwxyz'));
+      });
+    });
+
+    delete process.env.URL_READ_MAX_CHARS;
     await client.close();
   }, results);
 

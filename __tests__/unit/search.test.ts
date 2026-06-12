@@ -459,6 +459,88 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('SEARXNG_MAX_RESULT_CHARS truncates long result content only', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '10');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Long title should stay intact',
+            content: 'abcdefghijklmnopqrstuvwxyz',
+            url: 'https://example.com/long-url-that-stays-intact',
+            score: 1,
+          },
+        ],
+      },
+    });
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Title: Long title should stay intact'));
+    assert.ok(result.includes('Description: abcdefghij…'));
+    assert.ok(result.includes('URL: https://example.com/long-url-that-stays-intact'));
+    assert.ok(!result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_MAX_RESULT_CHARS leaves short content unchanged', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '100');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Short result',
+            content: 'short content',
+            url: 'https://example.com/short',
+            score: 1,
+          },
+        ],
+      },
+    });
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Description: short content'));
+    assert.ok(!result.includes('short content…'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('Invalid SEARXNG_MAX_RESULT_CHARS is ignored', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', 'not-a-number');
+
+    const mockServer = createMockServer();
+    const mockFetch = createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Untruncated result',
+            content: 'abcdefghijklmnopqrstuvwxyz',
+            url: 'https://example.com/untruncated',
+            score: 1,
+          },
+        ],
+      },
+    });
+    fetchMocker.mock(mockFetch);
+
+    const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('User-Agent header added when USER_AGENT env var is set', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.set('USER_AGENT', 'MyCustomBot/1.0');

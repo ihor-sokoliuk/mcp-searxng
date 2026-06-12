@@ -32,6 +32,33 @@ function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
   return parsed;
 }
 
+function getMaxResultChars(mcpServer: McpServer): number | undefined {
+  const rawValue = process.env.SEARXNG_MAX_RESULT_CHARS;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return undefined;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid SEARXNG_MAX_RESULT_CHARS="${rawValue}". Expected a positive integer.`,
+    );
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function truncateResultContent(content: string, maxResultChars?: number): string {
+  if (maxResultChars === undefined || content.length <= maxResultChars) {
+    return content;
+  }
+
+  return `${content.slice(0, maxResultChars)}…`;
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
@@ -47,6 +74,7 @@ export async function performWebSearch(
   const effectiveMax = operatorMax !== undefined
     ? (num_results !== undefined ? Math.min(num_results, operatorMax) : operatorMax)
     : num_results;
+  const maxResultChars = getMaxResultChars(mcpServer);
   
   // Build detailed log message with all parameters
   const searchParams = [
@@ -210,6 +238,6 @@ export async function performWebSearch(
   logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${slicedResults.length} results in ${duration}ms`);
 
   return slicedResults
-    .map((r) => `Title: ${r.title}\nDescription: ${r.content}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
+    .map((r) => `Title: ${r.title}\nDescription: ${truncateResultContent(r.content, maxResultChars)}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
     .join("\n\n");
 }

@@ -26,6 +26,13 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `SEARXNG_MAX_RESULTS` | No | — | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
+| `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet. Longer snippets are truncated and marked with `…`. Invalid values are ignored. Recommended: `500` for smaller context windows. |
+
+## URL Reader Controls
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `URL_READ_MAX_CHARS` | No | — | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
 
 ## User-Agent
 
@@ -108,6 +115,8 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "SEARXNG_TIMEOUT_MS": "10000",
         "SEARXNG_MAX_RESULTS": "10",
+        "SEARXNG_MAX_RESULT_CHARS": "500",
+        "URL_READ_MAX_CHARS": "2000",
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
