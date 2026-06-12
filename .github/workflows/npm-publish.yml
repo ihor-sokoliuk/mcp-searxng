@@ -24,7 +24,8 @@ jobs:
           registry-url: 'https://registry.npmjs.org/'
 
       - name: Update npm
-        run: npm install -g npm@latest
+        # Keep npm pinned: npm publish --provenance relies on modern trusted publishing support.
+        run: npm install -g npm@11.17.0
 
       - name: Verify npm provenance support
         run: |
