@@ -10,7 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import modularized functionality
-import { WEB_SEARCH_TOOL, READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
+import { WEB_SEARCH_TOOL, READ_URL_TOOL, LITE_WEB_SEARCH_TOOL, LITE_READ_URL_TOOL, isSearXNGWebSearchArgs } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
@@ -122,11 +122,15 @@ export function createMcpServer(): McpServer {
 
   const server = mcpServer.server;
 
+  const useLiteTools = process.env.SEARXNG_LITE_TOOLS === "true";
+  const searchTool = useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL;
+  const readUrlTool = useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL;
+
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [WEB_SEARCH_TOOL, READ_URL_TOOL],
+      tools: [searchTool, readUrlTool],
     };
   });
 

@@ -163,6 +163,26 @@ export const WEB_SEARCH_TOOL: Tool = {
   },
 };
 
+export const LITE_WEB_SEARCH_TOOL: Tool = {
+  name: "searxng_web_search",
+  description: "Web search. Returns titles, URLs, snippets.",
+  inputSchema: {
+    type: "object",
+    properties: { query: { type: "string", description: "Search query." } },
+    required: ["query"],
+  },
+};
+
+export const LITE_READ_URL_TOOL: Tool = {
+  name: "web_url_read",
+  description: "Fetch URL. Returns page text as markdown.",
+  inputSchema: {
+    type: "object",
+    properties: { url: { type: "string", description: "URL to fetch." } },
+    required: ["url"],
+  },
+};
+
 export const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:

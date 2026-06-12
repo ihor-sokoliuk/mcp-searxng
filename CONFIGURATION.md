@@ -22,6 +22,12 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 | `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a SearXNG search response. The request is aborted and a network error is returned if the server does not respond within this window. |
 | `FETCH_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a `web_url_read` fetch. The request is aborted and an error is returned if the server does not respond within this window. |
 
+## Tool Schema
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARXNG_LITE_TOOLS` | No | `false` | Set to `true` to register minimal tool schemas with only `query` / `url` parameters. Reduces per-call token overhead for local models with small context windows. Extra parameters (e.g. `language`, `maxLength`) passed by the caller are still accepted and forwarded. |
+
 ## Search Defaults
 
 Operator-level defaults applied when the caller omits the corresponding per-call parameter.
@@ -126,6 +132,7 @@ Complete MCP client configuration with every variable. Mix and match as needed â
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "SEARXNG_TIMEOUT_MS": "10000",
         "FETCH_TIMEOUT_MS": "10000",
+        "SEARXNG_LITE_TOOLS": "false",
         "SEARXNG_DEFAULT_LANGUAGE": "en",
         "SEARXNG_DEFAULT_SAFESEARCH": "0",
         "SEARXNG_MAX_RESULTS": "10",

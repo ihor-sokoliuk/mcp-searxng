@@ -111,6 +111,67 @@ async function runTests() {
     await client.close();
   }, results);
 
+  // ── tools/list: SEARXNG_LITE_TOOLS ──────────────────────────────────────────
+
+  await testFunction('tools/list with SEARXNG_LITE_TOOLS=true returns minimal schemas', async () => {
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    const { client } = await connect();
+    const result = await client.listTools();
+
+    assert.equal(result.tools.length, 2);
+    const searchTool = result.tools.find((t) => t.name === 'searxng_web_search');
+    const readTool = result.tools.find((t) => t.name === 'web_url_read');
+    assert.ok(searchTool, 'searxng_web_search must be registered');
+    assert.ok(readTool, 'web_url_read must be registered');
+
+    const searchProps = searchTool.inputSchema.properties as Record<string, unknown>;
+    assert.ok(searchProps.query, 'lite search tool must have query');
+    assert.ok(!searchProps.language, 'lite search tool must NOT have language');
+    assert.ok(!searchProps.safesearch, 'lite search tool must NOT have safesearch');
+
+    const readProps = readTool.inputSchema.properties as Record<string, unknown>;
+    assert.ok(readProps.url, 'lite read tool must have url');
+    assert.ok(!readProps.maxLength, 'lite read tool must NOT have maxLength');
+
+    delete process.env.SEARXNG_LITE_TOOLS;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/list with SEARXNG_LITE_TOOLS unset returns full schemas', async () => {
+    delete process.env.SEARXNG_LITE_TOOLS;
+    const { client } = await connect();
+    const result = await client.listTools();
+
+    const searchTool = result.tools.find((t) => t.name === 'searxng_web_search');
+    assert.ok(searchTool);
+    const searchProps = searchTool!.inputSchema.properties as Record<string, unknown>;
+    assert.ok(searchProps.language, 'full search tool must have language');
+    assert.ok(searchProps.safesearch, 'full search tool must have safesearch');
+
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call searxng_web_search with SEARXNG_LITE_TOOLS=true still uses language arg', async () => {
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+
+    let capturedUrl = '';
+    fetchMocker.mock(async (url, _opts) => {
+      capturedUrl = url as string;
+      return { ok: true, json: async () => ({ results: [{ title: 'R', url: 'https://x.com', content: 'c', score: 1 }] }), text: async () => '' } as any;
+    });
+    const { client } = await connect();
+
+    await client.callTool({ name: 'searxng_web_search', arguments: { query: 'test', language: 'fr' } });
+
+    assert.ok(capturedUrl.includes('language=fr'), `Expected language=fr in URL, got: ${capturedUrl}`);
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_LITE_TOOLS;
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
   // ── tools/call: searxng_web_search ──────────────────────────────────────────
 
   await testFunction('tools/call searxng_web_search returns text content', async () => {

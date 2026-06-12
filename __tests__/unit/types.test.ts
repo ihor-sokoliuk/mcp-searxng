@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { WEB_SEARCH_TOOL, isSearXNGWebSearchArgs, SearXNGWeb, SearXNGWebResult, SearXNGWebInfobox } from '../../src/types.js';
+import { WEB_SEARCH_TOOL, READ_URL_TOOL, LITE_WEB_SEARCH_TOOL, LITE_READ_URL_TOOL, isSearXNGWebSearchArgs, SearXNGWeb, SearXNGWebResult, SearXNGWebInfobox } from '../../src/types.js';
 import { isWebUrlReadArgs } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -206,6 +206,38 @@ async function runTests() {
     assert.equal(fullInfobox.infobox, 'Node.js');
     assert.equal(fullInfobox.urls!.length, 2);
     assert.equal(fullInfobox.urls![1].title, 'docs');
+  }, results);
+
+  await testFunction('LITE_WEB_SEARCH_TOOL schema has only query property', () => {
+    const props = LITE_WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(props.query, 'LITE_WEB_SEARCH_TOOL must have query property');
+    assert.equal(Object.keys(props).length, 1, 'LITE_WEB_SEARCH_TOOL must have exactly one property');
+    assert.deepEqual(LITE_WEB_SEARCH_TOOL.inputSchema.required, ['query']);
+    assert.equal(LITE_WEB_SEARCH_TOOL.name, 'searxng_web_search');
+  }, results);
+
+  await testFunction('LITE_READ_URL_TOOL schema has only url property', () => {
+    const props = LITE_READ_URL_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(props.url, 'LITE_READ_URL_TOOL must have url property');
+    assert.equal(Object.keys(props).length, 1, 'LITE_READ_URL_TOOL must have exactly one property');
+    assert.deepEqual(LITE_READ_URL_TOOL.inputSchema.required, ['url']);
+    assert.equal(LITE_READ_URL_TOOL.name, 'web_url_read');
+  }, results);
+
+  await testFunction('Full WEB_SEARCH_TOOL schema has multiple properties including language', () => {
+    const props = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(props.query);
+    assert.ok(props.language, 'Full tool must expose language parameter');
+    assert.ok(props.safesearch, 'Full tool must expose safesearch parameter');
+    assert.ok(props.num_results, 'Full tool must expose num_results parameter');
+    assert.ok(Object.keys(props).length > 1, 'Full tool must have more than one property');
+  }, results);
+
+  await testFunction('Full READ_URL_TOOL schema has multiple properties', () => {
+    const props = READ_URL_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(props.url);
+    assert.ok(props.maxLength, 'Full tool must expose maxLength parameter');
+    assert.ok(Object.keys(props).length > 1, 'Full tool must have more than one property');
   }, results);
 
   printTestSummary(results, 'Types Module');
