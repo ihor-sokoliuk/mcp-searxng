@@ -22,6 +22,15 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 | `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a SearXNG search response. The request is aborted and a network error is returned if the server does not respond within this window. |
 | `FETCH_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a `web_url_read` fetch. The request is aborted and an error is returned if the server does not respond within this window. |
 
+## Search Defaults
+
+Operator-level defaults applied when the caller omits the corresponding per-call parameter.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARXNG_DEFAULT_LANGUAGE` | No | `all` | Default language for all searches when `language` is not passed per call (e.g. `en`, `fr`, `de`). |
+| `SEARXNG_DEFAULT_SAFESEARCH` | No | â€” | Default safe-search level: `0` (off), `1` (moderate), `2` (strict). Invalid values are ignored with a warning. When unset, the SearXNG instance default applies. |
+
 ## Search Result Controls
 
 | Variable | Required | Default | Description |
@@ -117,6 +126,8 @@ Complete MCP client configuration with every variable. Mix and match as needed â
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
         "SEARXNG_TIMEOUT_MS": "10000",
         "FETCH_TIMEOUT_MS": "10000",
+        "SEARXNG_DEFAULT_LANGUAGE": "en",
+        "SEARXNG_DEFAULT_SAFESEARCH": "0",
         "SEARXNG_MAX_RESULTS": "10",
         "SEARXNG_MAX_RESULT_CHARS": "500",
         "URL_READ_MAX_CHARS": "2000",

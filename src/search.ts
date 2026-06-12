@@ -59,12 +59,35 @@ function truncateResultContent(content: string, maxResultChars?: number): string
   return `${content.slice(0, maxResultChars)}…`;
 }
 
+function getDefaultLanguage(): string {
+  return process.env.SEARXNG_DEFAULT_LANGUAGE ?? "all";
+}
+
+function getDefaultSafesearch(mcpServer: McpServer): number | undefined {
+  const rawValue = process.env.SEARXNG_DEFAULT_SAFESEARCH;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return undefined;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || ![0, 1, 2].includes(parsed)) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid SEARXNG_DEFAULT_SAFESEARCH="${rawValue}". Expected 0, 1, or 2.`,
+    );
+    return undefined;
+  }
+
+  return parsed;
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
   pageno: number = 1,
   time_range?: string,
-  language: string = "all",
+  language?: string,
   safesearch?: number,
   min_score?: number,
   num_results?: number
@@ -75,13 +98,16 @@ export async function performWebSearch(
     ? (num_results !== undefined ? Math.min(num_results, operatorMax) : operatorMax)
     : num_results;
   const maxResultChars = getMaxResultChars(mcpServer);
-  
+
+  const effectiveLanguage = language ?? getDefaultLanguage();
+  const effectiveSafesearch = safesearch !== undefined ? safesearch : getDefaultSafesearch(mcpServer);
+
   // Build detailed log message with all parameters
   const searchParams = [
     `page ${pageno}`,
-    `lang: ${language}`,
+    `lang: ${effectiveLanguage}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null,
+    effectiveSafesearch !== undefined ? `safesearch: ${effectiveSafesearch}` : null,
     min_score !== undefined ? `min_score: ${min_score}` : null,
     effectiveMax !== undefined ? `num_results: ${effectiveMax}` : null,
   ].filter(Boolean).join(", ");
@@ -110,12 +136,12 @@ export async function performWebSearch(
     url.searchParams.set("time_range", time_range);
   }
 
-  if (language && language !== "all") {
-    url.searchParams.set("language", language);
+  if (effectiveLanguage && effectiveLanguage !== "all") {
+    url.searchParams.set("language", effectiveLanguage);
   }
 
-  if (safesearch !== undefined && [0, 1, 2].includes(safesearch)) {
-    url.searchParams.set("safesearch", safesearch.toString());
+  if (effectiveSafesearch !== undefined && [0, 1, 2].includes(effectiveSafesearch)) {
+    url.searchParams.set("safesearch", effectiveSafesearch.toString());
   }
 
   // Prepare request options with headers
