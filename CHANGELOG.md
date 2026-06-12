@@ -3,6 +3,26 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-06-12
+
+### Added
+
+- **`searxng_suggestions` tool:** Returns search autocomplete suggestions from the SearXNG instance. Useful for exploring related queries before committing to a full search.
+
+- **`searxng_instance_info` tool:** Discovers the capabilities of the connected SearXNG instance — enabled engines, supported categories, available languages, and safe-search settings.
+
+- **JSON response format:** `searxng_web_search` accepts a new `response_format` parameter (`"text"` or `"json"`). The `"json"` format returns raw structured data instead of the formatted Markdown text, enabling programmatic result processing.
+
+- **Search metadata in text output:** `searxng_web_search` text responses now include SearXNG answers, spelling corrections, infoboxes, and autocomplete suggestions when the instance returns them — giving richer context alongside the ranked web results.
+
+### Fixed
+
+- Metadata (answers, corrections, infoboxes) is now preserved in text output even when `min_score` filters out all web results. Previously the metadata was silently dropped.
+
+- Unresponsive engines are no longer listed in text output.
+
+- `searxng_suggestions` and `searxng_instance_info` requests now route through the configured search proxy and default TLS dispatcher, matching the behaviour of `searxng_web_search`.
+
 ## [1.4.0] - 2026-06-11
 
 ### Added
