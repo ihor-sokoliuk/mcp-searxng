@@ -136,7 +136,8 @@ export async function performWebSearch(
   safesearch?: number,
   min_score?: number,
   num_results?: number,
-  categories?: string
+  categories?: string,
+  response_format: "text" | "json" = "text",
 ) {
   const startTime = Date.now();
   const operatorMax = getOperatorMaxResults(mcpServer);
@@ -290,16 +291,14 @@ export async function performWebSearch(
   }
 
   const results = data.results
-    .map((result) => ({
-      title: result.title || "",
-      content: result.content || "",
-      url: result.url || "",
-      score: result.score || 0,
-    }))
-    .filter((result) => min_score === undefined || result.score >= min_score);
+    .filter((result) => min_score === undefined || (result.score || 0) >= min_score);
   const slicedResults = effectiveMax !== undefined
     ? results.slice(0, effectiveMax)
     : results;
+
+  if (response_format === "json") {
+    return JSON.stringify({ ...data, results: slicedResults }, null, 2);
+  }
 
   if (slicedResults.length === 0) {
     const appliedFilters = [
@@ -315,7 +314,10 @@ export async function performWebSearch(
   logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${slicedResults.length} results in ${duration}ms`);
 
   const formattedResults = slicedResults
-    .map((r) => `Title: ${r.title}\nDescription: ${truncateResultContent(r.content, maxResultChars)}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
+    .map((r) => {
+      const score = r.score || 0;
+      return `Title: ${r.title || ""}\nDescription: ${truncateResultContent(r.content || "", maxResultChars)}\nURL: ${r.url || ""}\nRelevance Score: ${score.toFixed(3)}`;
+    })
     .join("\n\n");
   const metadata = formatSearchMetadata(data);
 

@@ -88,6 +88,7 @@ AI Assistant (e.g. Claude)
     - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
     - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
     - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). Supported values: `general`, `news`, `images`, `videos`, `it`, `science`, `files`, `social media`. Default: SearXNG instance default (usually `general`).
+    - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. (default: `"text"`)
 
 - **searxng_search_suggestions**
   - Get autocomplete suggestions for refining search queries

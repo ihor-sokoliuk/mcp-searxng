@@ -299,6 +299,40 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('tools/call searxng_web_search supports response_format=json', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({
+      body: JSON.stringify({
+        query: 'json test',
+        number_of_results: 1,
+        results: [
+          {
+            title: 'JSON Result',
+            url: 'https://example.com/json',
+            content: 'JSON snippet',
+            score: 1.0,
+            engines: ['google'],
+          },
+        ],
+      }),
+    }));
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: 'searxng_web_search',
+      arguments: { query: 'json test', response_format: 'json' },
+    });
+
+    const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
+    assert.equal(payload.query, 'json test');
+    assert.equal(payload.results[0].title, 'JSON Result');
+    assert.deepEqual(payload.results[0].engines, ['google']);
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
   await testFunction('tools/call searxng_search_suggestions returns JSON suggestions', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: JSON.stringify(['type', ['typescript', 'typescript tutorial']]) }));

@@ -32,6 +32,7 @@ export interface SearXNGWeb {
 
 const VALID_TIME_RANGES = ["day", "week", "month", "year"] as const;
 const VALID_SAFESEARCH_VALUES = [0, 1, 2] as const;
+const VALID_RESPONSE_FORMATS = ["text", "json"] as const;
 
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
@@ -42,6 +43,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   min_score?: number;
   num_results?: number;
   categories?: string;
+  response_format?: "text" | "json";
 } {
   if (
     typeof args !== "object" ||
@@ -60,6 +62,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     min_score?: unknown;
     num_results?: unknown;
     categories?: unknown;
+    response_format?: unknown;
   };
 
   if (searchArgs.pageno !== undefined && (typeof searchArgs.pageno !== "number" || searchArgs.pageno < 1)) {
@@ -100,6 +103,12 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     return false;
   }
   if (searchArgs.categories !== undefined && typeof searchArgs.categories !== "string") {
+    return false;
+  }
+  if (
+    searchArgs.response_format !== undefined &&
+    (typeof searchArgs.response_format !== "string" || !VALID_RESPONSE_FORMATS.includes(searchArgs.response_format as any))
+  ) {
     return false;
   }
 
@@ -220,6 +229,12 @@ export const WEB_SEARCH_TOOL: Tool = {
         type: "string",
         description:
           "Comma-separated SearXNG categories. Supported: general, news, images, videos, it, science, files, social media. Default: general (SearXNG instance default).",
+      },
+      response_format: {
+        type: "string",
+        description: "Response format: formatted text for agents or raw JSON for programmatic clients. Default: text.",
+        enum: ["text", "json"],
+        default: "text",
       },
     },
     required: ["query"],

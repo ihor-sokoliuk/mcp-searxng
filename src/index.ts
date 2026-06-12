@@ -170,7 +170,8 @@ export function createMcpServer(): McpServer {
           args.safesearch,
           args.min_score,
           args.num_results,
-          args.categories
+          args.categories,
+          args.response_format,
         );
 
         return {

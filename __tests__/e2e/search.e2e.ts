@@ -99,6 +99,28 @@ async function runTests() {
     assert.ok(text.length > 0, 'language-filtered search returned empty response');
   }, results);
 
+  await testFunction('search with response_format=json returns parseable JSON', async () => {
+    const responses = spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'searxng_web_search',
+          arguments: { query: 'test', response_format: 'json', num_results: 2 },
+        },
+      },
+    ]);
+
+    const r = responses[2];
+    assert.ok(r && !r.error, `server error: ${JSON.stringify(r?.error)}`);
+    const text: string = r.result?.content?.[0]?.text ?? '';
+    const payload = JSON.parse(text);
+    assert.ok(Array.isArray(payload.results), 'JSON response should contain results array');
+    assert.ok(payload.results.length <= 2, 'num_results should slice JSON results');
+  }, results);
+
   printTestSummary(results, 'E2E: Web Search');
   return results;
 }

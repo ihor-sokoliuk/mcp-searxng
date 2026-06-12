@@ -229,15 +229,32 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 'general' }), true);
   }, results);
 
+  await testFunction('isSearXNGWebSearchArgs accepts response_format text or json', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'text' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'json' }), true);
+  }, results);
+
   await testFunction('isSearXNGWebSearchArgs rejects non-string categories', () => {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 123 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: ['news'] }), false);
+  }, results);
+
+  await testFunction('isSearXNGWebSearchArgs rejects invalid response_format', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'xml' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 123 }), false);
   }, results);
 
   await testFunction('WEB_SEARCH_TOOL schema includes categories property', () => {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.categories, 'WEB_SEARCH_TOOL must expose categories parameter');
     assert.equal(properties.categories.type, 'string');
+  }, results);
+
+  await testFunction('WEB_SEARCH_TOOL schema includes response_format enum', () => {
+    const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(properties.response_format, 'WEB_SEARCH_TOOL must expose response_format parameter');
+    assert.equal(properties.response_format.type, 'string');
+    assert.deepEqual(properties.response_format.enum, ['text', 'json']);
   }, results);
 
   await testFunction('LITE_WEB_SEARCH_TOOL schema has only query property', () => {

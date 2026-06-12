@@ -1058,6 +1058,109 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('response_format=json returns parseable SearXNG JSON with raw metadata', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'answer query',
+        number_of_results: 1,
+        answers: ['42'],
+        results: [
+          {
+            title: 'Answer Result',
+            content: 'Result content',
+            url: 'https://example.com/answer',
+            score: 1,
+            engines: ['google'],
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'answer query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+    assert.equal(payload.query, 'answer query');
+    assert.deepEqual(payload.answers, ['42']);
+    assert.equal(payload.results[0].engines[0], 'google');
+    assert.ok(!result.includes('Direct answer:'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('response_format=text returns formatted text output', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        results: [
+          {
+            title: 'Text Result',
+            content: 'Text content',
+            url: 'https://example.com/text',
+            score: 0.9,
+          },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'text query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'text');
+    assert.ok(result.includes('Title: Text Result'));
+    assert.throws(() => JSON.parse(result));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('response_format=json applies result slicing', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'slice query',
+        number_of_results: 3,
+        results: makeMockSearchResults(3),
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'slice query', 1, undefined, undefined, undefined, undefined, 2, undefined, 'json');
+    const payload = JSON.parse(result);
+    assert.equal(payload.results.length, 2);
+    assert.equal(payload.results[0].title, 'Result 1');
+    assert.equal(payload.results[1].title, 'Result 2');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('response_format=json returns JSON with empty results instead of prose no-results diagnostic', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'empty query',
+        number_of_results: 0,
+        suggestions: ['broader query'],
+        results: [],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'empty query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+    assert.equal(payload.query, 'empty query');
+    assert.deepEqual(payload.results, []);
+    assert.deepEqual(payload.suggestions, ['broader query']);
+    assert.ok(!result.includes('No results found'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Search Module');
   return results;
 }
