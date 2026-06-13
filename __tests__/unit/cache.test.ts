@@ -29,6 +29,18 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
+  await testFunction('Cache hitCount increments on repeated get() hits', () => {
+    const testCache = new SimpleCache(1000);
+
+    testCache.set('popular-url', '<html>popular</html>', '# Popular');
+
+    assert.equal(testCache.get('popular-url')?.hitCount, 1);
+    assert.equal(testCache.get('popular-url')?.hitCount, 2);
+    assert.equal(testCache.get('popular-url')?.hitCount, 3);
+
+    testCache.destroy();
+  }, results);
+
   await testFunction('Cache returns null for non-existent keys', () => {
     const testCache = new SimpleCache(1000);
     
@@ -52,6 +64,55 @@ async function runTests() {
     assert.equal(testCache.get('short-lived'), null);
 
     testCache.destroy();
+  }, results);
+
+  await testFunction('Cache uses CACHE_TTL_MS when constructed without explicit TTL', async () => {
+    const previousTtl = process.env.CACHE_TTL_MS;
+    process.env.CACHE_TTL_MS = '1000';
+    const testCache = new SimpleCache();
+
+    try {
+      testCache.set('env-ttl', '<html>test</html>', '# Test');
+
+      assert.ok(testCache.get('env-ttl'));
+
+      await new Promise(resolve => setTimeout(resolve, 1050));
+
+      assert.equal(testCache.get('env-ttl'), null);
+    } finally {
+      testCache.destroy();
+      if (previousTtl === undefined) {
+        delete process.env.CACHE_TTL_MS;
+      } else {
+        process.env.CACHE_TTL_MS = previousTtl;
+      }
+    }
+  }, results);
+
+  await testFunction('Cache falls back to defaults for invalid CACHE_TTL_MS and CACHE_MAX_ENTRIES', () => {
+    const previousTtl = process.env.CACHE_TTL_MS;
+    const previousMaxEntries = process.env.CACHE_MAX_ENTRIES;
+    process.env.CACHE_TTL_MS = 'not-a-number';
+    process.env.CACHE_MAX_ENTRIES = '0';
+
+    const testCache = new SimpleCache();
+
+    try {
+      assert.equal((testCache as any).ttlMs, 86400000);
+      assert.equal((testCache as any).maxEntries, 500);
+    } finally {
+      testCache.destroy();
+      if (previousTtl === undefined) {
+        delete process.env.CACHE_TTL_MS;
+      } else {
+        process.env.CACHE_TTL_MS = previousTtl;
+      }
+      if (previousMaxEntries === undefined) {
+        delete process.env.CACHE_MAX_ENTRIES;
+      } else {
+        process.env.CACHE_MAX_ENTRIES = previousMaxEntries;
+      }
+    }
   }, results);
 
   await testFunction('Cache clear functionality', () => {
@@ -88,6 +149,52 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
+  await testFunction('Cache evicts lowest hitCount entry when capacity is exceeded', () => {
+    const testCache = new SimpleCache(1000, 2);
+
+    testCache.set('popular-url', '<html>popular</html>', '# Popular');
+    testCache.set('cold-url', '<html>cold</html>', '# Cold');
+
+    for (let i = 0; i < 5; i++) {
+      assert.ok(testCache.get('popular-url'));
+    }
+
+    testCache.set('new-url', '<html>new</html>', '# New');
+
+    assert.ok(testCache.get('popular-url'), 'Expected popular URL to remain cached');
+    assert.equal(testCache.get('cold-url'), null, 'Expected cold URL to be evicted');
+    assert.ok(testCache.get('new-url'), 'Expected new URL to remain cached');
+    assert.equal(testCache.getStats().size, 2);
+
+    testCache.destroy();
+  }, results);
+
+  await testFunction('Cache uses CACHE_MAX_ENTRIES to evict when fourth entry is added', () => {
+    const previousMaxEntries = process.env.CACHE_MAX_ENTRIES;
+    process.env.CACHE_MAX_ENTRIES = '3';
+    const testCache = new SimpleCache();
+
+    try {
+      testCache.set('url1', '<html>1</html>', '# 1');
+      testCache.set('url2', '<html>2</html>', '# 2');
+      testCache.set('url3', '<html>3</html>', '# 3');
+      testCache.set('url4', '<html>4</html>', '# 4');
+
+      assert.equal(testCache.getStats().size, 3);
+      assert.equal(testCache.get('url1'), null);
+      assert.ok(testCache.get('url2'));
+      assert.ok(testCache.get('url3'));
+      assert.ok(testCache.get('url4'));
+    } finally {
+      testCache.destroy();
+      if (previousMaxEntries === undefined) {
+        delete process.env.CACHE_MAX_ENTRIES;
+      } else {
+        process.env.CACHE_MAX_ENTRIES = previousMaxEntries;
+      }
+    }
+  }, results);
+
   await testFunction('Global cache instance', () => {
     // Test that global cache exists and works
     urlCache.clear(); // Start fresh
@@ -117,7 +224,7 @@ async function runTests() {
 
   await testFunction('Cache cleanup interval removes expired entries', async () => {
     // Use 50ms TTL and 1ms cleanup interval so the interval fires quickly
-    const testCache = new SimpleCache(50, 1);
+    const testCache = new SimpleCache(50, 500, 1);
 
     testCache.set('cleanup-target', '<html>test</html>', '# Test');
 
@@ -134,7 +241,7 @@ async function runTests() {
   }, results);
 
   await testFunction('Cache cleanup interval does not keep process alive', () => {
-    const testCache = new SimpleCache(1000, 1000);
+    const testCache = new SimpleCache(1000, 500, 1000);
     const interval = (testCache as any).cleanupInterval;
 
     assert.ok(interval, 'Expected cleanup interval to be created');

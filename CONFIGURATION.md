@@ -50,6 +50,8 @@ Operator-level defaults applied when the caller omits the corresponding per-call
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | â€” | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
 | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum `Content-Length` allowed by the `web_url_read` HEAD preflight before downloading a page. Invalid values fall back to the default. HEAD failures are non-fatal and the GET proceeds. |
+| `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
+| `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
 ## User-Agent
 
@@ -139,6 +141,8 @@ Complete MCP client configuration with every variable. Mix and match as needed â
         "SEARXNG_MAX_RESULT_CHARS": "500",
         "URL_READ_MAX_CHARS": "2000",
         "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
+        "CACHE_TTL_MS": "86400000",
+        "CACHE_MAX_ENTRIES": "500",
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",

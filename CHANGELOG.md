@@ -3,6 +3,18 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Configurable URL cache controls:** `CACHE_TTL_MS` sets the URL cache TTL (default `86400000` ms = 24 h) and `CACHE_MAX_ENTRIES` sets the maximum cached URLs (default `500`).
+
+- **Bounded URL cache eviction:** URL cache entries now track hit counts and use LFU eviction with oldest-entry tie-breaking, keeping the cache within the configured size limit.
+
+### Changed
+
+- **URL cache TTL default:** The URL cache now reuses cached pages for up to 24 h within a running server unless entries expire or are evicted. Previous default was 60 s.
+
 ## [1.5.0] - 2026-06-12
 
 ### Added
