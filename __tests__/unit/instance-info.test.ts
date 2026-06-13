@@ -47,6 +47,17 @@ function makeConfig() {
   return config;
 }
 
+function makeConfigWithCategoryArray() {
+  const config: any = makeConfig();
+  config.categories = ['general', 'social media', 'science'];
+  config.engines = [
+    { name: 'google', categories: ['general'], disabled: false },
+    { name: 'semantic scholar', categories: ['science'], disabled: false },
+    { name: 'mastodon', category: 'social media', disabled: false },
+  ];
+  return config;
+}
+
 async function runTests() {
   console.log('🧪 Testing: instance-info.ts\n');
 
@@ -66,6 +77,38 @@ async function runTests() {
     assert.equal(payload.defaults.safesearch, 1);
     assert.equal(payload.defaults.theme, 'simple');
     assert.deepEqual(payload.plugins, ['Hash plugin']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('returns category names when /config categories is an array of strings', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: makeConfigWithCategoryArray() }));
+
+    const result = await fetchInstanceInfo(mockServer as any, true, false);
+    const payload = JSON.parse(result);
+
+    assert.equal(payload.available, true);
+    assert.deepEqual(payload.categories, ['general', 'science', 'social media']);
+    assert.deepEqual(payload.engines.enabled, ['google', 'mastodon', 'semantic scholar']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('category filter works when /config categories is an array of strings', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: makeConfigWithCategoryArray() }));
+
+    const result = JSON.parse(await fetchInstanceInfo(mockServer as any, true, false, 'social media'));
+
+    assert.deepEqual(result.categories, ['social media']);
+    assert.deepEqual(result.engines.enabled, ['mastodon']);
 
     fetchMocker.restore();
     envManager.restore();

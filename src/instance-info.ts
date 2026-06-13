@@ -18,11 +18,44 @@ function unavailable(message: string, status?: number): string {
   }, null, 2);
 }
 
-function namesFromCategories(config: SearXNGConfig): string[] {
-  if (!config.categories || typeof config.categories !== "object") {
-    return [];
+function categoryNamesFromEngines(config: SearXNGConfig): string[] {
+  const names = new Set<string>();
+
+  if (Array.isArray(config.engines)) {
+    for (const engine of config.engines) {
+      for (const category of engineCategories(engine)) {
+        if (typeof category === "string" && category.trim() !== "") {
+          names.add(category);
+        }
+      }
+    }
   }
-  return Object.keys(config.categories).sort();
+
+  return [...names];
+}
+
+function namesFromCategories(config: SearXNGConfig): string[] {
+  const names = new Set<string>();
+
+  if (Array.isArray(config.categories)) {
+    for (const category of config.categories) {
+      if (typeof category === "string" && category.trim() !== "") {
+        names.add(category);
+      }
+    }
+  } else if (config.categories && typeof config.categories === "object") {
+    for (const category of Object.keys(config.categories)) {
+      if (category.trim() !== "") {
+        names.add(category);
+      }
+    }
+  }
+
+  for (const category of categoryNamesFromEngines(config)) {
+    names.add(category);
+  }
+
+  return [...names].sort();
 }
 
 function engineCategories(engine: any): string[] {
@@ -113,13 +146,17 @@ export function clearInstanceInfoCacheForTests(): void {
   cachedBaseUrl = null;
 }
 
-async function fetchConfig(mcpServer: McpServer): Promise<ConfigResult> {
+async function fetchConfig(mcpServer: McpServer, refresh = false): Promise<ConfigResult> {
   const base = process.env.SEARXNG_URL;
   if (!base) {
     return {
       available: false,
       message: "SEARXNG_URL is not configured; cannot fetch SearXNG /config.",
     };
+  }
+
+  if (refresh) {
+    cachedConfig = null;
   }
 
   if (cachedConfig && cachedBaseUrl === base) {
@@ -160,13 +197,22 @@ async function fetchConfig(mcpServer: McpServer): Promise<ConfigResult> {
   }
 }
 
-export async function getKnownEngines(mcpServer: McpServer): Promise<Set<string> | null> {
-  const result = await fetchConfig(mcpServer);
+export async function getKnownEngines(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
+  const result = await fetchConfig(mcpServer, refresh);
   if (!result.available) {
     return null;
   }
 
   return allEngineNames(result.config);
+}
+
+export async function getKnownCategories(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
+  const result = await fetchConfig(mcpServer, refresh);
+  if (!result.available) {
+    return null;
+  }
+
+  return new Set(namesFromCategories(result.config));
 }
 
 export async function fetchInstanceInfo(
@@ -176,11 +222,7 @@ export async function fetchInstanceInfo(
   category?: string,
   refresh = false,
 ): Promise<string> {
-  if (refresh) {
-    cachedConfig = null;
-  }
-
-  const result = await fetchConfig(mcpServer);
+  const result = await fetchConfig(mcpServer, refresh);
   if (!result.available) {
     return unavailable(result.message, result.status);
   }

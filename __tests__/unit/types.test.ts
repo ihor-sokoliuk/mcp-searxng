@@ -254,12 +254,16 @@ async function runTests() {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.categories, 'WEB_SEARCH_TOOL must expose categories parameter');
     assert.equal(properties.categories.type, 'string');
+    assert.ok(properties.categories.description.includes('case-insensitively'), properties.categories.description);
+    assert.ok(properties.categories.description.includes('/config'), properties.categories.description);
   }, results);
 
   await testFunction('WEB_SEARCH_TOOL schema includes engines property', () => {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.engines, 'WEB_SEARCH_TOOL must expose engines parameter');
     assert.equal(properties.engines.type, 'string');
+    assert.ok(properties.engines.description.includes('case-insensitively'), properties.engines.description);
+    assert.ok(!properties.engines.description.includes('matched exactly'), properties.engines.description);
   }, results);
 
   await testFunction('WEB_SEARCH_TOOL schema includes response_format enum', () => {
