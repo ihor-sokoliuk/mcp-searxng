@@ -169,6 +169,38 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
+  await testFunction('Cache purges expired entries before LFU eviction', async () => {
+    const testCache = new SimpleCache(50, 2, 1000);
+
+    testCache.set('expired-popular-url', '<html>expired</html>', '# Expired');
+    for (let i = 0; i < 5; i++) {
+      assert.ok(testCache.get('expired-popular-url'));
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    testCache.set('fresh-url', '<html>fresh</html>', '# Fresh');
+    testCache.set('new-url', '<html>new</html>', '# New');
+
+    assert.equal(testCache.get('expired-popular-url'), null, 'Expected expired popular URL to be purged');
+    assert.ok(testCache.get('fresh-url'), 'Expected fresh URL to remain cached');
+    assert.ok(testCache.get('new-url'), 'Expected new URL to remain cached');
+    assert.equal(testCache.getStats().size, 2);
+
+    testCache.destroy();
+  }, results);
+
+  await testFunction('Cache normalizes invalid cleanup interval to default', () => {
+    const testCache = new SimpleCache(1000, 500, Number.NaN);
+    const interval = (testCache as any).cleanupInterval;
+
+    assert.ok(interval, 'Expected cleanup interval to be created');
+    assert.equal((interval as any)._idleTimeout, 60000);
+    assert.equal(interval.hasRef(), false, 'Cleanup interval should be unref()ed');
+
+    testCache.destroy();
+  }, results);
+
   await testFunction('Cache uses CACHE_MAX_ENTRIES to evict when fourth entry is added', () => {
     const previousMaxEntries = process.env.CACHE_MAX_ENTRIES;
     process.env.CACHE_MAX_ENTRIES = '3';
