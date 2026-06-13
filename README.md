@@ -91,8 +91,8 @@ AI Assistant (e.g. Claude)
     - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
     - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
     - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
-    - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). Supported values: `general`, `news`, `images`, `videos`, `it`, `science`, `files`, `social media`. Default: SearXNG instance default (usually `general`).
-    - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`). Names are matched exactly when live `/config` validation is available.
+    - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). When live `/config` is available, values are trimmed and normalized case-insensitively to the instance's canonical category names; unknown values are rejected with available categories listed. If `/config` is unavailable, values are forwarded as-is with a warning. Default: SearXNG instance default.
+    - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`, `"semantic scholar"`). When live `/config` is available, values are trimmed and normalized case-insensitively to canonical engine names, including engines disabled by default; unknown values are rejected with available engines listed. If `/config` is unavailable, values are forwarded as-is with a warning.
     - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. (default: `"text"`)
 
 - **searxng_search_suggestions**

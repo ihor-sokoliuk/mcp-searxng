@@ -57,11 +57,11 @@ Performs web searches using the configured SearXNG instance.
 - \`safesearch\` (optional): Safe search level - 0 (none), 1 (moderate), 2 (strict)
 - \`min_score\` (optional): Minimum relevance score from 0.0 to 1.0
 - \`num_results\` (optional): Maximum result count from 1 to 20
-- \`categories\` (optional): Comma-separated SearXNG categories such as "news" or "it,science"
-- \`engines\` (optional): Comma-separated SearXNG engine names such as "google,bing,ddg"
+- \`categories\` (optional): Comma-separated SearXNG categories such as "news" or "it,science"; live \`/config\` values are normalized case-insensitively when available
+- \`engines\` (optional): Comma-separated SearXNG engine names such as "google,bing,ddg" or "semantic scholar"; live \`/config\` values are normalized case-insensitively when available
 - \`response_format\` (optional): "text" for formatted output or "json" for raw SearXNG-shaped JSON (may include a \`warnings\` array for non-fatal issues)
 
-Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`, and may include a \`warnings\` array for non-fatal issues.
+Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`, and may include a \`warnings\` array for non-fatal issues. Unknown categories or engines are rejected when live \`/config\` validation is available; if \`/config\` is unavailable, the search proceeds with the supplied values and emits a warning.
 
 ### 2. searxng_search_suggestions
 Returns autocomplete suggestions from the configured SearXNG instance.

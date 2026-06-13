@@ -233,12 +233,12 @@ export const WEB_SEARCH_TOOL: Tool = {
       categories: {
         type: "string",
         description:
-          "Comma-separated SearXNG categories. Supported: general, news, images, videos, it, science, files, social media. Default: general (SearXNG instance default).",
+          "Comma-separated SearXNG categories. Values are normalized case-insensitively to canonical names from live /config; unknown values are rejected with available categories listed. If /config is unavailable, values are forwarded as-is with a warning.",
       },
       engines: {
         type: "string",
         description:
-          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Names are matched exactly when live /config validation is available.",
+          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Values are normalized case-insensitively to canonical names from live /config; unknown values are rejected with available engines listed. If /config is unavailable, values are forwarded as-is with a warning.",
       },
       response_format: {
         type: "string",

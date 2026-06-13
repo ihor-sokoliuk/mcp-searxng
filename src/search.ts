@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SearXNGWeb } from "./types.js";
-import { getKnownEngines } from "./instance-info.js";
+import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
@@ -14,8 +14,8 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
-const ENGINE_VALIDATION_WARNING = "Engine names were not validated because SearXNG /config is unavailable.";
-const ENGINE_VALIDATION_NOTE = "Note: engine names were not validated (SearXNG /config unavailable).";
+const FILTER_VALIDATION_WARNING = "Categories and engines were not validated or normalized because SearXNG /config is unavailable.";
+const FILTER_VALIDATION_NOTE = "Note: categories and engines were not validated or normalized (SearXNG /config unavailable).";
 
 function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
   const rawValue = process.env.SEARXNG_MAX_RESULTS;
@@ -65,6 +65,150 @@ function truncateResultContent(content: string, maxResultChars?: number): string
 
 function hasItems<T>(items: T[] | undefined): items is T[] {
   return Array.isArray(items) && items.length > 0;
+}
+
+function splitCommaSeparated(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+}
+
+function buildCanonicalLookup(knownValues: Set<string>): Map<string, string> {
+  const lookup = new Map<string, string>();
+
+  for (const value of knownValues) {
+    lookup.set(value.trim().toLowerCase(), value);
+  }
+
+  return lookup;
+}
+
+function normalizeCommaSeparated(value: string, knownValues: Set<string>) {
+  const lookup = buildCanonicalLookup(knownValues);
+  const normalized: string[] = [];
+  const invalid: string[] = [];
+
+  for (const requested of splitCommaSeparated(value)) {
+    const canonical = lookup.get(requested.toLowerCase());
+    if (canonical === undefined) {
+      invalid.push(requested);
+    } else {
+      normalized.push(canonical);
+    }
+  }
+
+  return {
+    normalized: normalized.join(","),
+    invalid,
+  };
+}
+
+function formatAvailableValues(label: string, values: Set<string>): string {
+  const available = [...values].sort().join(", ");
+  return available === "" ? "" : ` Available ${label}: ${available}.`;
+}
+
+function createValidationError(kind: "category" | "engine", invalid: string[], available: Set<string>): MCPSearXNGError {
+  const label = kind === "category" ? "categories" : "engines";
+  return new MCPSearXNGError(
+    `🔍 Invalid SearXNG ${kind} name(s): ${invalid.join(", ")}.` +
+    formatAvailableValues(label, available) +
+    ` Use the searxng_instance_info tool to discover available ${label}.`,
+  );
+}
+
+type NormalizedFilters = {
+  categories?: string;
+  engines?: string;
+  validationWarning?: string;
+};
+
+async function normalizeSearchFilters(
+  mcpServer: McpServer,
+  categories?: string,
+  engines?: string,
+): Promise<NormalizedFilters> {
+  const effectiveCategories = categories !== undefined && categories.trim() !== "" ? categories : undefined;
+  const effectiveEngines = engines !== undefined && engines.trim() !== "" ? engines : undefined;
+
+  if (!effectiveCategories && !effectiveEngines) {
+    return {};
+  }
+
+  let knownCategories: Set<string> | null | undefined;
+  let knownEngines: Set<string> | null | undefined;
+
+  if (effectiveCategories) {
+    knownCategories = await getKnownCategories(mcpServer);
+    if (knownCategories === null) {
+      return {
+        categories: effectiveCategories,
+        engines: effectiveEngines,
+        validationWarning: FILTER_VALIDATION_WARNING,
+      };
+    }
+  }
+
+  if (effectiveEngines) {
+    knownEngines = await getKnownEngines(mcpServer);
+    if (knownEngines === null) {
+      return {
+        categories: effectiveCategories,
+        engines: effectiveEngines,
+        validationWarning: FILTER_VALIDATION_WARNING,
+      };
+    }
+  }
+
+  let normalizedCategories = effectiveCategories && knownCategories
+    ? normalizeCommaSeparated(effectiveCategories, knownCategories)
+    : undefined;
+  let normalizedEngines = effectiveEngines && knownEngines
+    ? normalizeCommaSeparated(effectiveEngines, knownEngines)
+    : undefined;
+
+  if (
+    (normalizedCategories && normalizedCategories.invalid.length > 0) ||
+    (normalizedEngines && normalizedEngines.invalid.length > 0)
+  ) {
+    if (effectiveCategories) {
+      knownCategories = await getKnownCategories(mcpServer, true);
+      knownEngines = effectiveEngines && knownCategories !== null
+        ? await getKnownEngines(mcpServer)
+        : knownEngines;
+    } else if (effectiveEngines) {
+      knownEngines = await getKnownEngines(mcpServer, true);
+    }
+
+    if (knownCategories === null || knownEngines === null) {
+      return {
+        categories: effectiveCategories,
+        engines: effectiveEngines,
+        validationWarning: FILTER_VALIDATION_WARNING,
+      };
+    }
+
+    normalizedCategories = effectiveCategories && knownCategories
+      ? normalizeCommaSeparated(effectiveCategories, knownCategories)
+      : undefined;
+    normalizedEngines = effectiveEngines && knownEngines
+      ? normalizeCommaSeparated(effectiveEngines, knownEngines)
+      : undefined;
+  }
+
+  if (normalizedCategories && normalizedCategories.invalid.length > 0 && knownCategories) {
+    throw createValidationError("category", normalizedCategories.invalid, knownCategories);
+  }
+
+  if (normalizedEngines && normalizedEngines.invalid.length > 0 && knownEngines) {
+    throw createValidationError("engine", normalizedEngines.invalid, knownEngines);
+  }
+
+  return {
+    categories: normalizedCategories ? normalizedCategories.normalized : undefined,
+    engines: normalizedEngines ? normalizedEngines.normalized : undefined,
+  };
 }
 
 function formatSearchMetadata(data: SearXNGWeb): string {
@@ -146,7 +290,14 @@ export async function performWebSearch(
 
   const effectiveLanguage = language ?? getDefaultLanguage();
   const effectiveSafesearch = safesearch !== undefined ? safesearch : getDefaultSafesearch(mcpServer);
-  const effectiveEngines = engines !== undefined && engines.trim() !== "" ? engines : undefined;
+
+  const validationError = validateEnvironment();
+  if (validationError) {
+    logMessage(mcpServer, "error", "Configuration invalid");
+    throw new MCPSearXNGError(validationError);
+  }
+
+  const filters = await normalizeSearchFilters(mcpServer, categories, engines);
 
   // Build detailed log message with all parameters
   const searchParams = [
@@ -156,41 +307,14 @@ export async function performWebSearch(
     effectiveSafesearch !== undefined ? `safesearch: ${effectiveSafesearch}` : null,
     min_score !== undefined ? `min_score: ${min_score}` : null,
     effectiveMax !== undefined ? `num_results: ${effectiveMax}` : null,
-    categories ? `categories: ${categories}` : null,
-    effectiveEngines ? `engines: ${effectiveEngines}` : null,
+    filters.categories ? `categories: ${filters.categories}` : null,
+    filters.engines ? `engines: ${filters.engines}` : null,
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
   
-  const validationError = validateEnvironment();
-  if (validationError) {
-    logMessage(mcpServer, "error", "Configuration invalid");
-    throw new MCPSearXNGError(validationError);
-  }
-
   const searxngUrl = process.env.SEARXNG_URL!;
   const parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
-  let engineValidationWarning: string | undefined;
-
-  if (effectiveEngines) {
-    const knownEngines = await getKnownEngines(mcpServer);
-    if (knownEngines === null) {
-      engineValidationWarning = ENGINE_VALIDATION_WARNING;
-    } else {
-      const requestedEngines = effectiveEngines
-        .split(",")
-        .map((engine) => engine.trim())
-        .filter((engine) => engine !== "");
-      const invalidEngines = requestedEngines.filter((engine) => !knownEngines.has(engine));
-
-      if (invalidEngines.length > 0) {
-        throw new MCPSearXNGError(
-          `🔍 Invalid SearXNG engine name(s): ${invalidEngines.join(", ")}. ` +
-          "Use the searxng_instance_info tool to discover available engines.",
-        );
-      }
-    }
-  }
 
   const url = new URL('search', parsedUrl);
 
@@ -213,12 +337,12 @@ export async function performWebSearch(
     url.searchParams.set("safesearch", effectiveSafesearch.toString());
   }
 
-  if (categories) {
-    url.searchParams.set("categories", categories);
+  if (filters.categories) {
+    url.searchParams.set("categories", filters.categories);
   }
 
-  if (effectiveEngines) {
-    url.searchParams.set("engines", effectiveEngines);
+  if (filters.engines) {
+    url.searchParams.set("engines", filters.engines);
   }
 
   // Prepare request options with headers
@@ -325,13 +449,13 @@ export async function performWebSearch(
     return JSON.stringify({
       ...data,
       results: slicedResults,
-      ...(engineValidationWarning ? { warnings: [engineValidationWarning] } : {}),
+      ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
     }, null, 2);
   }
 
   const metadata = formatSearchMetadata(data);
   const leadingSections = [
-    engineValidationWarning ? ENGINE_VALIDATION_NOTE : null,
+    filters.validationWarning ? FILTER_VALIDATION_NOTE : null,
     metadata || null,
   ].filter(Boolean).join("\n\n");
 
