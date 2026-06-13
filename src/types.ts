@@ -43,6 +43,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   min_score?: number;
   num_results?: number;
   categories?: string;
+  engines?: string;
   response_format?: "text" | "json";
 } {
   if (
@@ -62,6 +63,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     min_score?: unknown;
     num_results?: unknown;
     categories?: unknown;
+    engines?: unknown;
     response_format?: unknown;
   };
 
@@ -103,6 +105,9 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     return false;
   }
   if (searchArgs.categories !== undefined && typeof searchArgs.categories !== "string") {
+    return false;
+  }
+  if (searchArgs.engines !== undefined && typeof searchArgs.engines !== "string") {
     return false;
   }
   if (
@@ -229,6 +234,11 @@ export const WEB_SEARCH_TOOL: Tool = {
         type: "string",
         description:
           "Comma-separated SearXNG categories. Supported: general, news, images, videos, it, science, files, social media. Default: general (SearXNG instance default).",
+      },
+      engines: {
+        type: "string",
+        description:
+          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Names are matched exactly when live /config validation is available.",
       },
       response_format: {
         type: "string",

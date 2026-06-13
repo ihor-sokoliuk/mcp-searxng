@@ -41,6 +41,7 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 1 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 20 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', engines: 'google,ddg' }), true);
   }, results);
 
   await testFunction('isSearXNGWebSearchArgs type guard - invalid cases', () => {
@@ -239,6 +240,11 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: ['news'] }), false);
   }, results);
 
+  await testFunction('isSearXNGWebSearchArgs rejects non-string engines', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', engines: 123 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', engines: ['google'] }), false);
+  }, results);
+
   await testFunction('isSearXNGWebSearchArgs rejects invalid response_format', () => {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'xml' }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 123 }), false);
@@ -248,6 +254,12 @@ async function runTests() {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.categories, 'WEB_SEARCH_TOOL must expose categories parameter');
     assert.equal(properties.categories.type, 'string');
+  }, results);
+
+  await testFunction('WEB_SEARCH_TOOL schema includes engines property', () => {
+    const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
+    assert.ok(properties.engines, 'WEB_SEARCH_TOOL must expose engines parameter');
+    assert.equal(properties.engines.type, 'string');
   }, results);
 
   await testFunction('WEB_SEARCH_TOOL schema includes response_format enum', () => {

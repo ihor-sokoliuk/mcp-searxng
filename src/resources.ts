@@ -58,6 +58,7 @@ Performs web searches using the configured SearXNG instance.
 - \`min_score\` (optional): Minimum relevance score from 0.0 to 1.0
 - \`num_results\` (optional): Maximum result count from 1 to 20
 - \`categories\` (optional): Comma-separated SearXNG categories such as "news" or "it,science"
+- \`engines\` (optional): Comma-separated SearXNG engine names such as "google,bing,ddg"
 - \`response_format\` (optional): "text" for formatted output or "json" for raw SearXNG-shaped JSON
 
 Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`.
