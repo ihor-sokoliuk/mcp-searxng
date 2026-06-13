@@ -9,6 +9,7 @@
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { performWebSearch } from '../../src/search.js';
+import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch, createAbortableMockFetch } from '../helpers/mock-fetch.js';
@@ -25,6 +26,16 @@ function makeMockSearchResults(count: number) {
     url: `https://example.com/${index + 1}`,
     score: 1 - index * 0.05,
   }));
+}
+
+function makeConfigWithEngines() {
+  return {
+    engines: [
+      { name: 'google', disabled: false },
+      { name: 'ddg', disabled: false },
+      { name: 'bing', disabled: true },
+    ],
+  };
 }
 
 async function runTests() {
@@ -818,6 +829,167 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('engines="google,ddg" validates with /config and adds encoded engines param', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        return createMockFetch({ json: makeConfigWithEngines() })(url);
+      }
+      return createMockFetch({ json: { results: [] } })(url);
+    });
+
+    await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'google,ddg');
+
+    assert.equal(requestedUrls.length, 2, 'Expected /config validation before search');
+    const searchUrl = requestedUrls[1];
+    assert.ok(searchUrl.includes('engines=google%2Cddg'), `Expected encoded engines param in ${searchUrl}`);
+    assert.equal(new URL(searchUrl).searchParams.get('engines'), 'google,ddg');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('invalid engine names from live /config throw helpful validation error', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    let searchCalled = false;
+
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        return createMockFetch({ json: makeConfigWithEngines() })(url);
+      }
+      searchCalled = true;
+      return createMockFetch({ json: { results: [] } })(url);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'google,missing,bad');
+      assert.fail('Expected invalid engine validation error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('Invalid SearXNG engine name(s): missing, bad'), error.message);
+      assert.ok(error.message.includes('searxng_instance_info'), error.message);
+    }
+    assert.equal(searchCalled, false, 'Search should not run after validation failure');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('unavailable /config forwards engines and prepends text warning', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        return createMockFetch({ ok: false, status: 403, statusText: 'Forbidden' })(url);
+      }
+      return createMockFetch({
+        json: {
+          results: [
+            {
+              title: 'Forwarded Result',
+              content: 'Search still ran',
+              url: 'https://example.com/forwarded',
+              score: 0.9,
+            },
+          ],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'unknown');
+
+    assert.ok(result.startsWith('Note: engine names were not validated'), result);
+    assert.ok(result.includes('Forwarded Result'), result);
+    const searchUrl = requestedUrls[1];
+    assert.equal(new URL(searchUrl).searchParams.get('engines'), 'unknown');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('unavailable /config includes warnings in JSON response when engines are provided', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        throw new Error('config blocked');
+      }
+      return createMockFetch({ json: { query: 'test query', results: [] } })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'unknown', 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(payload.warnings, ['Engine names were not validated because SearXNG /config is unavailable.']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('omitting engines skips /config validation and sends no engines param', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      return createMockFetch({ json: { results: [] } })(url);
+    });
+
+    await performWebSearch(mockServer as any, 'test query');
+
+    assert.equal(requestedUrls.length, 1, 'Expected only the search request when engines is omitted');
+    const searchUrl = new URL(requestedUrls[0]);
+    assert.ok(searchUrl.pathname.endsWith('/search'));
+    assert.equal(searchUrl.searchParams.get('engines'), null);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('blank engines string skips /config validation and sends no engines param', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      return createMockFetch({ json: { results: [] } })(url);
+    });
+
+    await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, '   ');
+
+    assert.equal(requestedUrls.length, 1, 'Expected only the search request when engines is blank');
+    assert.equal(new URL(requestedUrls[0]).searchParams.get('engines'), null);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('SEARXNG_DEFAULT_LANGUAGE sets language when per-call language is omitted', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.set('SEARXNG_DEFAULT_LANGUAGE', 'fr');
@@ -1107,7 +1279,7 @@ async function runTests() {
       },
     }));
 
-    const result = await performWebSearch(mockServer as any, 'answer query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const result = await performWebSearch(mockServer as any, 'answer query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
     const payload = JSON.parse(result);
     assert.equal(payload.query, 'answer query');
     assert.deepEqual(payload.answers, ['42']);
@@ -1135,7 +1307,7 @@ async function runTests() {
       },
     }));
 
-    const result = await performWebSearch(mockServer as any, 'text query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'text');
+    const result = await performWebSearch(mockServer as any, 'text query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text');
     assert.ok(result.includes('Title: Text Result'));
     assert.throws(() => JSON.parse(result));
 
@@ -1155,7 +1327,7 @@ async function runTests() {
       },
     }));
 
-    const result = await performWebSearch(mockServer as any, 'slice query', 1, undefined, undefined, undefined, undefined, 2, undefined, 'json');
+    const result = await performWebSearch(mockServer as any, 'slice query', 1, undefined, undefined, undefined, undefined, 2, undefined, undefined, 'json');
     const payload = JSON.parse(result);
     assert.equal(payload.results.length, 2);
     assert.equal(payload.results[0].title, 'Result 1');
@@ -1178,7 +1350,7 @@ async function runTests() {
       },
     }));
 
-    const result = await performWebSearch(mockServer as any, 'empty query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const result = await performWebSearch(mockServer as any, 'empty query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
     const payload = JSON.parse(result);
     assert.equal(payload.query, 'empty query');
     assert.deepEqual(payload.results, []);

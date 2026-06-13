@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SearXNGWeb } from "./types.js";
+import { getKnownEngines } from "./instance-info.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
@@ -12,6 +13,9 @@ import {
   createNoResultsMessage,
   type ErrorContext
 } from "./error-handler.js";
+
+const ENGINE_VALIDATION_WARNING = "Engine names were not validated because SearXNG /config is unavailable.";
+const ENGINE_VALIDATION_NOTE = "Note: engine names were not validated (SearXNG /config unavailable).";
 
 function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
   const rawValue = process.env.SEARXNG_MAX_RESULTS;
@@ -130,6 +134,7 @@ export async function performWebSearch(
   min_score?: number,
   num_results?: number,
   categories?: string,
+  engines?: string,
   response_format: "text" | "json" = "text",
 ) {
   const startTime = Date.now();
@@ -141,6 +146,7 @@ export async function performWebSearch(
 
   const effectiveLanguage = language ?? getDefaultLanguage();
   const effectiveSafesearch = safesearch !== undefined ? safesearch : getDefaultSafesearch(mcpServer);
+  const effectiveEngines = engines !== undefined && engines.trim() !== "" ? engines : undefined;
 
   // Build detailed log message with all parameters
   const searchParams = [
@@ -151,6 +157,7 @@ export async function performWebSearch(
     min_score !== undefined ? `min_score: ${min_score}` : null,
     effectiveMax !== undefined ? `num_results: ${effectiveMax}` : null,
     categories ? `categories: ${categories}` : null,
+    effectiveEngines ? `engines: ${effectiveEngines}` : null,
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -163,6 +170,27 @@ export async function performWebSearch(
 
   const searxngUrl = process.env.SEARXNG_URL!;
   const parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
+  let engineValidationWarning: string | undefined;
+
+  if (effectiveEngines) {
+    const knownEngines = await getKnownEngines(mcpServer);
+    if (knownEngines === null) {
+      engineValidationWarning = ENGINE_VALIDATION_WARNING;
+    } else {
+      const requestedEngines = effectiveEngines
+        .split(",")
+        .map((engine) => engine.trim())
+        .filter((engine) => engine !== "");
+      const invalidEngines = requestedEngines.filter((engine) => !knownEngines.has(engine));
+
+      if (invalidEngines.length > 0) {
+        throw new MCPSearXNGError(
+          `🔍 Invalid SearXNG engine name(s): ${invalidEngines.join(", ")}. ` +
+          "Use the searxng_instance_info tool to discover available engines.",
+        );
+      }
+    }
+  }
 
   const url = new URL('search', parsedUrl);
 
@@ -187,6 +215,10 @@ export async function performWebSearch(
 
   if (categories) {
     url.searchParams.set("categories", categories);
+  }
+
+  if (effectiveEngines) {
+    url.searchParams.set("engines", effectiveEngines);
   }
 
   // Prepare request options with headers
@@ -290,10 +322,18 @@ export async function performWebSearch(
     : results;
 
   if (response_format === "json") {
-    return JSON.stringify({ ...data, results: slicedResults }, null, 2);
+    return JSON.stringify({
+      ...data,
+      results: slicedResults,
+      ...(engineValidationWarning ? { warnings: [engineValidationWarning] } : {}),
+    }, null, 2);
   }
 
   const metadata = formatSearchMetadata(data);
+  const leadingSections = [
+    engineValidationWarning ? ENGINE_VALIDATION_NOTE : null,
+    metadata || null,
+  ].filter(Boolean).join("\n\n");
 
   if (slicedResults.length === 0) {
     const appliedFilters = [
@@ -303,7 +343,7 @@ export async function performWebSearch(
     const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
-    return metadata ? `${metadata}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
+    return leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
   }
 
   const duration = Date.now() - startTime;
@@ -316,5 +356,5 @@ export async function performWebSearch(
     })
     .join("\n\n");
 
-  return metadata ? `${metadata}\n\n---\n\n${formattedResults}` : formattedResults;
+  return leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults;
 }

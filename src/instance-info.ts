@@ -3,6 +3,9 @@ import { logMessage } from "./logging.js";
 import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
 
 type SearXNGConfig = Record<string, any>;
+type ConfigResult =
+  | { available: true; config: SearXNGConfig }
+  | { available: false; message: string; status?: number };
 
 let cachedConfig: SearXNGConfig | null = null;
 let cachedBaseUrl: string | null = null;
@@ -61,6 +64,20 @@ function collectEngines(config: SearXNGConfig, includeDisabled: boolean, categor
   };
 }
 
+function allEngineNames(config: SearXNGConfig): Set<string> {
+  const names = new Set<string>();
+
+  if (Array.isArray(config.engines)) {
+    for (const engine of config.engines) {
+      if (engine && typeof engine.name === "string") {
+        names.add(engine.name);
+      }
+    }
+  }
+
+  return names;
+}
+
 function formatInstanceInfo(
   config: SearXNGConfig,
   includeEngines: boolean,
@@ -96,24 +113,17 @@ export function clearInstanceInfoCacheForTests(): void {
   cachedBaseUrl = null;
 }
 
-export async function fetchInstanceInfo(
-  mcpServer: McpServer,
-  includeEngines = false,
-  includeDisabled = false,
-  category?: string,
-  refresh = false,
-): Promise<string> {
+async function fetchConfig(mcpServer: McpServer): Promise<ConfigResult> {
   const base = process.env.SEARXNG_URL;
   if (!base) {
-    return unavailable("SEARXNG_URL is not configured; cannot fetch SearXNG /config.");
-  }
-
-  if (refresh) {
-    cachedConfig = null;
+    return {
+      available: false,
+      message: "SEARXNG_URL is not configured; cannot fetch SearXNG /config.",
+    };
   }
 
   if (cachedConfig && cachedBaseUrl === base) {
-    return formatInstanceInfo(cachedConfig, includeEngines, includeDisabled, category);
+    return { available: true, config: cachedConfig };
   }
 
   const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
@@ -131,14 +141,49 @@ export async function fetchInstanceInfo(
 
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
-      return unavailable(`SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`, response.status);
+      return {
+        available: false,
+        message: `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`,
+        status: response.status,
+      };
     }
 
     cachedConfig = await response.json() as SearXNGConfig;
     cachedBaseUrl = base;
-    return formatInstanceInfo(cachedConfig, includeEngines, includeDisabled, category);
+    return { available: true, config: cachedConfig };
   } catch (error) {
     logMessage(mcpServer, "warning", `SearXNG /config fetch failed: ${error instanceof Error ? error.message : String(error)}`);
-    return unavailable("SearXNG /config is unavailable; instance capability discovery could not complete.");
+    return {
+      available: false,
+      message: "SearXNG /config is unavailable; instance capability discovery could not complete.",
+    };
   }
+}
+
+export async function getKnownEngines(mcpServer: McpServer): Promise<Set<string> | null> {
+  const result = await fetchConfig(mcpServer);
+  if (!result.available) {
+    return null;
+  }
+
+  return allEngineNames(result.config);
+}
+
+export async function fetchInstanceInfo(
+  mcpServer: McpServer,
+  includeEngines = false,
+  includeDisabled = false,
+  category?: string,
+  refresh = false,
+): Promise<string> {
+  if (refresh) {
+    cachedConfig = null;
+  }
+
+  const result = await fetchConfig(mcpServer);
+  if (!result.available) {
+    return unavailable(result.message, result.status);
+  }
+
+  return formatInstanceInfo(result.config, includeEngines, includeDisabled, category);
 }

@@ -171,6 +171,7 @@ export function createMcpServer(): McpServer {
           args.min_score,
           args.num_results,
           args.categories,
+          args.engines,
           args.response_format,
         );
 
