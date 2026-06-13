@@ -19,7 +19,7 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 }
 
 function normalizePositiveInteger(value: number, fallback: number): number {
-  return Number.isNaN(value) || value <= 0 ? fallback : value;
+  return !Number.isFinite(value) || !Number.isInteger(value) || value <= 0 ? fallback : value;
 }
 
 class SimpleCache {
