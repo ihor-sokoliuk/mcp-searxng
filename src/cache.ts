@@ -35,7 +35,7 @@ class SimpleCache {
   ) {
     this.ttlMs = normalizePositiveInteger(ttlMs, DEFAULT_CACHE_TTL_MS);
     this.maxEntries = normalizePositiveInteger(maxEntries, DEFAULT_CACHE_MAX_ENTRIES);
-    this.startCleanup(cleanupIntervalMs);
+    this.startCleanup(normalizePositiveInteger(cleanupIntervalMs, DEFAULT_CLEANUP_INTERVAL_MS));
   }
 
   private startCleanup(cleanupIntervalMs: number): void {
@@ -56,6 +56,8 @@ class SimpleCache {
   }
 
   private evictIfNeeded(): void {
+    this.cleanupExpired();
+
     while (this.cache.size > this.maxEntries) {
       let evictionKey: string | null = null;
       let evictionEntry: CacheEntry | null = null;

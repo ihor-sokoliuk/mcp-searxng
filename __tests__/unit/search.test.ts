@@ -1093,6 +1093,53 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('unavailable /config prepends categories-only text warning', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        return createMockFetch({ ok: false, status: 403, statusText: 'Forbidden' })(url);
+      }
+      return createMockFetch({ json: { results: makeMockSearchResults(1) } })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, 'Unknown Category');
+
+    assert.ok(result.startsWith('Note: categories were not validated or normalized (SearXNG /config unavailable).'), result);
+    assert.ok(!result.includes('categories and engines were not validated'), result);
+    assert.ok(!result.includes('engines were not validated'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('unavailable /config includes engines-only JSON warning', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        throw new Error('config blocked');
+      }
+      return createMockFetch({ json: { query: 'test query', results: [] } })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'Unknown Engine', 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(payload.warnings, ['Engines were not validated or normalized because SearXNG /config is unavailable.']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('omitting engines skips /config validation and sends no engines param', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');

@@ -14,9 +14,6 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
-const FILTER_VALIDATION_WARNING = "Categories and engines were not validated or normalized because SearXNG /config is unavailable.";
-const FILTER_VALIDATION_NOTE = "Note: categories and engines were not validated or normalized (SearXNG /config unavailable).";
-
 function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
   const rawValue = process.env.SEARXNG_MAX_RESULTS;
   if (rawValue === undefined || rawValue.trim() === "") {
@@ -122,6 +119,7 @@ type NormalizedFilters = {
   categories?: string;
   engines?: string;
   validationWarning?: string;
+  validationNote?: string;
 };
 
 async function normalizeSearchFilters(
@@ -136,6 +134,14 @@ async function normalizeSearchFilters(
     return {};
   }
 
+  const unavailableFilterLabel = effectiveCategories && effectiveEngines
+    ? "categories and engines"
+    : effectiveCategories
+      ? "categories"
+      : "engines";
+  const unavailableWarning = `${unavailableFilterLabel[0].toUpperCase()}${unavailableFilterLabel.slice(1)} were not validated or normalized because SearXNG /config is unavailable.`;
+  const unavailableNote = `Note: ${unavailableFilterLabel} were not validated or normalized (SearXNG /config unavailable).`;
+
   let knownCategories: Set<string> | null | undefined;
   let knownEngines: Set<string> | null | undefined;
 
@@ -145,7 +151,8 @@ async function normalizeSearchFilters(
       return {
         categories: effectiveCategories,
         engines: effectiveEngines,
-        validationWarning: FILTER_VALIDATION_WARNING,
+        validationWarning: unavailableWarning,
+        validationNote: unavailableNote,
       };
     }
   }
@@ -156,7 +163,8 @@ async function normalizeSearchFilters(
       return {
         categories: effectiveCategories,
         engines: effectiveEngines,
-        validationWarning: FILTER_VALIDATION_WARNING,
+        validationWarning: unavailableWarning,
+        validationNote: unavailableNote,
       };
     }
   }
@@ -185,7 +193,8 @@ async function normalizeSearchFilters(
       return {
         categories: effectiveCategories,
         engines: effectiveEngines,
-        validationWarning: FILTER_VALIDATION_WARNING,
+        validationWarning: unavailableWarning,
+        validationNote: unavailableNote,
       };
     }
 
@@ -455,7 +464,7 @@ export async function performWebSearch(
 
   const metadata = formatSearchMetadata(data);
   const leadingSections = [
-    filters.validationWarning ? FILTER_VALIDATION_NOTE : null,
+    filters.validationNote ?? null,
     metadata || null,
   ].filter(Boolean).join("\n\n");
 
