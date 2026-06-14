@@ -88,8 +88,28 @@ export async function performReverseImageSearch(
   if (effectiveLanguage && effectiveLanguage !== "all") {
     url.searchParams.set("language", effectiveLanguage);
   }
-  if (safesearch !== undefined && [0, 1, 2].includes(safesearch)) {
-    url.searchParams.set("safesearch", safesearch.toString());
+  const effectiveSafesearch = safesearch !== undefined
+    ? safesearch
+    : (() => {
+        const rawValue = process.env.SEARXNG_DEFAULT_SAFESEARCH;
+        if (rawValue === undefined || rawValue.trim() === "") {
+          return undefined;
+        }
+
+        const parsed = parseInt(rawValue, 10);
+        if (Number.isNaN(parsed) || ![0, 1, 2].includes(parsed)) {
+          logMessage(
+            mcpServer,
+            "warning",
+            `Ignoring invalid SEARXNG_DEFAULT_SAFESEARCH="${rawValue}". Expected 0, 1, or 2.`,
+          );
+          return undefined;
+        }
+
+        return parsed;
+      })();
+  if (effectiveSafesearch !== undefined) {
+    url.searchParams.set("safesearch", effectiveSafesearch.toString());
   }
   if (filters.categories) {
     url.searchParams.set("categories", filters.categories);
@@ -146,7 +166,7 @@ export async function performReverseImageSearch(
 
   let data: SearXNGWeb;
   try {
-    data = (await response.json()) as SearXNGWeb;
+    data = (await response.clone().json()) as SearXNGWeb;
   } catch (error: any) {
     let responseText: string;
     try {
