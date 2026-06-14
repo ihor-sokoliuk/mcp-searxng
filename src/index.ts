@@ -19,15 +19,19 @@ import {
   LITE_SUGGESTIONS_TOOL,
   LITE_INSTANCE_INFO_TOOL,
   LITE_READ_URL_TOOL,
+  REVERSE_IMAGE_SEARCH_TOOL,
+  LITE_REVERSE_IMAGE_SEARCH_TOOL,
   isSearXNGWebSearchArgs,
   isSearXNGSearchSuggestionsArgs,
   isSearXNGInstanceInfoArgs,
+  isReverseImageSearchArgs,
 } from "./types.js";
 import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { performSearchSuggestions } from "./suggestions.js";
 import { fetchInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
+import { performReverseImageSearch } from "./reverse-image-search.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
 
@@ -141,12 +145,13 @@ export function createMcpServer(): McpServer {
   const suggestionsTool = useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL;
   const instanceInfoTool = useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL;
   const readUrlTool = useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL;
+  const reverseImageSearchTool = useLiteTools ? LITE_REVERSE_IMAGE_SEARCH_TOOL : REVERSE_IMAGE_SEARCH_TOOL;
 
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     logMessage(mcpServer, "debug", "Handling list_tools request");
     return {
-      tools: [searchTool, suggestionsTool, instanceInfoTool, readUrlTool],
+      tools: [searchTool, suggestionsTool, instanceInfoTool, readUrlTool, reverseImageSearchTool],
     };
   });
 
@@ -238,6 +243,33 @@ export function createMcpServer(): McpServer {
         };
 
         const result = await fetchAndConvertToMarkdown(mcpServer, args.url, getFetchTimeoutMs(mcpServer), paginationOptions);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } else if (name === "reverse_image_search") {
+        if (!isReverseImageSearchArgs(args)) {
+          throw new Error("Invalid arguments for reverse image search");
+        }
+
+        const result = await performReverseImageSearch(
+          mcpServer,
+          args.image_url,
+          args.pageno,
+          args.engines,
+          args.categories,
+          args.time_range,
+          args.language,
+          args.safesearch,
+          args.min_score,
+          args.num_results,
+          args.response_format,
+        );
 
         return {
           content: [

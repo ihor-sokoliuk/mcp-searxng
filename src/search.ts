@@ -115,14 +115,14 @@ function createValidationError(kind: "category" | "engine", invalid: string[], a
   );
 }
 
-type NormalizedFilters = {
+export type NormalizedFilters = {
   categories?: string;
   engines?: string;
   validationWarning?: string;
   validationNote?: string;
 };
 
-async function normalizeSearchFilters(
+export async function normalizeSearchFilters(
   mcpServer: McpServer,
   categories?: string,
   engines?: string,
