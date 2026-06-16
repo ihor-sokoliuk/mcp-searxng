@@ -9,28 +9,18 @@ permissions:
   contents: read       # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
 
 jobs:
-  push_to_registry:
-    name: Push Docker image to Docker Hub
+  scan_image:
+    name: Scan Docker image for vulnerabilities
     runs-on: ubuntu-latest
     permissions:
-      contents: read       # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
+      contents: read       # checkout only
       security-events: write  # for Trivy SARIF upload to GitHub Security tab
-      id-token: write      # for Cosign keyless signing
     steps:
       - name: Check out the repo
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -74,6 +64,45 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
+
+  push_to_registry:
+    name: Push Docker image to Docker Hub
+    needs: scan_image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read       # checkout only; Docker Hub auth uses secrets, not GITHUB_TOKEN
+      id-token: write      # for Cosign keyless signing
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: isokoliuk/mcp-searxng
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Extract base image digest from Dockerfile
+        id: base
+        run: |
+          DIGEST=$(grep -m1 -oE 'sha256:[a-f0-9]{64}' Dockerfile)
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
         id: publish
