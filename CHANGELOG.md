@@ -23,10 +23,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 - **Least-privilege Docker workflow permissions:** `security-events: write` is now isolated to a dedicated image-scan job in both the publish and rebuild workflows, with `id-token: write` confined to the publish/sign job and workflow-level permissions kept read-only.
 
+- **Patched bundled `hono`:** Pinned the transitive `hono` dependency to ≥ 4.12.25 (via npm `overrides`) to resolve CVE-2026-54290 — a CORS middleware flaw that reflected any origin with credentials — in the published Docker image.
+
 ### Build / CI
 
 - Added a CI workflow that runs lint plus unit and integration tests on every pull request and push to `main`.
-- Removed the mutable global `npm install -g npm@latest` step from the publish workflow.
 
 ## [1.5.0] - 2026-06-12
 

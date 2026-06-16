@@ -23,6 +23,11 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
 
+      - name: Pin npm for OIDC trusted publishing
+        # Tokenless OIDC trusted publishing needs npm >= 11.5.1; Node 20 ships npm ~10.
+        # Pinned to a specific version (not @latest) to avoid a mutable supply-chain step.
+        run: npm install -g npm@11.17.0
+
       - name: Verify npm provenance support
         run: |
           NPM_VERSION="$(npm --version)"
@@ -33,8 +38,8 @@ jobs:
               throw new Error('Unable to determine npm version');
             }
             const [major, minor] = version;
-            if (major < 9 || (major === 9 && minor < 5)) {
-              throw new Error('npm >= 9.5.0 is required for npm publish --provenance');
+            if (major < 11 || (major === 11 && minor < 5)) {
+              throw new Error('npm >= 11.5.1 is required for OIDC trusted publishing');
             }
           "
 
