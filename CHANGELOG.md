@@ -3,9 +3,13 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.6.0] - 2026-06-16
 
 ### Added
+
+- **`engines` parameter on `searxng_web_search`:** A comma-separated list routes a search to specific SearXNG engines (e.g. `google,bing,duckduckgo`) instead of the category defaults. Omitting it preserves the previous behaviour.
+
+- **Validated & normalized `categories` / `engines`:** Values are now trimmed and matched case-insensitively against the connected instance's live `/config`, and the canonical names are sent to SearXNG. Unknown values are rejected up front with the available options listed — fixing silent search degradation from miscased or invalid engine/category names.
 
 - **Configurable URL cache controls:** `CACHE_TTL_MS` sets the URL cache TTL (default `86400000` ms = 24 h) and `CACHE_MAX_ENTRIES` sets the maximum cached URLs (default `500`).
 
@@ -14,6 +18,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - **URL cache TTL default:** The URL cache now reuses cached pages for up to 24 h within a running server unless entries expire or are evicted. Previous default was 60 s.
+
+### Security
+
+- **Least-privilege Docker workflow permissions:** `security-events: write` is now isolated to a dedicated image-scan job in both the publish and rebuild workflows, with `id-token: write` confined to the publish/sign job and workflow-level permissions kept read-only.
+
+### Build / CI
+
+- Added a CI workflow that runs lint plus unit and integration tests on every pull request and push to `main`.
+- Removed the mutable global `npm install -g npm@latest` step from the publish workflow.
 
 ## [1.5.0] - 2026-06-12
 
