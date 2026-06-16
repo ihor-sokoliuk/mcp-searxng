@@ -23,9 +23,21 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Pin npm for OIDC trusted publishing
-        # Tokenless OIDC trusted publishing needs npm >= 11.5.1; Node 20 ships npm ~10.
-        # Pinned to a specific version (not @latest) to avoid a mutable supply-chain step.
+      # ──────────────────────────────────────────────────────────────────────
+      # ⚠️  DO NOT REMOVE / DO NOT "SIMPLIFY" THIS STEP. It is load-bearing.
+      #
+      # Tokenless OIDC "trusted publishing" (used below — `npm publish --provenance`
+      # with NO NODE_AUTH_TOKEN) requires npm >= 11.5.1, but the GitHub-hosted
+      # Node 20 runner ships npm ~10. Without this upgrade the publish fails with:
+      #     npm error 404  'mcp-searxng@<version>' is not in this registry
+      # This exact regression shipped in v1.6.0 — see SEC-015 in TODO-done.md.
+      #
+      # It is pinned to an EXACT version (NOT `@latest`), so the "mutable npm
+      # command" / supply-chain finding that previously prompted its removal does
+      # NOT apply here. Ignore that warning for this step and leave it in place.
+      # To update it, change ONLY the pinned version — and it must stay >= 11.5.1.
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Pin npm for OIDC trusted publishing (REQUIRED — do not remove)
         run: npm install -g npm@11.17.0
 
       - name: Verify npm provenance support
@@ -39,7 +51,8 @@ jobs:
             }
             const [major, minor] = version;
             if (major < 11 || (major === 11 && minor < 5)) {
-              throw new Error('npm >= 11.5.1 is required for OIDC trusted publishing');
+              // If this throws, the pinned npm upgrade step above was removed or downgraded.
+              throw new Error('npm >= 11.5.1 is required for OIDC trusted publishing. Restore the pinned (npm install -g npm@11.17.0) step above — do not remove it. See SEC-015 in TODO-done.md.');
             }
           "
 
