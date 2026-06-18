@@ -94,6 +94,10 @@ The server auto-detects system CA bundles on Linux and macOS for outbound HTTPS 
 
 The `web_url_read` tool manually follows redirects (up to 5 hops). Each intermediate URL is validated against the private-IP blocklist before the request is made. On the direct no-proxy path, each redirect hop also goes through DNS-answer validation before connecting.
 
+### URL Reader Size Limits
+
+`web_url_read` enforces `URL_READ_MAX_CONTENT_LENGTH_BYTES` while streaming the response body. The HEAD `Content-Length` check remains as a cheap early rejection path, but the streaming cap is authoritative and also applies when the server omits `Content-Length`, uses chunked transfer encoding, or sends more data than it reported. The cap is measured after undici's transparent Content-Encoding decompression, which bounds the in-memory content size used for HTML-to-Markdown conversion.
+
 ## Deployment Recommendations
 
 ### Minimal / Local

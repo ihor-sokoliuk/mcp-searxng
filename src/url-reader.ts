@@ -26,6 +26,10 @@ interface PaginationOptions {
   readHeadings?: boolean;
 }
 
+type BoundedBodyReadResult =
+  | { exceeded: false; text: string; bytesRead: number }
+  | { exceeded: true; bytesRead: number };
+
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
@@ -224,6 +228,53 @@ function createContentTooLargeMessage(contentLength: number, maxBytes: number): 
   );
 }
 
+function concatenateChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
+  const result = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return result;
+}
+
+async function readResponseBodyWithLimit(response: Response, maxBytes: number): Promise<BoundedBodyReadResult> {
+  if (response.body === null) {
+    return { exceeded: false, text: "", bytesRead: 0 };
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytesRead = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel();
+        return { exceeded: true, bytesRead };
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bodyBytes = concatenateChunks(chunks, bytesRead);
+  return { exceeded: false, text: new TextDecoder("utf-8").decode(bodyBytes), bytesRead };
+}
+
 export async function fetchAndConvertToMarkdown(
   mcpServer: McpServer,
   url: string,
@@ -345,7 +396,10 @@ export async function fetchAndConvertToMarkdown(
     if (!response.ok) {
       let responseBody: string;
       try {
-        responseBody = await response.text();
+        const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes);
+        responseBody = bodyRead.exceeded
+          ? createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes)
+          : bodyRead.text;
       } catch {
         responseBody = '[Could not read response body]';
       }
@@ -357,7 +411,11 @@ export async function fetchAndConvertToMarkdown(
     // Retrieve HTML content
     let htmlContent: string;
     try {
-      htmlContent = await response.text();
+      const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes);
+      if (bodyRead.exceeded) {
+        return createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes);
+      }
+      htmlContent = bodyRead.text;
     } catch (error: any) {
       throw createContentError(
         `Failed to read website content: ${error.message || 'Unknown error reading content'}`,

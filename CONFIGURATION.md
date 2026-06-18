@@ -57,7 +57,7 @@ Self-hosting SearXNG with JSON output enabled remains the recommended setup. The
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | — | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
-| `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum `Content-Length` allowed by the `web_url_read` HEAD preflight before downloading a page. Invalid values fall back to the default. HEAD failures are non-fatal and the GET proceeds. |
+| `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. Invalid values fall back to the default. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
@@ -128,6 +128,8 @@ Redirects are also checked before they are followed. A public URL that redirects
 For direct URL-reader requests without a proxy, DNS answers are validated before connecting. A public-looking hostname that resolves to a private/internal address is blocked, and the connection is pinned to the validated DNS answer to prevent DNS rebinding between validation and connection.
 
 When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions, so proxied deployments should rely on proxy, firewall, and egress controls.
+
+`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response body, including chunked responses and responses whose GET body is larger than the HEAD `Content-Length` value. The limit is measured after transparent response decompression.
 
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 

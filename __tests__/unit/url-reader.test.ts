@@ -392,6 +392,194 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('Streaming GET body without Content-Length is capped', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '64');
+
+    const seenMethods: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenMethods.push(req.method || 'UNKNOWN');
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.write('<html><body><h1>Chunked</h1>');
+      res.write('x'.repeat(128));
+      res.end('</body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Content too large'), `Expected content-too-large message, got: ${result}`);
+      assert.deepEqual(seenMethods, ['HEAD', 'GET']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Streaming GET body with understated HEAD Content-Length is capped', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '64');
+
+    const seenMethods: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenMethods.push(req.method || 'UNKNOWN');
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': '10' });
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.write('<html><body><h1>Understated</h1>');
+      res.write('x'.repeat(128));
+      res.end('</body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Content too large'), `Expected content-too-large message, got: ${result}`);
+      assert.deepEqual(seenMethods, ['HEAD', 'GET']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Streaming GET body just under limit is returned in full', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '128');
+
+    const html = '<html><body><h1>Within Limit</h1><p>Complete body.</p></body></html>';
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(html);
+    });
+
+    try {
+      assert.ok(Buffer.byteLength(html, 'utf8') < 128, 'Test body must stay below configured cap');
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Within Limit'), `Expected converted content, got: ${result}`);
+      assert.ok(result.includes('Complete body'), `Expected complete converted body, got: ${result}`);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Over-limit streaming GET result is not cached', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '64');
+
+    let headCount = 0;
+    let getCount = 0;
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        headCount++;
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      getCount++;
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.write('<html><body><h1>Not cached</h1>');
+      res.write('x'.repeat(128));
+      res.end('</body></html>');
+    });
+
+    try {
+      const first = await fetchAndConvertToMarkdown(mockServer as any, url);
+      const second = await fetchAndConvertToMarkdown(mockServer as any, url);
+
+      assert.ok(first.includes('Content too large'), `Expected first read to be capped, got: ${first}`);
+      assert.ok(second.includes('Content too large'), `Expected second read to be capped, got: ${second}`);
+      assert.equal(headCount, 2, 'Second over-limit read should repeat HEAD instead of using cache');
+      assert.equal(getCount, 2, 'Second over-limit read should re-fetch instead of using cache');
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Oversized HTTP error response body is capped', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '64');
+
+    let chunksWritten = 0;
+    let responseClosed = false;
+    let resolveResponseClosed: () => void = () => {};
+    const responseClosedPromise = new Promise<void>((resolve) => {
+      resolveResponseClosed = resolve;
+    });
+    const totalChunks = 100;
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(500);
+        res.end();
+        return;
+      }
+
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+      res.on('close', () => {
+        responseClosed = true;
+        resolveResponseClosed();
+      });
+
+      const writeNext = () => {
+        if (res.destroyed || chunksWritten >= totalChunks) {
+          res.end();
+          return;
+        }
+
+        chunksWritten++;
+        res.write('x'.repeat(32));
+        setImmediate(writeNext);
+      };
+
+      writeNext();
+    });
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.fail('Expected server error');
+    } catch (error: any) {
+      assert.ok(
+        error.message.includes('Website Error (500)') || error.name === 'MCPSearXNGError',
+        `Expected server error, got: ${error.message}`,
+      );
+      await Promise.race([
+        responseClosedPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, 50)),
+      ]);
+      assert.ok(responseClosed, 'Expected response stream to be closed');
+      assert.ok(chunksWritten < totalChunks, `Expected capped error-body read, wrote all ${chunksWritten} chunks`);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
   await testFunction('Invalid URL_READ_MAX_CONTENT_LENGTH_BYTES falls back to default cap', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
