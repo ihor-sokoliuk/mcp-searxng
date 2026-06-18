@@ -3,6 +3,17 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-06-18
+
+### Added
+
+- **HTML-search fallback (`SEARXNG_HTML_FALLBACK=true`):** Opt-in compatibility mode for SearXNG instances that disable JSON output. When a search hits a `403`/`404` or a non-JSON response, it is automatically retried without `format=json` and results (title, URL, snippet) are parsed from the regular HTML results page and marked `sourceFormat: "html"`. Triggers strictly on format rejections — never on `401`, `5xx`, network, or timeout errors. Enabling JSON on a SearXNG instance you control remains the recommended setup; see the README troubleshooting section.
+
+### Security
+
+- **`undici` upgraded to 7.28.0** — resolves two HIGH advisories affecting 7.0.0–7.27.2: GHSA-vmh5-mc38-953g (TLS certificate validation bypass in the SOCKS5 ProxyAgent) and GHSA-pr7r-676h-xcf6 (cross-user information disclosure via shared-cache whitespace bypass).
+- **`form-data` upgraded to 4.0.6** — clears a CRLF-injection advisory (GHSA-hmw2-7cc7-3qxx) in the test toolchain.
+
 ## [1.6.0] - 2026-06-16
 
 ### Added
