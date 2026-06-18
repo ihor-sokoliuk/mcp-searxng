@@ -273,6 +273,21 @@ You should receive a JSON response. If not, confirm the file is correctly mounte
 
 See also: [SearXNG settings docs](https://docs.searxng.org/admin/settings/settings.html) · [discussion](https://github.com/searxng/searxng/discussions/1789)
 
+### Can't enable JSON? (HTML fallback)
+
+If you must use a public instance you don't control and it rejects `format=json` (the 403 above), set the opt-in flag instead of editing the server:
+
+```json
+"SEARXNG_HTML_FALLBACK": "true"
+```
+
+A search that gets a `403`/`404` or a non-JSON response is then retried automatically **without** `format=json` and parsed from the regular HTML results page.
+
+- **On success:** you get normal results (title, URL, snippet). They are marked `sourceFormat: "html"` in JSON mode, and text mode adds the line *"Note: Results parsed from SearXNG HTML fallback; metadata is limited."* Relevance scores and engine names are not available from HTML.
+- **On failure:** parsing is best-effort and varies by the instance's theme/version, so some results may be missed or sparse. If the HTML page itself also fails — still blocked, rate-limited (`429`), auth (`401`), or `5xx` — the **original error is surfaced unchanged**. The fallback only triggers on `403`/`404`/non-JSON, never on auth or network errors.
+
+Enabling JSON on an instance you control (above) remains the recommended setup — the fallback is a compatibility aid, not a replacement.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md)
