@@ -3,6 +3,13 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] - 2026-06-18
+
+### Security
+
+- **DNS-resolved private-address SSRF in `web_url_read` blocked (GHSA-mrvx-jmjw-vggc):** The URL reader previously validated only the literal hostname string, so a public-looking hostname that DNS-resolves to a private, loopback, or link-local address (for example a domain pointing at `127.0.0.1`/`10.0.0.0/8` or a cloud metadata endpoint like `169.254.169.254`) bypassed the SSRF guard. Direct (no-proxy) reads now validate every resolved DNS answer before connecting and pin the connection to the validated address, closing the DNS-rebinding window. The `MCP_HTTP_ALLOW_PRIVATE_URLS=true` opt-out still applies. When a URL-reader proxy is configured the proxy performs DNS resolution, so those deployments must rely on egress/firewall controls (documented in `SECURITY.md`).
+- **Unbounded response-body read in `web_url_read` capped (GHSA-xcqx-9jf5-w339):** The page-size limit was advisory only — a server using chunked transfer encoding, a failing/absent HEAD response, or a body larger than its reported `Content-Length` could force the entire response into memory (denial of service). The body is now read through a bounded stream that enforces `URL_READ_MAX_CONTENT_LENGTH_BYTES` (default 5 MB) against the decompressed size and stops once the cap is exceeded, before any conversion or caching.
+
 ## [1.7.0] - 2026-06-18
 
 ### Added
