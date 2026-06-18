@@ -56,7 +56,7 @@
         "express-rate-limit": "^8.5.2",
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "^6.1.13",
-        "undici": "7.27.2"
+        "undici": "7.28.0"
     },
     "devDependencies": {
         "@types/node": "22.19.21",
