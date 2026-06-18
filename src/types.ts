@@ -4,7 +4,7 @@ export interface SearXNGWebResult {
   title: string;
   content: string;
   url: string;
-  score: number;
+  score?: number;
   engine?: string;
   engines?: string[];
   category?: string;
@@ -23,6 +23,7 @@ export interface SearXNGWeb {
   query: string;
   number_of_results: number;
   results: SearXNGWebResult[];
+  sourceFormat?: "json" | "html";
   suggestions?: string[];
   corrections?: string[];
   answers?: string[];

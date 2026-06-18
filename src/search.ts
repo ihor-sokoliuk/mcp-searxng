@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { parse } from "node-html-parser";
 import { SearXNGWeb } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
@@ -58,6 +59,129 @@ function truncateResultContent(content: string, maxResultChars?: number): string
   }
 
   return `${content.slice(0, maxResultChars)}…`;
+}
+
+function normalizeHtmlText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function isHtmlFallbackEnabled(): boolean {
+  return process.env.SEARXNG_HTML_FALLBACK === "true";
+}
+
+function shouldFallbackForStatus(status: number): boolean {
+  return status === 403 || status === 404;
+}
+
+function buildHtmlFallbackUrl(jsonUrl: URL): URL {
+  const htmlUrl = new URL(jsonUrl.toString());
+  htmlUrl.searchParams.delete("format");
+  return htmlUrl;
+}
+
+function parseHtmlSearchResults(html: string, query: string): SearXNGWeb {
+  const root = parse(html);
+  const articles = root.querySelectorAll("article.result");
+  const candidates = articles.length > 0 ? articles : root.querySelectorAll(".result");
+  const results = candidates
+    .map((entry) => {
+      const link = entry.querySelector("h3 > a") ?? entry.querySelector("h3 a") ?? entry.querySelector("a[href]");
+      if (!link) {
+        return undefined;
+      }
+
+      const href = link?.getAttribute("href")?.trim();
+
+      if (!href) {
+        return undefined;
+      }
+
+      try {
+        new URL(href);
+      } catch {
+        return undefined;
+      }
+
+      const title = normalizeHtmlText(link.text);
+      const snippetNode = entry.querySelector("p.content") ?? entry.querySelector(".content");
+      const content = snippetNode ? normalizeHtmlText(snippetNode.text) : "";
+
+      return {
+        title,
+        url: href,
+        content,
+      };
+    })
+    .filter((result): result is { title: string; url: string; content: string } => result !== undefined);
+
+  return {
+    query,
+    number_of_results: results.length,
+    results,
+    sourceFormat: "html",
+  };
+}
+
+async function fetchWithSearchTimeout(
+  mcpServer: McpServer,
+  url: URL,
+  requestOptions: RequestInit,
+  timeoutMs: number,
+  query: string,
+  searxngUrl: string,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    logMessage(mcpServer, "info", `Making request to: ${url.toString()}`);
+    return await fetch(url.toString(), {
+      ...requestOptions,
+      signal: controller.signal,
+    });
+  } catch (error: any) {
+    logMessage(mcpServer, "error", `Network error during search request: ${error.message}`, { query, url: url.toString() });
+    const context: ErrorContext = {
+      url: url.toString(),
+      searxngUrl,
+      proxyAgent: !!(requestOptions as any).dispatcher,
+      username: process.env.AUTH_USERNAME,
+    };
+    throw createNetworkError(error, context);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchHtmlFallbackSearch(
+  mcpServer: McpServer,
+  jsonUrl: URL,
+  requestOptions: RequestInit,
+  timeoutMs: number,
+  query: string,
+  searxngUrl: string,
+): Promise<SearXNGWeb> {
+  const htmlUrl = buildHtmlFallbackUrl(jsonUrl);
+  logMessage(mcpServer, "info", `Retrying search with HTML fallback: ${htmlUrl.toString()}`);
+
+  const response = await fetchWithSearchTimeout(mcpServer, htmlUrl, requestOptions, timeoutMs, query, searxngUrl);
+  if (!response.ok) {
+    let responseBody: string;
+    try {
+      responseBody = await response.text();
+    } catch {
+      responseBody = '[Could not read response body]';
+    }
+
+    const context: ErrorContext = {
+      url: htmlUrl.toString(),
+      searxngUrl,
+    };
+    throw createServerError(response.status, response.statusText, responseBody, context);
+  }
+
+  const html = await response.text();
+  return parseHtmlSearchResults(html, query);
 }
 
 function hasItems<T>(items: T[] | undefined): items is T[] {
@@ -389,58 +513,48 @@ export async function performWebSearch(
 
   // Fetch with AbortController timeout and enhanced error handling
   const SEARCH_TIMEOUT_MS = parseInt(process.env.SEARXNG_TIMEOUT_MS ?? "10000", 10);
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
 
   let response: Response;
-  try {
-    logMessage(mcpServer, "info", `Making request to: ${url.toString()}`);
-    response = await fetch(url.toString(), {
-      ...requestOptions,
-      signal: controller.signal,
-    });
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    logMessage(mcpServer, "error", `Network error during search request: ${error.message}`, { query, url: url.toString() });
-    const context: ErrorContext = {
-      url: url.toString(),
-      searxngUrl,
-      proxyAgent: !!dispatcher,
-      username
-    };
-    throw createNetworkError(error, context);
-  }
-  clearTimeout(timeoutId);
+  response = await fetchWithSearchTimeout(mcpServer, url, requestOptions, SEARCH_TIMEOUT_MS, query, searxngUrl);
+
+  let data: SearXNGWeb;
 
   if (!response.ok) {
-    let responseBody: string;
-    try {
-      responseBody = await response.text();
-    } catch {
-      responseBody = '[Could not read response body]';
+    if (isHtmlFallbackEnabled() && shouldFallbackForStatus(response.status)) {
+      data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, SEARCH_TIMEOUT_MS, query, searxngUrl);
+    } else {
+      let responseBody: string;
+      try {
+        responseBody = await response.text();
+      } catch {
+        responseBody = '[Could not read response body]';
+      }
+
+      const context: ErrorContext = {
+        url: url.toString(),
+        searxngUrl
+      };
+      throw createServerError(response.status, response.statusText, responseBody, context);
     }
-
-    const context: ErrorContext = {
-      url: url.toString(),
-      searxngUrl
-    };
-    throw createServerError(response.status, response.statusText, responseBody, context);
-  }
-
-  // Parse JSON response
-  let data: SearXNGWeb;
-  try {
-    data = (await response.json()) as SearXNGWeb;
-  } catch (error: any) {
-    let responseText: string;
+  } else {
+    // Parse JSON response
     try {
-      responseText = await response.text();
-    } catch {
-      responseText = '[Could not read response text]';
-    }
+      data = (await response.json()) as SearXNGWeb;
+    } catch (error: any) {
+      if (isHtmlFallbackEnabled()) {
+        data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, SEARCH_TIMEOUT_MS, query, searxngUrl);
+      } else {
+        let responseText: string;
+        try {
+          responseText = await response.text();
+        } catch {
+          responseText = '[Could not read response text]';
+        }
 
-    const context: ErrorContext = { url: url.toString() };
-    throw createJSONError(responseText, context);
+        const context: ErrorContext = { url: url.toString() };
+        throw createJSONError(responseText, context);
+      }
+    }
   }
 
   if (!data.results) {
@@ -465,6 +579,7 @@ export async function performWebSearch(
   const metadata = formatSearchMetadata(data);
   const leadingSections = [
     filters.validationNote ?? null,
+    data.sourceFormat === "html" ? "Note: Results parsed from SearXNG HTML fallback; metadata is limited." : null,
     metadata || null,
   ].filter(Boolean).join("\n\n");
 
@@ -484,8 +599,17 @@ export async function performWebSearch(
 
   const formattedResults = slicedResults
     .map((r) => {
-      const score = r.score || 0;
-      return `Title: ${r.title || ""}\nDescription: ${truncateResultContent(r.content || "", maxResultChars)}\nURL: ${r.url || ""}\nRelevance Score: ${score.toFixed(3)}`;
+      const lines = [
+        `Title: ${r.title || ""}`,
+        `Description: ${truncateResultContent(r.content || "", maxResultChars)}`,
+        `URL: ${r.url || ""}`,
+      ];
+
+      if (r.score !== undefined) {
+        lines.push(`Relevance Score: ${r.score.toFixed(3)}`);
+      }
+
+      return lines.join("\n");
     })
     .join("\n\n");
 
