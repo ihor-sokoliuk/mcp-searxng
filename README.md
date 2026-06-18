@@ -16,6 +16,8 @@
 
 An [MCP server](https://modelcontextprotocol.io/introduction) that integrates the [SearXNG](https://docs.searxng.org) API, giving AI assistants web search capabilities.
 
+✨ Featured in the [GitHub MCP Registry](https://github.com/mcp/ihor-sokoliuk/mcp-searxng).
+
 </div>
 
 ## Quick Start
