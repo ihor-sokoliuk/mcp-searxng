@@ -50,7 +50,11 @@ Private and internal URLs are **blocked by default** in all transport modes. The
 - IPv4-mapped IPv6 addresses that resolve to any of the above (e.g. `::ffff:127.0.0.1`)
 - Redirects are validated **before** they are followed — a public URL that redirects to a private address is also blocked
 
-To allow private URL reads (e.g. for internal deployments), set `MCP_HTTP_ALLOW_PRIVATE_URLS=true`. Do this only when internal fetching is intentional.
+For direct `web_url_read` requests, DNS answers are also validated before the TCP/TLS connection is established. If a public-looking hostname resolves to any blocked private, loopback, link-local, or unspecified address, the request is rejected. The connection is pinned to the validated DNS answer so a hostname cannot pass validation and then rebind to a different address for the actual connection.
+
+When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. In that mode, this client-side DNS validation cannot inspect the final resolved IP address; proxied deployments should rely on proxy, firewall, and egress controls to restrict internal network access.
+
+To allow private URL reads and private DNS-resolved targets (e.g. for internal deployments), set `MCP_HTTP_ALLOW_PRIVATE_URLS=true`. Do this only when internal fetching is intentional.
 
 ### Hardened HTTP Mode
 
@@ -88,7 +92,7 @@ The server auto-detects system CA bundles on Linux and macOS for outbound HTTPS 
 
 ### Redirect Handling
 
-The `web_url_read` tool manually follows redirects (up to 5 hops). Each intermediate URL is validated against the private-IP blocklist before the request is made.
+The `web_url_read` tool manually follows redirects (up to 5 hops). Each intermediate URL is validated against the private-IP blocklist before the request is made. On the direct no-proxy path, each redirect hop also goes through DNS-answer validation before connecting.
 
 ## Deployment Recommendations
 

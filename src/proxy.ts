@@ -1,5 +1,50 @@
+import * as dns from "node:dns";
 import { Agent, ProxyAgent } from "undici";
+import { getHttpSecurityConfig } from "./http-security.js";
 import { getConnectOptions } from "./tls-config.js";
+import { createUrlSecurityPolicyDnsError, isPrivateAddress } from "./url-security.js";
+
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | dns.LookupAddress[],
+  family?: number,
+) => void;
+
+export function createUrlReaderLookup() {
+  return (hostname: string, options: dns.LookupOptions, callback: LookupCallback): void => {
+    if (getHttpSecurityConfig().allowPrivateUrls) {
+      (dns.lookup as any)(hostname, options, callback);
+      return;
+    }
+
+    dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
+      if (error) {
+        callback(error, options.all ? [] : "");
+        return;
+      }
+
+      if (addresses.length === 0) {
+        const notFound = new Error(`No DNS records found for ${hostname}`) as NodeJS.ErrnoException;
+        notFound.code = "ENOTFOUND";
+        callback(notFound, options.all ? [] : "");
+        return;
+      }
+
+      if (addresses.some(({ address }) => isPrivateAddress(address))) {
+        callback(createUrlSecurityPolicyDnsError(hostname), options.all ? [] : "");
+        return;
+      }
+
+      const selected = addresses[0];
+      if (options.all) {
+        callback(null, [selected]);
+        return;
+      }
+
+      callback(null, selected.address, selected.family);
+    });
+  };
+}
 
 /**
  * Checks if a target URL should bypass the proxy based on NO_PROXY environment variable.
@@ -228,6 +273,7 @@ export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAge
  */
 let _defaultAgentInitialized = false;
 let _defaultAgent: Agent | undefined;
+let _urlReaderAgent: Agent | undefined;
 
 export function createDefaultAgent(): Agent | undefined {
   if (!_defaultAgentInitialized) {
@@ -238,4 +284,23 @@ export function createDefaultAgent(): Agent | undefined {
     }
   }
   return _defaultAgent;
+}
+
+/**
+ * Returns a singleton undici Agent for direct `web_url_read` requests.
+ *
+ * Unlike the shared default agent, this is always created so the URL reader's
+ * DNS validation hook is present even when no system CA bundle is detected.
+ */
+export function createUrlReaderAgent(): Agent {
+  if (!_urlReaderAgent) {
+    _urlReaderAgent = new Agent({
+      connect: {
+        ...getConnectOptions(),
+        lookup: createUrlReaderLookup(),
+      },
+    });
+  }
+
+  return _urlReaderAgent;
 }

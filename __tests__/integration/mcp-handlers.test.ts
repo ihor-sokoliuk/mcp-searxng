@@ -412,36 +412,40 @@ async function runTests() {
   // ── tools/call: web_url_read ─────────────────────────────────────────────────
 
   await testFunction('tools/call web_url_read returns markdown text', async () => {
-    fetchMocker.mock(createMockFetch({ body: HTML_RESPONSE }));
     const { client } = await connect();
 
-    const result = await client.callTool({
-      name: 'web_url_read',
-      arguments: { url: 'https://example.com' },
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(HTML_RESPONSE, async (url) => {
+        const result = await client.callTool({
+          name: 'web_url_read',
+          arguments: { url },
+        });
+
+        assert.equal(result.content[0].type, 'text');
+        assert.ok(
+          (result.content[0] as { type: string; text: string }).text.length > 0,
+          'result text should be non-empty'
+        );
+      });
     });
 
-    assert.equal(result.content[0].type, 'text');
-    assert.ok(
-      (result.content[0] as { type: string; text: string }).text.length > 0,
-      'result text should be non-empty'
-    );
-
-    fetchMocker.restore();
     await client.close();
   }, results);
 
   await testFunction('tools/call web_url_read with pagination options succeeds', async () => {
-    fetchMocker.mock(createMockFetch({ body: HTML_RESPONSE }));
     const { client } = await connect();
 
-    const result = await client.callTool({
-      name: 'web_url_read',
-      arguments: { url: 'https://example.com', startChar: 0, maxLength: 100 },
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(HTML_RESPONSE, async (url) => {
+        const result = await client.callTool({
+          name: 'web_url_read',
+          arguments: { url, startChar: 0, maxLength: 100 },
+        });
+
+        assert.equal(result.content[0].type, 'text');
+      });
     });
 
-    assert.equal(result.content[0].type, 'text');
-
-    fetchMocker.restore();
     await client.close();
   }, results);
 
@@ -545,30 +549,34 @@ async function runTests() {
 
   await testFunction('tools/call web_url_read FETCH_TIMEOUT_MS default 10000 used when env unset', async () => {
     delete process.env.FETCH_TIMEOUT_MS;
-    fetchMocker.mock(createMockFetch({ body: HTML_RESPONSE }));
     const { client } = await connect();
 
-    // Normal request succeeds — confirms the default timeout path doesn't break anything
-    const result = await client.callTool({ name: 'web_url_read', arguments: { url: 'https://example.com' } });
-    assert.equal(result.content[0].type, 'text');
-    assert.ok((result.content[0] as { type: string; text: string }).text.length > 0);
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(HTML_RESPONSE, async (url) => {
+        // Normal request succeeds - confirms the default timeout path doesn't break anything
+        const result = await client.callTool({ name: 'web_url_read', arguments: { url } });
+        assert.equal(result.content[0].type, 'text');
+        assert.ok((result.content[0] as { type: string; text: string }).text.length > 0);
+      });
+    });
 
-    fetchMocker.restore();
     await client.close();
   }, results);
 
   await testFunction('tools/call web_url_read with readHeadings=true succeeds', async () => {
-    fetchMocker.mock(createMockFetch({ body: HTML_RESPONSE }));
     const { client } = await connect();
 
-    const result = await client.callTool({
-      name: 'web_url_read',
-      arguments: { url: 'https://example.com', readHeadings: true },
+    await withPrivateUrlReadsAllowed(async () => {
+      await withLocalHtmlServer(HTML_RESPONSE, async (url) => {
+        const result = await client.callTool({
+          name: 'web_url_read',
+          arguments: { url, readHeadings: true },
+        });
+
+        assert.equal(result.content[0].type, 'text');
+      });
     });
 
-    assert.equal(result.content[0].type, 'text');
-
-    fetchMocker.restore();
     await client.close();
   }, results);
 
