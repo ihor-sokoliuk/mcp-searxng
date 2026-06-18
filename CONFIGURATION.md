@@ -116,7 +116,7 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 | `MCP_HTTP_AUTH_TOKEN` | No | — | Required bearer token for all HTTP requests in hardened mode |
 | `MCP_HTTP_ALLOWED_ORIGINS` | No | — | Comma-separated CORS origin allowlist (e.g. `https://app.example.com`) |
 | `MCP_HTTP_ALLOWED_HOSTS` | No | — | Comma-separated DNS rebinding protection allowlist override |
-| `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs. Private URL reads are blocked by default in all modes. |
+| `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs, including hostnames that DNS-resolve to private/internal addresses. Private URL reads are blocked by default in all modes. |
 | `MCP_HTTP_EXPOSE_FULL_CONFIG` | No | `false` | Expose full config details in `/health` response (for debugging) |
 
 ## URL Reader Security
@@ -125,7 +125,11 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 
 Redirects are also checked before they are followed. A public URL that redirects to a private/internal URL is blocked.
 
-Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment.
+For direct URL-reader requests without a proxy, DNS answers are validated before connecting. A public-looking hostname that resolves to a private/internal address is blocked, and the connection is pinned to the validated DNS answer to prevent DNS rebinding between validation and connection.
+
+When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions, so proxied deployments should rely on proxy, firewall, and egress controls.
+
+Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 
 
 ## Full Example (All Options)

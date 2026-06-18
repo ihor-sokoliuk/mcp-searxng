@@ -1,11 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { isIP } from "node:net";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { fetch as undiciFetch, type Dispatcher } from "undici";
-import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
+import { createProxyAgent, createUrlReaderAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
-import { getHttpSecurityConfig } from "./http-security.js";
+import { assertUrlAllowed, isUrlSecurityPolicyDnsError } from "./url-security.js";
 import {
   createURLFormatError,
   createURLSecurityPolicyError,
@@ -31,67 +30,6 @@ const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 const HEAD_TIMEOUT_CAP_MS = 3000;
-
-function isPrivateHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase().replace(/\.+$/, "");
-  return lower === "localhost" || lower.endsWith(".localhost");
-}
-
-function isPrivateIpv4(hostname: string): boolean {
-  if (isIP(hostname) !== 4) {
-    return false;
-  }
-
-  return (
-    hostname.startsWith("0.") ||
-    hostname.startsWith("10.") ||
-    hostname.startsWith("127.") ||
-    hostname.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
-    hostname.startsWith("169.254.")
-  );
-}
-
-function isPrivateIPv6(hostname: string): boolean {
-  // url.hostname wraps IPv6 in brackets (e.g. "[::1]") — strip them first
-  const addr = (hostname.startsWith("[") && hostname.endsWith("]")
-    ? hostname.slice(1, -1)
-    : hostname
-  ).toLowerCase();
-
-  if (isIP(addr) !== 6) return false;
-
-  if (addr === "::1") return true;                        // loopback
-  if (addr === "::") return true;                         // unspecified
-  if (/^f[cd]/i.test(addr)) return true;                 // ULA fc00::/7
-  if (/^fe[89ab][0-9a-f]:/i.test(addr)) return true;    // link-local fe80::/10
-
-  // IPv4-mapped ::ffff:<ipv4> — delegate to the IPv4 check
-  const mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (mapped) return isPrivateIpv4(mapped[1]);
-
-  // IPv4-mapped ::ffff:<hhhh>:<hhhh> — convert the hex segments to dotted decimal
-  const hexMapped = addr.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexMapped) {
-    const high = parseInt(hexMapped[1], 16);
-    const low = parseInt(hexMapped[2], 16);
-    const ipv4 = `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
-    return isPrivateIpv4(ipv4);
-  }
-
-  return false;
-}
-
-function assertUrlAllowed(url: URL): void {
-  const security = getHttpSecurityConfig();
-  if (security.allowPrivateUrls) {
-    return;
-  }
-
-  if (isPrivateHostname(url.hostname) || isPrivateIpv4(url.hostname) || isPrivateIPv6(url.hostname)) {
-    throw createURLSecurityPolicyError(url.toString());
-  }
-}
 
 function isRedirectResponse(response: Response): boolean {
   return REDIRECT_STATUS_CODES.has(response.status);
@@ -247,6 +185,10 @@ export async function checkContentLength(
     const parsed = parseInt(contentLength, 10);
     return Number.isNaN(parsed) || parsed < 0 ? null : parsed;
   } catch (error: any) {
+    if (isUrlSecurityPolicyDnsError(error)) {
+      throw createURLSecurityPolicyError(url);
+    }
+
     logMessage(mcpServer, "warning", `HEAD check failed (proceeding with GET): ${error.message}`);
     return null;
   } finally {
@@ -340,7 +282,7 @@ export async function fetchAndConvertToMarkdown(
       for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
         // Add proxy or default dispatcher (includes system CA certs for TLS)
         const proxyAgent = createProxyAgent(currentUrl.toString(), ProxyType.URL_READER);
-        const dispatcher = proxyAgent ?? createDefaultAgent();
+        const dispatcher = proxyAgent ?? createUrlReaderAgent();
         usedDispatcher = !!dispatcher;
         const currentRequestOptions = {
           ...requestOptions,
@@ -386,6 +328,10 @@ export async function fetchAndConvertToMarkdown(
     } catch (error: any) {
       if (error.name === 'MCPSearXNGError') {
         throw error;
+      }
+
+      if (isUrlSecurityPolicyDnsError(error)) {
+        throw createURLSecurityPolicyError(currentUrl.toString());
       }
 
       const context: ErrorContext = {

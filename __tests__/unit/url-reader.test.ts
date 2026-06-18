@@ -13,9 +13,11 @@
 import { strict as assert } from 'node:assert';
 import * as http from 'node:http';
 import * as net from 'node:net';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
 import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
+import { createUrlReaderLookup } from '../../src/proxy.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
@@ -23,6 +25,9 @@ import { EnvManager } from '../helpers/env-utils.js';
 
 const results = createTestResults();
 const envManager = new EnvManager();
+const require = createRequire(import.meta.url);
+const dnsModule = require('node:dns') as typeof import('node:dns');
+const TEST_PUBLIC_IP = '203.0.113.10';
 
 // ─── local test-server helpers ───────────────────────────────────────────────
 
@@ -137,6 +142,42 @@ function getFreePort(): Promise<number> {
     });
     srv.once('error', reject);
   });
+}
+
+type MockDnsRecords = Record<string, Array<{ address: string; family: 4 | 6 }>>;
+
+function installDnsLookupMock(recordsByHostname: MockDnsRecords): () => void {
+  const originalLookup = dnsModule.lookup;
+
+  (dnsModule as any).lookup = (hostname: string, options: any, callback?: any) => {
+    const cb = typeof options === 'function' ? options : callback;
+    if (net.isIP(hostname)) {
+      return (originalLookup as any).call(dnsModule, hostname, options, callback);
+    }
+
+    const records = recordsByHostname[hostname];
+
+    if (!records) {
+      const err = new Error(`Mock DNS has no records for ${hostname}`) as NodeJS.ErrnoException;
+      err.code = 'ENOTFOUND';
+      cb(err);
+      return;
+    }
+
+    if (options?.all) {
+      cb(null, records);
+      return;
+    }
+
+    const first = records[0];
+    cb(null, first.address, first.family);
+  };
+  syncBuiltinESMExports();
+
+  return () => {
+    (dnsModule as any).lookup = originalLookup;
+    syncBuiltinESMExports();
+  };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -619,6 +660,233 @@ async function runTests() {
         }
       }
     } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('default mode blocks hostnames resolving to private IPv4 ranges', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.delete('URL_READER_HTTPS_PROXY');
+    envManager.delete('url_reader_http_proxy');
+    envManager.delete('url_reader_https_proxy');
+
+    const privateCases: MockDnsRecords = {
+      'loopback.example': [{ address: '127.0.0.1', family: 4 }],
+      'ten.example': [{ address: '10.0.0.5', family: 4 }],
+      'lan.example': [{ address: '192.168.1.20', family: 4 }],
+      'rfc1918.example': [{ address: '172.16.0.9', family: 4 }],
+      'metadata.example': [{ address: '169.254.169.254', family: 4 }],
+    };
+    const restoreDns = installDnsLookupMock(privateCases);
+
+    try {
+      for (const hostname of Object.keys(privateCases)) {
+        try {
+          await fetchAndConvertToMarkdown(mockServer as any, `http://${hostname}/private`, 250);
+          assert.fail(`Expected hostname resolving to private IP to be blocked: ${hostname}`);
+        } catch (error: any) {
+          assert.ok(
+            error.message.includes('blocked by security policy'),
+            `Expected security policy error for ${hostname}, got: ${error.message}`,
+          );
+        }
+      }
+    } finally {
+      restoreDns();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('default mode blocks hostnames resolving to private IPv6 ranges', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.delete('URL_READER_HTTPS_PROXY');
+    envManager.delete('url_reader_http_proxy');
+    envManager.delete('url_reader_https_proxy');
+
+    const privateCases: MockDnsRecords = {
+      'v6-loopback.example': [{ address: '::1', family: 6 }],
+      'v6-ula.example': [{ address: 'fc00::1', family: 6 }],
+      'v6-linklocal.example': [{ address: 'fe80::1', family: 6 }],
+    };
+    const restoreDns = installDnsLookupMock(privateCases);
+
+    try {
+      for (const hostname of Object.keys(privateCases)) {
+        try {
+          await fetchAndConvertToMarkdown(mockServer as any, `http://${hostname}/private`, 250);
+          assert.fail(`Expected hostname resolving to private IPv6 to be blocked: ${hostname}`);
+        } catch (error: any) {
+          assert.ok(
+            error.message.includes('blocked by security policy'),
+            `Expected security policy error for ${hostname}, got: ${error.message}`,
+          );
+        }
+      }
+    } finally {
+      restoreDns();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('default mode allows hostnames resolving only to public addresses and pins the connection', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    let lookupCount = 0;
+    const originalLookup = dnsModule.lookup;
+    (dnsModule as any).lookup = (hostname: string, options: any, callback?: any) => {
+      if (net.isIP(hostname)) {
+        return (originalLookup as any).call(dnsModule, hostname, options, callback);
+      }
+
+      lookupCount++;
+      const cb = typeof options === 'function' ? options : callback;
+      if (options?.all) {
+        cb(null, [{ address: TEST_PUBLIC_IP, family: 4 }]);
+        return;
+      }
+      cb(null, TEST_PUBLIC_IP, 4);
+    };
+    syncBuiltinESMExports();
+    const lookup = createUrlReaderLookup();
+
+    try {
+      const result = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+        lookup('public.example', {}, (error, address, family) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ address: address || '', family: family || 0 });
+        });
+      });
+
+      assert.deepEqual(result, { address: TEST_PUBLIC_IP, family: 4 });
+      const allResult = await new Promise<Array<{ address: string; family: number }>>((resolve, reject) => {
+        lookup('public.example', { all: true }, (error, address) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(Array.isArray(address) ? address : []);
+        });
+      });
+
+      assert.deepEqual(allResult, [{ address: TEST_PUBLIC_IP, family: 4 }]);
+      assert.equal(lookupCount, 2, 'Expected one DNS lookup per custom lookup invocation');
+    } finally {
+      (dnsModule as any).lookup = originalLookup;
+      syncBuiltinESMExports();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('default mode blocks rebinding when any DNS answer is private', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.delete('URL_READER_HTTPS_PROXY');
+    envManager.delete('url_reader_http_proxy');
+    envManager.delete('url_reader_https_proxy');
+
+    const restoreDns = installDnsLookupMock({
+      'mixed.example': [
+        { address: TEST_PUBLIC_IP, family: 4 },
+        { address: '127.0.0.1', family: 4 },
+      ],
+    });
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, 'http://mixed.example/private', 250);
+      assert.fail('Expected hostname with any private DNS answer to be blocked');
+    } catch (error: any) {
+      assert.ok(
+        error.message.includes('blocked by security policy'),
+        `Expected security policy error, got: ${error.message}`,
+      );
+    } finally {
+      restoreDns();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('MCP_HTTP_ALLOW_PRIVATE_URLS allows private DNS resolution', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.set('MCP_HTTP_ALLOW_PRIVATE_URLS', 'true');
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.delete('URL_READER_HTTP_PROXY');
+    envManager.delete('URL_READER_HTTPS_PROXY');
+    envManager.delete('url_reader_http_proxy');
+    envManager.delete('url_reader_https_proxy');
+
+    const restoreDns = installDnsLookupMock({
+      'internal.example': [{ address: '127.0.0.1', family: 4 }],
+    });
+    const { url, close } = await startTestServer({ body: '<html><body><h1>Internal DNS target</h1></body></html>' });
+    const port = new URL(url).port;
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, `http://internal.example:${port}/article`, 1000);
+      assert.ok(result.includes('Internal DNS target'), `Expected private DNS opt-out fetch, got: ${result}`);
+    } finally {
+      restoreDns();
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('redirect target resolving to a private IP is blocked', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    const restoreDns = installDnsLookupMock({
+      'private-redirect.example': [{ address: '127.0.0.1', family: 4 }],
+    });
+    const lookup = createUrlReaderLookup();
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        lookup('private-redirect.example', {}, (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      assert.fail('Expected redirect target resolving to private IP to be blocked');
+    } catch (error: any) {
+      assert.ok(
+        error.name === 'URLSecurityPolicyDnsError',
+        `Expected DNS security policy error, got: ${error.name}: ${error.message}`,
+      );
+    } finally {
+      restoreDns();
       envManager.restore();
     }
   }, results);
