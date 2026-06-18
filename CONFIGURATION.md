@@ -44,6 +44,14 @@ Operator-level defaults applied when the caller omits the corresponding per-call
 | `SEARXNG_MAX_RESULTS` | No | — | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
 | `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet. Longer snippets are truncated and marked with `…`. Invalid values are ignored. Recommended: `500` for smaller context windows. |
 
+## Search Compatibility
+
+Self-hosting SearXNG with JSON output enabled remains the recommended setup. The HTML fallback is best-effort for public instances that reject `format=json`; HTML theme differences may limit parsed metadata.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARXNG_HTML_FALLBACK` | No | `false` | Set to `true` to retry 403/404 or non-JSON search responses as an HTML search page and parse title, URL, and snippet only. HTML fallback results are marked with `sourceFormat: "html"` in JSON output. |
+
 ## URL Reader Controls
 
 | Variable | Required | Default | Description |
@@ -139,6 +147,7 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "SEARXNG_DEFAULT_SAFESEARCH": "0",
         "SEARXNG_MAX_RESULTS": "10",
         "SEARXNG_MAX_RESULT_CHARS": "500",
+        "SEARXNG_HTML_FALLBACK": "false",
         "URL_READ_MAX_CHARS": "2000",
         "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
         "CACHE_TTL_MS": "86400000",

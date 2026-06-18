@@ -7,6 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { performWebSearch } from '../../src/search.js';
 import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
@@ -18,6 +19,7 @@ import { EnvManager } from '../helpers/env-utils.js';
 const results = createTestResults();
 const fetchMocker = new FetchMocker();
 const envManager = new EnvManager();
+const searxngHtmlFixture = readFileSync('__tests__/fixtures/searxng-results.html', 'utf8');
 
 function makeMockSearchResults(count: number) {
   return Array.from({ length: count }, (_, index) => ({
@@ -253,6 +255,201 @@ async function runTests() {
     } catch (error: any) {
       assert.ok(error.message.includes('JSON Error') || error.message.includes('Invalid JSON') || error.name === 'MCPSearXNGError');
     }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('HTML fallback triggers on 403 when enabled and refetches without format=json', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+
+      const requestUrl = new URL(url.toString());
+      if (requestUrl.pathname.endsWith('/config')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            categories: ['general'],
+            engines: [],
+          }),
+        } as Response;
+      }
+
+      if (requestUrl.searchParams.get('format') === 'json') {
+        return {
+          ok: false,
+          status: 403,
+          statusText: 'Forbidden',
+          text: async () => 'JSON format is disabled',
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => searxngHtmlFixture,
+      } as Response;
+    });
+
+    const result = await performWebSearch(mockServer as any, 'html query', 2, 'week', 'en', 1, undefined, undefined, 'general', undefined, 'json');
+    const payload = JSON.parse(result);
+
+    const searchUrls = requestedUrls.filter((requestedUrl) => new URL(requestedUrl).pathname.endsWith('/search'));
+    assert.equal(searchUrls.length, 2);
+    const jsonUrl = new URL(searchUrls[0]);
+    const htmlUrl = new URL(searchUrls[1]);
+    assert.equal(jsonUrl.searchParams.get('format'), 'json');
+    assert.equal(htmlUrl.searchParams.get('format'), null);
+    assert.equal(htmlUrl.searchParams.get('q'), 'html query');
+    assert.equal(htmlUrl.searchParams.get('pageno'), '2');
+    assert.equal(htmlUrl.searchParams.get('time_range'), 'week');
+    assert.equal(htmlUrl.searchParams.get('language'), 'en');
+    assert.equal(htmlUrl.searchParams.get('safesearch'), '1');
+    assert.equal(htmlUrl.searchParams.get('categories'), 'general');
+    assert.equal(payload.sourceFormat, 'html');
+    assert.equal(payload.results.length, 2);
+    assert.deepEqual(payload.results[0], {
+      title: 'Alpha Result',
+      url: 'https://example.com/alpha',
+      content: 'Alpha result snippet from a SearXNG simple theme result page.',
+    });
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('HTML fallback triggers on 200 non-JSON body when enabled', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      if (fetchCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => { throw new Error('Unexpected token < in JSON'); },
+          text: async () => '<!doctype html><html><body>JSON disabled</body></html>',
+        } as any;
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => searxngHtmlFixture,
+      } as Response;
+    });
+
+    const result = await performWebSearch(mockServer as any, 'non json query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.equal(fetchCount, 2);
+    assert.equal(payload.sourceFormat, 'html');
+    assert.equal(payload.results[1].title, 'Beta Result');
+    assert.equal(payload.results[1].url, 'https://example.com/beta');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('403 without HTML fallback enabled returns original error and does not refetch', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARXNG_HTML_FALLBACK');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      return {
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: async () => 'JSON format is disabled',
+      } as Response;
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected original 403 error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('403') || error.message.includes('Server Error'));
+    }
+    assert.equal(fetchCount, 1);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('401 with HTML fallback enabled returns original error and does not refetch', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      return {
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        text: async () => 'Authentication required',
+      } as Response;
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+      assert.fail('Expected original 401 error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('401') || error.message.includes('Server Error'));
+    }
+    assert.equal(fetchCount, 1);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('HTML fallback text output includes limited metadata note', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      if (fetchCount === 1) {
+        return {
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          text: async () => 'JSON endpoint not found',
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => searxngHtmlFixture,
+      } as Response;
+    });
+
+    const result = await performWebSearch(mockServer as any, 'html query');
+
+    assert.ok(result.includes('Note: Results parsed from SearXNG HTML fallback; metadata is limited.'));
+    assert.ok(result.includes('Title: Alpha Result'));
+    assert.ok(!result.includes('Relevance Score:'));
 
     fetchMocker.restore();
     envManager.restore();
