@@ -5,5 +5,6 @@ services:
       - "8080:8080"
     environment:
       - MCP_HTTP_PORT=8080
+      - MCP_HTTP_HOST=0.0.0.0
       - SEARXNG_URL=https://searxng.example.com
     restart: unless-stopped
