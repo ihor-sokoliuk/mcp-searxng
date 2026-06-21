@@ -100,6 +100,8 @@ The `web_url_read` tool manually follows redirects (up to 5 hops). Each intermed
 
 ## Deployment Recommendations
 
+The published container image runs as the non-root numeric user UID 1000, so Kubernetes deployments can use `runAsNonRoot: true` without setting an additional `runAsUser`.
+
 ### Minimal / Local
 
 Use the default STDIO transport. No additional configuration is needed beyond `SEARXNG_URL`.
