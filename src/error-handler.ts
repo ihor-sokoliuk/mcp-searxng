@@ -154,6 +154,23 @@ export function createUnexpectedError(error: any, context: ErrorContext): MCPSea
   return new MCPSearXNGError(`❓ Unexpected Error: ${error.message || String(error)}`);
 }
 
+/**
+ * Process-level crash handlers, registered by the CLI entrypoint (cli.ts).
+ *
+ * Extracted here so the logic is unit-testable: cli.ts calls main() at import
+ * time (it must always start the server — see issue #91), so it cannot be
+ * imported to test these in place.
+ */
+export function handleUncaughtException(error: unknown): void {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+}
+
+export function handleUnhandledRejection(reason: unknown, promise: Promise<unknown>): void {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+}
+
 export function validateEnvironment(): string | null {
   const issues: string[] = [];
   

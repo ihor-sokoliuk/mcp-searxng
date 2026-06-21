@@ -22,7 +22,9 @@ import {
   createTimeoutError,
   createEmptyContentWarning,
   createUnexpectedError,
-  validateEnvironment
+  validateEnvironment,
+  handleUncaughtException,
+  handleUnhandledRejection
 } from '../../src/error-handler.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
@@ -227,6 +229,45 @@ async function runTests() {
     };
     const result = createNetworkError(error, { url: 'https://example.com' });
     assert.ok(result.message.includes('DEPTH_ZERO_SELF_SIGNED_CERT'), `Expected code in message, got: ${result.message}`);
+  }, results);
+
+  // --- Process-level crash handlers ---
+  // process.exit / console.error are stubbed so the handlers can be exercised
+  // without killing the test process or printing to the real console.
+  function captureExitAndError(fn: () => void): { exitCode: number | undefined; calls: unknown[][] } {
+    const originalExit = process.exit;
+    const originalError = console.error;
+    let exitCode: number | undefined;
+    const calls: unknown[][] = [];
+    process.exit = ((code?: number) => { exitCode = code; }) as unknown as typeof process.exit;
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    try {
+      fn();
+    } finally {
+      process.exit = originalExit;
+      console.error = originalError;
+    }
+    return { exitCode, calls };
+  }
+
+  await testFunction('handleUncaughtException logs the error and exits with code 1', () => {
+    const err = new Error('boom');
+    const { exitCode, calls } = captureExitAndError(() => handleUncaughtException(err));
+    assert.equal(exitCode, 1);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'Uncaught Exception:');
+    assert.equal(calls[0][1], err);
+  }, results);
+
+  await testFunction('handleUnhandledRejection logs the reason/promise and exits with code 1', () => {
+    const reason = new Error('nope');
+    const promise = Promise.reject(reason);
+    promise.catch(() => {}); // settle it so the test process sees no real unhandled rejection
+    const { exitCode, calls } = captureExitAndError(() => handleUnhandledRejection(reason, promise));
+    assert.equal(exitCode, 1);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'Unhandled Rejection at:');
+    assert.equal(calls[0][3], reason);
   }, results);
 
   printTestSummary(results, 'Error Handler Module');

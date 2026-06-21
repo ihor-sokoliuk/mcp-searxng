@@ -193,6 +193,20 @@ async function runTests() {
   }, results);
 
   await testFunction('Importing index.ts does not start the CLI server', () => {
+    // When this suite runs under a debugger (e.g. VS Code's JavaScript Debug
+    // Terminal / auto-attach), Node injects the inspector into child processes
+    // and prints banner lines like "Debugger attached." to stderr. That has
+    // nothing to do with the program under test, so:
+    //   1. strip the inspector env vars so the child never attaches, and
+    //   2. filter any residual debugger banner lines from the captured output.
+    const { NODE_OPTIONS: _n, VSCODE_INSPECTOR_OPTIONS: _v, ...cleanEnv } = process.env;
+
+    const stripDebuggerNoise = (output: string): string =>
+      output
+        .split('\n')
+        .filter(line => !/^(Debugger attached\.|Waiting for the debugger to disconnect\.\.\.|Debugger listening on |For help, see: https:\/\/nodejs\.org\/en\/docs\/inspector)/.test(line))
+        .join('\n');
+
     const result = spawnSync(
       process.execPath,
       [
@@ -204,7 +218,7 @@ async function runTests() {
       {
         cwd: process.cwd(),
         env: {
-          ...process.env,
+          ...cleanEnv,
           MCP_HTTP_PORT: '',
           SEARXNG_URL: '',
         },
@@ -214,8 +228,8 @@ async function runTests() {
     );
 
     assert.equal(result.status, 0, `Import process failed: ${result.stderr}`);
-    assert.equal(result.stdout, '');
-    assert.equal(result.stderr, '');
+    assert.equal(stripDebuggerNoise(result.stdout), '');
+    assert.equal(stripDebuggerNoise(result.stderr), '');
   }, results);
 
   await testFunction('Running cli.js responds to MCP initialize', () => {
