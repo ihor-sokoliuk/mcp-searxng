@@ -3,6 +3,12 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.7.2] - 2026-06-20
+
+### Security
+
+- **Container image now runs as a non-root user (UID 1000):** The published Docker image previously ran as `root`, so Kubernetes deployments using the `runAsNonRoot: true` pod security context were rejected at admission. The image now sets a numeric `USER 1000` (the `node` account already present in the `node:lts-alpine` base), which satisfies `runAsNonRoot` without an additional `runAsUser` override and reduces the container's blast radius. No configuration change is required. (Reported by @nogweii, [#122](https://github.com/ihor-sokoliuk/mcp-searxng/issues/122))
+
 ## [1.7.1] - 2026-06-18
 
 ### Security
