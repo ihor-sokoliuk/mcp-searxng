@@ -3,6 +3,8 @@
  * Provides clear, focused error messages that identify the root cause
  */
 
+import { parseSearxngUrls, validateSearxngInstanceUrl } from "./searxng-instances.js";
+
 export interface ErrorContext {
   url?: string;
   searxngUrl?: string;
@@ -174,17 +176,15 @@ export function handleUnhandledRejection(reason: unknown, promise: Promise<unkno
 export function validateEnvironment(): string | null {
   const issues: string[] = [];
   
-  const searxngUrl = process.env.SEARXNG_URL;
-  if (!searxngUrl) {
+  const searxngUrls = parseSearxngUrls();
+  if (searxngUrls.length === 0) {
     issues.push("SEARXNG_URL not set");
   } else {
-    try {
-      const url = new URL(searxngUrl);
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        issues.push(`SEARXNG_URL invalid protocol: ${url.protocol}`);
+    for (const searxngUrl of searxngUrls) {
+      const validationError = validateSearxngInstanceUrl(searxngUrl);
+      if (validationError) {
+        issues.push(validationError);
       }
-    } catch (error) {
-      issues.push(`SEARXNG_URL invalid format: ${searxngUrl}`);
     }
   }
 

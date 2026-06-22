@@ -112,6 +112,26 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('multi-URL SEARXNG_URL uses primary instance only for autocomplete', async () => {
+    envManager.set('SEARXNG_URL', 'https://primary.example.com/base;https://secondary.example.com');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.origin, 'https://primary.example.com');
+    assert.ok(url.pathname.includes('/base/autocompleter'), `Expected primary /base/autocompleter, got ${url.pathname}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('language=all omits lang parameter', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     const mockServer = createMockServer();

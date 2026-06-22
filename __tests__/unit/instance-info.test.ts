@@ -246,6 +246,27 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('multi-URL SEARXNG_URL fetches /config from primary and reports source URL', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://primary.example.com/base;https://secondary.example.com');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    const result = JSON.parse(await fetchInstanceInfo(mockServer as any));
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.origin, 'https://primary.example.com');
+    assert.ok(url.pathname.includes('/base/config'), `Expected primary /base/config, got ${url.pathname}`);
+    assert.equal(result.sourceUrl, 'https://primary.example.com/base');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('config request uses search proxy dispatcher when configured', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');

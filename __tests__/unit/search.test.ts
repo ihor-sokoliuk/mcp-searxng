@@ -11,6 +11,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { performWebSearch } from '../../src/search.js';
 import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
+import {
+  clearSearxngInstanceStateForTests,
+  recordSearxngInstanceFailure,
+} from '../../src/searxng-instances.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch, createAbortableMockFetch } from '../helpers/mock-fetch.js';
@@ -1747,6 +1751,264 @@ async function runTests() {
     assert.deepEqual(payload.results, []);
     assert.deepEqual(payload.suggestions, ['broader query']);
     assert.ok(!result.includes('No results found'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('single-instance JSON response has no servedBy provenance', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARXNG_FANOUT');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'single query',
+        results: [
+          { title: 'Single Result', content: 'Only instance', url: 'https://example.com/single', score: 1 },
+        ],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'single query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+    assert.equal(payload.servedBy, undefined);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('multi-instance failover tries second after first hard failure and reports servedBy', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+    envManager.delete('SEARXNG_FANOUT');
+
+    const mockServer = createMockServer();
+    const requestedHosts: string[] = [];
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      requestedHosts.push(parsedUrl.origin);
+      if (parsedUrl.hostname === 'first.example.com') {
+        throw new Error('first down');
+      }
+      return createMockFetch({
+        json: {
+          query: 'failover query',
+          results: [
+            { title: 'Second Result', content: 'Recovered', url: 'https://example.com/recovered', score: 0.9 },
+          ],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'failover query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(requestedHosts, ['https://first.example.com', 'https://second.example.com']);
+    assert.deepEqual(payload.servedBy, ['https://second.example.com']);
+    assert.equal(payload.results[0].title, 'Second Result');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('empty multi-instance response is healthy and fails over without cooldown', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://empty.example.com;https://second.example.com');
+
+    const mockServer = createMockServer();
+    const requestedHosts: string[] = [];
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      requestedHosts.push(parsedUrl.origin);
+      if (parsedUrl.hostname === 'empty.example.com') {
+        return createMockFetch({ json: { query: 'empty first', results: [] } })(url);
+      }
+      return createMockFetch({
+        json: {
+          query: 'empty first',
+          results: [
+            { title: 'Second Result', content: 'Has result', url: 'https://example.com/second', score: 0.8 },
+          ],
+        },
+      })(url);
+    });
+
+    const firstResult = await performWebSearch(mockServer as any, 'empty first', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const secondResult = await performWebSearch(mockServer as any, 'empty first again', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+
+    assert.deepEqual(requestedHosts, [
+      'https://empty.example.com',
+      'https://second.example.com',
+      'https://empty.example.com',
+      'https://second.example.com',
+    ]);
+    assert.deepEqual(JSON.parse(firstResult).servedBy, ['https://second.example.com']);
+    assert.deepEqual(JSON.parse(secondResult).servedBy, ['https://second.example.com']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('all multi-instance responses empty returns existing JSON empty response with provenance', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://empty-one.example.com;https://empty-two.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { query: 'empty query', number_of_results: 0, results: [] } }));
+
+    const result = await performWebSearch(mockServer as any, 'empty query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(payload.results, []);
+    assert.deepEqual(payload.servedBy, ['https://empty-one.example.com', 'https://empty-two.example.com']);
+    assert.ok(!result.includes('No results found'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('all multi-instance responses empty returns existing text no-results message with provenance', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://empty-one.example.com;https://empty-two.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { query: 'empty text', results: [] } }));
+
+    const result = await performWebSearch(mockServer as any, 'empty text');
+
+    assert.ok(result.includes('Served by SearXNG instances: https://empty-one.example.com, https://empty-two.example.com'), result);
+    assert.ok(result.includes('No results found for "empty text"'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('all multi-instance hard failures throw aggregate error with underlying reason', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      throw new Error(`${parsedUrl.hostname} failed`);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'all fail');
+      assert.fail('Expected aggregate multi-instance failure');
+    } catch (error: any) {
+      assert.ok(error.message.includes('All configured SearXNG instances failed'), error.message);
+      assert.ok(error.message.includes('first.example.com failed'), error.message);
+      assert.ok(error.message.includes('second.example.com failed'), error.message);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('cooled down instance is skipped during failover', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://cooled.example.com;https://healthy.example.com');
+
+    recordSearxngInstanceFailure('https://cooled.example.com', Date.now());
+    recordSearxngInstanceFailure('https://cooled.example.com', Date.now());
+    recordSearxngInstanceFailure('https://cooled.example.com', Date.now());
+
+    const mockServer = createMockServer();
+    const requestedHosts: string[] = [];
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      requestedHosts.push(parsedUrl.origin);
+      return createMockFetch({
+        json: {
+          query: 'skip cooled',
+          results: [
+            { title: 'Healthy Result', content: 'Healthy', url: 'https://example.com/healthy', score: 1 },
+          ],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'skip cooled');
+
+    assert.deepEqual(requestedHosts, ['https://healthy.example.com']);
+    assert.ok(result.includes('Healthy Result'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('fanout dedupes canonical URLs, keeps highest score, and orders descending', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://one.example.com;https://two.example.com');
+    envManager.set('SEARXNG_FANOUT', 'true');
+
+    const mockServer = createMockServer();
+    const requestedHosts: string[] = [];
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      requestedHosts.push(parsedUrl.origin);
+      if (parsedUrl.hostname === 'one.example.com') {
+        return createMockFetch({
+          json: {
+            query: 'fanout',
+            results: [
+              { title: 'Lower Duplicate', content: 'Low', url: 'https://Example.com/same#section', score: 0.2 },
+              { title: 'Missing Score', content: 'No score', url: 'not a url', score: undefined },
+            ],
+          },
+        })(url);
+      }
+      return createMockFetch({
+        json: {
+          query: 'fanout',
+          results: [
+            { title: 'Highest', content: 'High', url: 'https://example.com/high', score: 0.95 },
+            { title: 'Higher Duplicate', content: 'Better', url: 'https://example.com/same', score: 0.7 },
+            { title: 'Raw URL Copy', content: 'Raw tie', url: 'not a url', score: 0.5 },
+          ],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'fanout', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(requestedHosts.sort(), ['https://one.example.com', 'https://two.example.com']);
+    assert.deepEqual(payload.servedBy, ['https://one.example.com', 'https://two.example.com']);
+    assert.deepEqual(payload.results.map((entry: any) => entry.title), ['Highest', 'Higher Duplicate', 'Raw URL Copy']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('fanout returns partial successes and excludes failed instances from servedBy', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://down.example.com;https://up.example.com');
+    envManager.set('SEARXNG_FANOUT', 'true');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'down.example.com') {
+        throw new Error('fanout down');
+      }
+      return createMockFetch({
+        json: {
+          query: 'partial fanout',
+          results: [
+            { title: 'Up Result', content: 'Up', url: 'https://example.com/up', score: 0.6 },
+          ],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'partial fanout', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(payload.servedBy, ['https://up.example.com']);
+    assert.equal(payload.results[0].title, 'Up Result');
 
     fetchMocker.restore();
     envManager.restore();

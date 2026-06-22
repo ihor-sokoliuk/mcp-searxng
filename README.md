@@ -38,11 +38,12 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 }
 ```
 
-Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`).
+Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`). You can also provide interchangeable replicas as a semicolon-separated list, e.g. `https://one.example.com;https://two.example.com`.
 
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
+- **Instance Failover**: Configure multiple interchangeable SearXNG replicas in `SEARXNG_URL`; searches fail over by default and can optionally fan out in parallel.
 - **Structured Search Output**: Choose formatted text or raw SearXNG-shaped JSON with `response_format`.
 - **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before result lists.
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
@@ -68,9 +69,9 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 
 ## How It Works
 
-`mcp-searxng` is a standalone MCP server — a separate Node.js process that your AI assistant connects to for web search. It queries any SearXNG instance via its HTTP JSON API.
+`mcp-searxng` is a standalone MCP server — a separate Node.js process that your AI assistant connects to for web search. It queries one SearXNG instance, or a semicolon-separated list of interchangeable SearXNG replicas, via the HTTP JSON API.
 
-> **Not a SearXNG plugin:** This project cannot be installed as a native SearXNG plugin. Point it at any existing SearXNG instance by setting `SEARXNG_URL`.
+> **Not a SearXNG plugin:** This project cannot be installed as a native SearXNG plugin. Point it at any existing SearXNG instance, or interchangeable replica list, by setting `SEARXNG_URL`.
 
 ```
 AI Assistant (e.g. Claude)
@@ -79,7 +80,7 @@ AI Assistant (e.g. Claude)
   mcp-searxng  (this project — Node.js process)
         │  HTTP JSON API  (SEARXNG_URL)
         ▼
-  SearXNG instance
+  SearXNG instance(s)
 ```
 
 ## Tools
@@ -249,7 +250,7 @@ curl http://localhost:3000/health
 
 ## Configuration
 
-Set `SEARXNG_URL` to your SearXNG instance URL. All other variables are optional.
+Set `SEARXNG_URL` to your SearXNG instance URL. For failover, set it to semicolon-separated interchangeable replica URLs. Set `SEARXNG_FANOUT=true` to query all healthy replicas in parallel and merge results. All other variables are optional.
 
 Full environment variable reference: [CONFIGURATION.md](CONFIGURATION.md)
 

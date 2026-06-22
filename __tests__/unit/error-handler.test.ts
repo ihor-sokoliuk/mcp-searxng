@@ -133,6 +133,15 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('validateEnvironment accepts valid multi-URL SEARXNG_URL list', () => {
+    envManager.set('SEARXNG_URL', 'https://one.example.com; http://two.example.com:8080 ');
+
+    const result = validateEnvironment();
+    assert.equal(result, null);
+
+    envManager.restore();
+  }, results);
+
   await testFunction('validateEnvironment - missing SEARXNG_URL', () => {
     envManager.delete('SEARXNG_URL');
     
@@ -150,6 +159,17 @@ async function runTests() {
     assert.ok(typeof result === 'string');
     assert.ok(result!.includes('invalid format') || result!.includes('invalid protocol') || result!.includes('Configuration Issues'));
     
+    envManager.restore();
+  }, results);
+
+  await testFunction('validateEnvironment - invalid entry in multi-URL list reports offending entry', () => {
+    envManager.set('SEARXNG_URL', 'https://valid.example.com;not-a-valid-url');
+
+    const result = validateEnvironment();
+    assert.ok(typeof result === 'string');
+    assert.ok(result!.includes('Configuration Issues'));
+    assert.ok(result!.includes('not-a-valid-url'));
+
     envManager.restore();
   }, results);
 
@@ -190,6 +210,17 @@ async function runTests() {
       assert.ok(typeof result === 'string');
     }
     
+    envManager.restore();
+  }, results);
+
+  await testFunction('validateEnvironment - empty-only multi-URL list is treated as not set', () => {
+    for (const emptyList of ['', ';', ' ; ']) {
+      envManager.set('SEARXNG_URL', emptyList);
+      const result = validateEnvironment();
+      assert.ok(typeof result === 'string');
+      assert.ok(result!.includes('SEARXNG_URL not set'));
+    }
+
     envManager.restore();
   }, results);
 
