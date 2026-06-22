@@ -59,7 +59,7 @@
         "undici": "7.28.0"
     },
     "devDependencies": {
-        "@types/node": "22.19.21",
+        "@types/node": "22.20.0",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.61.1",
         "@typescript-eslint/parser": "8.61.1",
