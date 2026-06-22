@@ -20,7 +20,7 @@ jobs:
       release_tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Check out the repo
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -74,7 +74,7 @@ jobs:
       security-events: write  # for Trivy SARIF upload to GitHub Security tab
     steps:
       - name: Check out latest release tag
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.check_base_image.outputs.release_tag }}
 
@@ -122,7 +122,7 @@ jobs:
       id-token: write         # for Cosign keyless signing
     steps:
       - name: Check out latest release tag
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.check_base_image.outputs.release_tag }}
 
