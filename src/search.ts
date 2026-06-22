@@ -5,6 +5,13 @@ import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
+  getHealthySearxngInstances,
+  getSearxngInstances,
+  isSearxngFanoutEnabled,
+  recordSearxngInstanceFailure,
+  recordSearxngInstanceSuccess,
+} from "./searxng-instances.js";
+import {
   MCPSearXNGError,
   validateEnvironment,
   createNetworkError,
@@ -246,6 +253,36 @@ type NormalizedFilters = {
   validationNote?: string;
 };
 
+type SearchRequest = {
+  query: string;
+  pageno: number;
+  time_range?: string;
+  effectiveLanguage: string;
+  effectiveSafesearch?: number;
+  filters: NormalizedFilters;
+  timeoutMs: number;
+};
+
+type InstanceSearchResult = {
+  instanceUrl: string;
+  data: SearXNGWeb;
+};
+
+type MultiInstanceSearchResult = {
+  data: SearXNGWeb;
+  servedBy: string[];
+};
+
+type EmptyInstanceResult = {
+  instanceUrl: string;
+  data: SearXNGWeb;
+};
+
+type FailedInstanceResult = {
+  instanceUrl: string;
+  error: unknown;
+};
+
 async function normalizeSearchFilters(
   mcpServer: McpServer,
   categories?: string,
@@ -401,6 +438,266 @@ function getDefaultSafesearch(mcpServer: McpServer): number | undefined {
   return parsed;
 }
 
+function buildSearchUrl(instanceUrl: string, request: SearchRequest): URL {
+  const parsedUrl = new URL(instanceUrl.endsWith('/') ? instanceUrl : instanceUrl + '/');
+  const url = new URL('search', parsedUrl);
+
+  url.searchParams.set("q", request.query);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("pageno", request.pageno.toString());
+
+  if (
+    request.time_range !== undefined &&
+    ["day", "week", "month", "year"].includes(request.time_range)
+  ) {
+    url.searchParams.set("time_range", request.time_range);
+  }
+
+  if (request.effectiveLanguage && request.effectiveLanguage !== "all") {
+    url.searchParams.set("language", request.effectiveLanguage);
+  }
+
+  if (request.effectiveSafesearch !== undefined && [0, 1, 2].includes(request.effectiveSafesearch)) {
+    url.searchParams.set("safesearch", request.effectiveSafesearch.toString());
+  }
+
+  if (request.filters.categories) {
+    url.searchParams.set("categories", request.filters.categories);
+  }
+
+  if (request.filters.engines) {
+    url.searchParams.set("engines", request.filters.engines);
+  }
+
+  return url;
+}
+
+function buildSearchRequestOptions(url: URL): RequestInit {
+  const requestOptions: RequestInit = {
+    method: "GET"
+  };
+
+  const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
+  const dispatcher = proxyAgent ?? createDefaultAgent();
+  if (dispatcher) {
+    (requestOptions as any).dispatcher = dispatcher;
+  }
+
+  const username = process.env.AUTH_USERNAME;
+  const password = process.env.AUTH_PASSWORD;
+
+  if (username && password) {
+    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
+    requestOptions.headers = {
+      ...requestOptions.headers,
+      'Authorization': `Basic ${base64Auth}`
+    };
+  }
+
+  const userAgent = process.env.USER_AGENT;
+  if (userAgent) {
+    requestOptions.headers = {
+      ...requestOptions.headers,
+      'User-Agent': userAgent
+    };
+  }
+
+  return requestOptions;
+}
+
+async function fetchSearchFromInstance(
+  mcpServer: McpServer,
+  instanceUrl: string,
+  request: SearchRequest,
+): Promise<InstanceSearchResult> {
+  const url = buildSearchUrl(instanceUrl, request);
+  const requestOptions = buildSearchRequestOptions(url);
+  const response = await fetchWithSearchTimeout(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
+
+  let data: SearXNGWeb;
+
+  if (!response.ok) {
+    if (isHtmlFallbackEnabled() && shouldFallbackForStatus(response.status)) {
+      data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
+    } else {
+      let responseBody: string;
+      try {
+        responseBody = await response.text();
+      } catch {
+        responseBody = '[Could not read response body]';
+      }
+
+      const context: ErrorContext = {
+        url: url.toString(),
+        searxngUrl: instanceUrl
+      };
+      throw createServerError(response.status, response.statusText, responseBody, context);
+    }
+  } else {
+    try {
+      data = (await response.json()) as SearXNGWeb;
+    } catch (error: any) {
+      if (isHtmlFallbackEnabled()) {
+        data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
+      } else {
+        let responseText: string;
+        try {
+          responseText = await response.text();
+        } catch {
+          responseText = '[Could not read response text]';
+        }
+
+        const context: ErrorContext = { url: url.toString() };
+        throw createJSONError(responseText, context);
+      }
+    }
+  }
+
+  if (!data.results) {
+    const context: ErrorContext = { url: url.toString(), query: request.query };
+    throw createDataError(data, context);
+  }
+
+  return {
+    instanceUrl,
+    data,
+  };
+}
+
+function hasSearchResults(data: SearXNGWeb): boolean {
+  return data.results.length > 0;
+}
+
+function createAllInstancesFailedError(failures: FailedInstanceResult[], skippedInstances: string[]): MCPSearXNGError {
+  const failureDetails = failures
+    .map(({ instanceUrl, error }) => `${instanceUrl}: ${error instanceof Error ? error.message : String(error)}`)
+    .join("; ");
+  const skippedDetails = skippedInstances.length > 0
+    ? ` Skipped cooled-down instances: ${skippedInstances.join(", ")}.`
+    : "";
+
+  return new MCPSearXNGError(`All configured SearXNG instances failed. ${failureDetails}${skippedDetails}`);
+}
+
+async function performFailoverSearch(
+  mcpServer: McpServer,
+  instances: string[],
+  request: SearchRequest,
+): Promise<MultiInstanceSearchResult> {
+  const healthyInstances = getHealthySearxngInstances(instances);
+  const skippedInstances = instances.filter((instanceUrl) => !healthyInstances.includes(instanceUrl));
+  const failures: FailedInstanceResult[] = [];
+  const emptyResults: EmptyInstanceResult[] = [];
+
+  for (const instanceUrl of healthyInstances) {
+    try {
+      const result = await fetchSearchFromInstance(mcpServer, instanceUrl, request);
+      recordSearxngInstanceSuccess(instanceUrl);
+
+      if (hasSearchResults(result.data)) {
+        return {
+          data: result.data,
+          servedBy: [instanceUrl],
+        };
+      }
+
+      emptyResults.push(result);
+    } catch (error) {
+      recordSearxngInstanceFailure(instanceUrl);
+      failures.push({ instanceUrl, error });
+    }
+  }
+
+  if (emptyResults.length > 0) {
+    return {
+      data: emptyResults[0].data,
+      servedBy: emptyResults.map((result) => result.instanceUrl),
+    };
+  }
+
+  throw createAllInstancesFailedError(failures, skippedInstances);
+}
+
+function canonicalResultUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+function resultScore(result: { score?: number }): number {
+  return result.score ?? 0;
+}
+
+function mergeFanoutResults(results: InstanceSearchResult[]): SearXNGWeb {
+  const firstContributor = results.find((result) => hasSearchResults(result.data));
+  const base = firstContributor?.data ?? results[0].data;
+  const byUrl = new Map<string, SearXNGWeb["results"][number]>();
+
+  for (const result of results) {
+    for (const entry of result.data.results) {
+      const key = canonicalResultUrl(entry.url);
+      const existing = byUrl.get(key);
+      if (!existing || resultScore(entry) > resultScore(existing)) {
+        byUrl.set(key, entry);
+      }
+    }
+  }
+
+  return {
+    ...base,
+    results: [...byUrl.values()].sort((a, b) => resultScore(b) - resultScore(a)),
+  };
+}
+
+async function performFanoutSearch(
+  mcpServer: McpServer,
+  instances: string[],
+  request: SearchRequest,
+): Promise<MultiInstanceSearchResult> {
+  const healthyInstances = getHealthySearxngInstances(instances);
+  const skippedInstances = instances.filter((instanceUrl) => !healthyInstances.includes(instanceUrl));
+  const settledResults = await Promise.all(healthyInstances.map(async (instanceUrl) => {
+    try {
+      const result = await fetchSearchFromInstance(mcpServer, instanceUrl, request);
+      recordSearxngInstanceSuccess(instanceUrl);
+      return { ok: true as const, result };
+    } catch (error) {
+      recordSearxngInstanceFailure(instanceUrl);
+      return { ok: false as const, failure: { instanceUrl, error } };
+    }
+  }));
+
+  const successes = settledResults
+    .filter((entry): entry is { ok: true; result: InstanceSearchResult } => entry.ok)
+    .map((entry) => entry.result);
+  const failures = settledResults
+    .filter((entry): entry is { ok: false; failure: FailedInstanceResult } => !entry.ok)
+    .map((entry) => entry.failure);
+
+  if (successes.length === 0) {
+    throw createAllInstancesFailedError(failures, skippedInstances);
+  }
+
+  const contributing = successes.filter((result) => hasSearchResults(result.data));
+  if (contributing.length === 0) {
+    return {
+      data: successes[0].data,
+      servedBy: successes.map((result) => result.instanceUrl),
+    };
+  }
+
+  return {
+    data: mergeFanoutResults(contributing),
+    servedBy: contributing.map((result) => result.instanceUrl),
+  };
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
@@ -445,121 +742,32 @@ export async function performWebSearch(
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
-  
-  const searxngUrl = process.env.SEARXNG_URL!;
-  const parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
 
-  const url = new URL('search', parsedUrl);
-
-  url.searchParams.set("q", query);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("pageno", pageno.toString());
-
-  if (
-    time_range !== undefined &&
-    ["day", "week", "month", "year"].includes(time_range)
-  ) {
-    url.searchParams.set("time_range", time_range);
-  }
-
-  if (effectiveLanguage && effectiveLanguage !== "all") {
-    url.searchParams.set("language", effectiveLanguage);
-  }
-
-  if (effectiveSafesearch !== undefined && [0, 1, 2].includes(effectiveSafesearch)) {
-    url.searchParams.set("safesearch", effectiveSafesearch.toString());
-  }
-
-  if (filters.categories) {
-    url.searchParams.set("categories", filters.categories);
-  }
-
-  if (filters.engines) {
-    url.searchParams.set("engines", filters.engines);
-  }
-
-  // Prepare request options with headers
-  const requestOptions: RequestInit = {
-    method: "GET"
+  const SEARCH_TIMEOUT_MS = parseInt(process.env.SEARXNG_TIMEOUT_MS ?? "10000", 10);
+  const instances = getSearxngInstances();
+  const includeProvenance = instances.length > 1;
+  const request: SearchRequest = {
+    query,
+    pageno,
+    time_range,
+    effectiveLanguage,
+    effectiveSafesearch,
+    filters,
+    timeoutMs: SEARCH_TIMEOUT_MS,
   };
 
-  // Add proxy or default dispatcher (includes system CA certs for TLS)
-  const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
-  const dispatcher = proxyAgent ?? createDefaultAgent();
-  if (dispatcher) {
-    (requestOptions as any).dispatcher = dispatcher;
-  }
-
-  // Add basic authentication if credentials are provided
-  const username = process.env.AUTH_USERNAME;
-  const password = process.env.AUTH_PASSWORD;
-
-  if (username && password) {
-    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      'Authorization': `Basic ${base64Auth}`
-    };
-  }
-
-  // Add User-Agent header if configured
-  const userAgent = process.env.USER_AGENT;
-  if (userAgent) {
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      'User-Agent': userAgent
-    };
-  }
-
-  // Fetch with AbortController timeout and enhanced error handling
-  const SEARCH_TIMEOUT_MS = parseInt(process.env.SEARXNG_TIMEOUT_MS ?? "10000", 10);
-
-  let response: Response;
-  response = await fetchWithSearchTimeout(mcpServer, url, requestOptions, SEARCH_TIMEOUT_MS, query, searxngUrl);
-
   let data: SearXNGWeb;
+  let servedBy: string[] = [];
 
-  if (!response.ok) {
-    if (isHtmlFallbackEnabled() && shouldFallbackForStatus(response.status)) {
-      data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, SEARCH_TIMEOUT_MS, query, searxngUrl);
-    } else {
-      let responseBody: string;
-      try {
-        responseBody = await response.text();
-      } catch {
-        responseBody = '[Could not read response body]';
-      }
-
-      const context: ErrorContext = {
-        url: url.toString(),
-        searxngUrl
-      };
-      throw createServerError(response.status, response.statusText, responseBody, context);
-    }
+  if (instances.length === 1) {
+    const result = await fetchSearchFromInstance(mcpServer, instances[0], request);
+    data = result.data;
   } else {
-    // Parse JSON response
-    try {
-      data = (await response.json()) as SearXNGWeb;
-    } catch (error: any) {
-      if (isHtmlFallbackEnabled()) {
-        data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, SEARCH_TIMEOUT_MS, query, searxngUrl);
-      } else {
-        let responseText: string;
-        try {
-          responseText = await response.text();
-        } catch {
-          responseText = '[Could not read response text]';
-        }
-
-        const context: ErrorContext = { url: url.toString() };
-        throw createJSONError(responseText, context);
-      }
-    }
-  }
-
-  if (!data.results) {
-    const context: ErrorContext = { url: url.toString(), query };
-    throw createDataError(data, context);
+    const multiResult = isSearxngFanoutEnabled()
+      ? await performFanoutSearch(mcpServer, instances, request)
+      : await performFailoverSearch(mcpServer, instances, request);
+    data = multiResult.data;
+    servedBy = multiResult.servedBy;
   }
 
   const results = data.results
@@ -573,11 +781,15 @@ export async function performWebSearch(
       ...data,
       results: slicedResults,
       ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
+      ...(includeProvenance ? { servedBy } : {}),
     }, null, 2);
   }
 
   const metadata = formatSearchMetadata(data);
   const leadingSections = [
+    includeProvenance
+      ? `Served by SearXNG ${servedBy.length === 1 ? "instance" : "instances"}: ${servedBy.join(", ")}`
+      : null,
     filters.validationNote ?? null,
     data.sourceFormat === "html" ? "Note: Results parsed from SearXNG HTML fallback; metadata is limited." : null,
     metadata || null,

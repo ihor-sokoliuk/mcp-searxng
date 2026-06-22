@@ -30,6 +30,7 @@ import { fetchInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
+import { getSearxngInstances } from "./searxng-instances.js";
 
 import { packageVersion } from "./version.js";
 
@@ -372,8 +373,9 @@ export async function main() {
     // Show helpful message when running in terminal
     if (process.stdin.isTTY) {
       console.error(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
-      if (process.env.SEARXNG_URL) {
-        console.error(`🌐 SearXNG URL: ${process.env.SEARXNG_URL}`);
+      const searxngInstances = getSearxngInstances();
+      if (searxngInstances.length > 0) {
+        console.error(`🌐 SearXNG URLs: ${searxngInstances.join("; ")}`);
       } else {
         console.error("⚠️  SEARXNG_URL not set — configure it before using search tools");
       }
@@ -387,6 +389,7 @@ export async function main() {
     logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
     logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);
     logMessage(mcpServer, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
-    logMessage(mcpServer, "info", `SearXNG URL: ${process.env.SEARXNG_URL || 'not configured'}`);
+    const searxngInstances = getSearxngInstances();
+    logMessage(mcpServer, "info", `SearXNG URLs: ${searxngInstances.length > 0 ? searxngInstances.join("; ") : 'not configured'}`);
   }
 }

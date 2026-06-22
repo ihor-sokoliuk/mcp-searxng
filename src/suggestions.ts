@@ -1,13 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
 import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
+import { getPrimarySearxngInstance } from "./searxng-instances.js";
 
 export async function performSearchSuggestions(
   mcpServer: McpServer,
   query: string,
   language: string = "all",
 ): Promise<string[]> {
-  const base = process.env.SEARXNG_URL;
+  const base = getPrimarySearxngInstance();
   if (!base) {
     return [];
   }

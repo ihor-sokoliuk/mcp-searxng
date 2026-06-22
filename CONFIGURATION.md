@@ -6,7 +6,8 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance. Format: `<protocol>://<hostname>[:<port>]` (e.g. `http://localhost:8080`) |
+| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance, or a semicolon-separated list of interchangeable replica base URLs. Single URL behavior is unchanged. Format: `<protocol>://<hostname>[:<port>]` (e.g. `http://localhost:8080` or `https://one.example.com;https://two.example.com`) |
+| `SEARXNG_FANOUT` | No | `false` | Set to `true` to query all healthy configured SearXNG instances in parallel and merge results. Default failover mode tries instances in order until one returns results. |
 
 ## Authentication
 
@@ -43,6 +44,10 @@ Operator-level defaults applied when the caller omits the corresponding per-call
 |---|---|---|---|
 | `SEARXNG_MAX_RESULTS` | No | — | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
 | `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet. Longer snippets are truncated and marked with `…`. Invalid values are ignored. Recommended: `500` for smaller context windows. |
+
+When `SEARXNG_URL` contains multiple semicolon-separated URLs, they are treated as interchangeable replicas. Default mode fails over in order when an instance hard-fails or returns no results. A reachable `200 OK` response with an empty `results` array is considered healthy and does not trigger cooldown. Instances with 3 consecutive hard failures are skipped for 60 seconds.
+
+With `SEARXNG_FANOUT=true`, all healthy instances are queried in parallel. Results are deduplicated by canonical URL, the copy with the highest `score` is kept, and merged results are ordered by descending score. Capability discovery, search suggestions, and filter validation use the first configured instance only.
 
 ## Search Compatibility
 
@@ -146,6 +151,7 @@ Complete MCP client configuration with every variable. Mix and match as needed �
       "args": ["-y", "mcp-searxng"],
       "env": {
         "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "SEARXNG_FANOUT": "false",
         "SEARXNG_TIMEOUT_MS": "10000",
         "FETCH_TIMEOUT_MS": "10000",
         "SEARXNG_LITE_TOOLS": "false",

@@ -1,18 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
 import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
+import { getPrimarySearxngInstance } from "./searxng-instances.js";
 
 type SearXNGConfig = Record<string, any>;
 type ConfigResult =
-  | { available: true; config: SearXNGConfig }
-  | { available: false; message: string; status?: number };
+  | { available: true; config: SearXNGConfig; sourceUrl: string }
+  | { available: false; message: string; status?: number; sourceUrl?: string };
 
 let cachedConfig: SearXNGConfig | null = null;
 let cachedBaseUrl: string | null = null;
 
-function unavailable(message: string, status?: number): string {
+function unavailable(message: string, status?: number, sourceUrl?: string): string {
   return JSON.stringify({
     available: false,
+    ...(sourceUrl !== undefined ? { sourceUrl } : {}),
     message,
     ...(status !== undefined ? { status } : {}),
   }, null, 2);
@@ -113,6 +115,7 @@ function allEngineNames(config: SearXNGConfig): Set<string> {
 
 function formatInstanceInfo(
   config: SearXNGConfig,
+  sourceUrl: string,
   includeEngines: boolean,
   includeDisabled: boolean,
   category?: string,
@@ -123,6 +126,7 @@ function formatInstanceInfo(
 
   const payload: Record<string, unknown> = {
     available: true,
+    sourceUrl,
     categories,
     defaults: {
       safesearch: config.search?.safe_search ?? config.default_safe_search,
@@ -147,7 +151,7 @@ export function clearInstanceInfoCacheForTests(): void {
 }
 
 async function fetchConfig(mcpServer: McpServer, refresh = false): Promise<ConfigResult> {
-  const base = process.env.SEARXNG_URL;
+  const base = getPrimarySearxngInstance();
   if (!base) {
     return {
       available: false,
@@ -160,7 +164,7 @@ async function fetchConfig(mcpServer: McpServer, refresh = false): Promise<Confi
   }
 
   if (cachedConfig && cachedBaseUrl === base) {
-    return { available: true, config: cachedConfig };
+    return { available: true, config: cachedConfig, sourceUrl: base };
   }
 
   const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
@@ -182,17 +186,19 @@ async function fetchConfig(mcpServer: McpServer, refresh = false): Promise<Confi
         available: false,
         message: `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`,
         status: response.status,
+        sourceUrl: base,
       };
     }
 
     cachedConfig = await response.json() as SearXNGConfig;
     cachedBaseUrl = base;
-    return { available: true, config: cachedConfig };
+    return { available: true, config: cachedConfig, sourceUrl: base };
   } catch (error) {
     logMessage(mcpServer, "warning", `SearXNG /config fetch failed: ${error instanceof Error ? error.message : String(error)}`);
     return {
       available: false,
       message: "SearXNG /config is unavailable; instance capability discovery could not complete.",
+      sourceUrl: base,
     };
   }
 }
@@ -224,8 +230,8 @@ export async function fetchInstanceInfo(
 ): Promise<string> {
   const result = await fetchConfig(mcpServer, refresh);
   if (!result.available) {
-    return unavailable(result.message, result.status);
+    return unavailable(result.message, result.status, result.sourceUrl);
   }
 
-  return formatInstanceInfo(result.config, includeEngines, includeDisabled, category);
+  return formatInstanceInfo(result.config, result.sourceUrl, includeEngines, includeDisabled, category);
 }
