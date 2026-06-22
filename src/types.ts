@@ -32,7 +32,7 @@ export interface SearXNGWeb {
 }
 
 const VALID_TIME_RANGES = ["day", "week", "month", "year"] as const;
-const VALID_SAFESEARCH_VALUES = [0, 1, 2] as const;
+const VALID_SAFESEARCH_VALUES = [0, 1, 2, "0", "1", "2"] as const;
 const VALID_RESPONSE_FORMATS = ["text", "json"] as const;
 
 export function isSearXNGWebSearchArgs(args: unknown): args is {
@@ -40,7 +40,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   pageno?: number;
   time_range?: string;
   language?: string;
-  safesearch?: number;
+  safesearch?: number | string;
   min_score?: number;
   num_results?: number;
   categories?: string;
@@ -82,7 +82,8 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   }
   if (
     searchArgs.safesearch !== undefined &&
-    (typeof searchArgs.safesearch !== "number" || !VALID_SAFESEARCH_VALUES.includes(searchArgs.safesearch as any))
+    ((typeof searchArgs.safesearch !== "number" && typeof searchArgs.safesearch !== "string") ||
+      !VALID_SAFESEARCH_VALUES.includes(searchArgs.safesearch as any))
   ) {
     return false;
   }
@@ -211,11 +212,11 @@ export const WEB_SEARCH_TOOL: Tool = {
         default: "all",
       },
       safesearch: {
-        type: "number",
+        type: "string",
         description:
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
-        enum: [0, 1, 2],
-        default: 0,
+        enum: ["0", "1", "2"],
+        default: "0",
       },
       min_score: {
         type: "number",

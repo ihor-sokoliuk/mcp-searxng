@@ -37,6 +37,11 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test search' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'day' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'week', safesearch: 2 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 0 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 1 }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: '0' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: '1' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: '2' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 0 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', num_results: 1 }), true);
@@ -60,7 +65,9 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', time_range: 'last week' }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', language: 123 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 3 }), false);
-    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: '1' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: '3' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 'none' }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 1.5 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: -0.1 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: 1.1 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', min_score: Number.NaN }), false);
@@ -74,6 +81,10 @@ async function runTests() {
   await testFunction('WEB_SEARCH_TOOL schema includes week, min_score, and num_results', () => {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.time_range.enum.includes('week'));
+    assert.equal(properties.safesearch.type, 'string');
+    assert.deepEqual(properties.safesearch.enum, ['0', '1', '2']);
+    assert.equal(properties.safesearch.default, '0');
+    assert.ok(!properties.safesearch.enum.some((value: unknown) => typeof value === 'number'));
     assert.equal(properties.min_score.type, 'number');
     assert.equal(properties.min_score.minimum, 0);
     assert.equal(properties.min_score.maximum, 1);
