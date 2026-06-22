@@ -353,6 +353,168 @@ export const LITE_READ_URL_TOOL: Tool = {
   },
 };
 
+export function isReverseImageSearchArgs(args: unknown): args is {
+  image_url: string;
+  pageno?: number;
+  engines?: string;
+  categories?: string;
+  time_range?: string;
+  language?: string;
+  safesearch?: number;
+  min_score?: number;
+  num_results?: number;
+  response_format?: "text" | "json";
+} {
+  if (
+    typeof args !== "object" ||
+    args === null ||
+    !("image_url" in args) ||
+    typeof (args as { image_url: string }).image_url !== "string"
+  ) {
+    return false;
+  }
+
+  const imageSearchArgs = args as {
+    pageno?: unknown;
+    engines?: unknown;
+    categories?: unknown;
+    time_range?: unknown;
+    language?: unknown;
+    safesearch?: unknown;
+    min_score?: unknown;
+    num_results?: unknown;
+    response_format?: unknown;
+  };
+
+  if (imageSearchArgs.pageno !== undefined && (typeof imageSearchArgs.pageno !== "number" || imageSearchArgs.pageno < 1)) return false;
+  if (imageSearchArgs.engines !== undefined && typeof imageSearchArgs.engines !== "string") return false;
+  if (imageSearchArgs.categories !== undefined && typeof imageSearchArgs.categories !== "string") return false;
+  if (
+    imageSearchArgs.time_range !== undefined &&
+    (typeof imageSearchArgs.time_range !== "string" || !VALID_TIME_RANGES.includes(imageSearchArgs.time_range as any))
+  ) return false;
+  if (imageSearchArgs.language !== undefined && typeof imageSearchArgs.language !== "string") return false;
+  if (
+    imageSearchArgs.safesearch !== undefined &&
+    (typeof imageSearchArgs.safesearch !== "number" || !VALID_SAFESEARCH_VALUES.includes(imageSearchArgs.safesearch as any))
+  ) return false;
+  if (
+    imageSearchArgs.min_score !== undefined &&
+    (typeof imageSearchArgs.min_score !== "number" || Number.isNaN(imageSearchArgs.min_score) || imageSearchArgs.min_score < 0 || imageSearchArgs.min_score > 1)
+  ) return false;
+  if (
+    imageSearchArgs.num_results !== undefined &&
+    (typeof imageSearchArgs.num_results !== "number" ||
+      Number.isNaN(imageSearchArgs.num_results) ||
+      !Number.isInteger(imageSearchArgs.num_results) ||
+      imageSearchArgs.num_results < 1 ||
+      imageSearchArgs.num_results > 20)
+  ) return false;
+  if (
+    imageSearchArgs.response_format !== undefined &&
+    (typeof imageSearchArgs.response_format !== "string" || !VALID_RESPONSE_FORMATS.includes(imageSearchArgs.response_format as any))
+  ) return false;
+
+  return true;
+}
+
+export const REVERSE_IMAGE_SEARCH_TOOL: Tool = {
+  name: "reverse_image_search",
+  description:
+    "Reverse image search via SearXNG: finds web pages where a given image appears. " +
+    "The input must be a direct public URL to an image (http or https). " +
+    "Only 'tineye' performs true reverse image search (searching by visual content). " +
+    "Other image engines such as 'google images' or 'bing images' are regular image search engines " +
+    "that treat the URL as a text query — they do NOT search by image content. " +
+    "Always pass `engines: \"tineye\"` for genuine reverse image search. " +
+    "Note: TinEye must be enabled in the SearXNG instance settings. " +
+    "Use this to discover where an image originates or where it has been published. " +
+    "Follow up with `web_url_read` to read the full content of individual result URLs.",
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      image_url: {
+        type: "string",
+        description: "Direct URL of the image to look up (e.g. https://example.com/photo.jpg)",
+      },
+      pageno: {
+        type: "number",
+        description: "Results page number (starts at 1)",
+        default: 1,
+      },
+      engines: {
+        type: "string",
+        description:
+          "Comma-separated SearXNG engine names (default: 'tineye'). " +
+          "Only 'tineye' performs true reverse image search by visual content. " +
+          "Other image engines (e.g. 'google images', 'bing images') treat the URL as a text query and do NOT search by image content. " +
+          "Values are normalized case-insensitively against live /config; unknown values are rejected with available engines listed. " +
+          "If /config is unavailable, values are forwarded as-is with a warning.",
+      },
+      categories: {
+        type: "string",
+        description:
+          "Comma-separated SearXNG categories (e.g. 'images'). " +
+          "Values are normalized case-insensitively; unknown values are rejected with available categories listed.",
+      },
+      time_range: {
+        type: "string",
+        description: "Time range filter (day, week, month, year). Support varies by engine.",
+        enum: ["day", "week", "month", "year"],
+      },
+      language: {
+        type: "string",
+        description: "Language code for results (e.g. 'en', 'es'). Default is instance-dependent.",
+        default: "all",
+      },
+      safesearch: {
+        type: "number",
+        description: "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
+        enum: [0, 1, 2],
+        default: 0,
+      },
+      min_score: {
+        type: "number",
+        description: "Minimum relevance score threshold (0.0–1.0). Results below this score are filtered out.",
+        minimum: 0,
+        maximum: 1,
+      },
+      num_results: {
+        type: "number",
+        description: "Maximum number of results to return (1–20).",
+        minimum: 1,
+        maximum: 20,
+      },
+      response_format: {
+        type: "string",
+        description: "Response format: formatted text for agents or raw JSON for programmatic clients. Default: text.",
+        enum: ["text", "json"],
+        default: "text",
+      },
+    },
+    required: ["image_url"],
+  },
+};
+
+export const LITE_REVERSE_IMAGE_SEARCH_TOOL: Tool = {
+  name: "reverse_image_search",
+  description: "Reverse image search via SearXNG. Use engines: \"tineye\" for true reverse image search (by visual content). Other image engines search by URL text, not image content.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      image_url: { type: "string", description: "Direct URL of the image." },
+      engines: { type: "string", description: "Use 'tineye' for real reverse image search." },
+      num_results: { type: "number", description: "Max results (1–20)." },
+      response_format: { type: "string", description: "Output format: text or json.", enum: ["text", "json"] },
+    },
+    required: ["image_url"],
+  },
+};
+
 export const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:

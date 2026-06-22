@@ -43,6 +43,7 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 ## Features
 
 - **Web Search**: General queries, news, articles, with pagination.
+- **Reverse Image Search**: Find where an image appears on the web using TinEye (the only engine in SearXNG that performs true reverse image search by visual content).
 - **Structured Search Output**: Choose formatted text or raw SearXNG-shaped JSON with `response_format`.
 - **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before result lists.
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
@@ -111,6 +112,21 @@ AI Assistant (e.g. Claude)
     - `includeDisabled` (boolean, optional): Include disabled engine names when `includeEngines` is true. (default: false)
     - `category` (string, optional): Filter categories and engines to a single category name.
     - `refresh` (boolean, optional): Bypass the process cache and fetch fresh `/config` data. (default: false)
+
+- **reverse_image_search**
+  - Find web pages where a given image appears. The image must be publicly accessible via a direct http(s) URL.
+  - **Important:** Only `tineye` performs true reverse image search (searching by visual content). Other image engines such as `google images` or `bing images` are regular image search engines that treat the URL as a text query — they search for the words in the URL, not the image itself. Always pass `engines: "tineye"` for genuine reverse image search. TinEye must be enabled in the SearXNG instance settings.
+  - Inputs:
+    - `image_url` (string): Direct URL of the image to look up (e.g. `https://example.com/photo.jpg`)
+    - `engines` (string, optional): Comma-separated engine names (default: `"tineye"`). Only `tineye` performs true reverse image search by visual content. Other image engines treat the URL as a text query and do not search by image content. Validated case-insensitively against the live `/config`; unknown engines are rejected with available engines listed. If `/config` is unavailable, values are forwarded as-is with a warning.
+    - `pageno` (number, optional): Results page number, starts at 1 (default: 1)
+    - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"general"`). Same validation behaviour as `engines`.
+    - `time_range` (string, optional): Filter results by time range — `"day"`, `"week"`, `"month"`, or `"year"`. Not supported by TinEye.
+    - `language` (string, optional): Language code for results (e.g. `"en"`, `"es"`) or `"all"` (default: `"all"`).
+    - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict).
+    - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
+    - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
+    - `response_format` (string, optional): `"text"` for formatted agent-readable output (includes `img_src` per result) or `"json"` for raw SearXNG JSON with `image_url` added at the top level. (default: `"text"`)
 
 - **web_url_read**
   - Read and convert the content from a URL to markdown with advanced content extraction options
