@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer } from '../../src/index.js';
-import { FetchMocker, createMockFetch } from '../helpers/mock-fetch.js';
+import { FetchMocker, createCapturingMockFetch, createMockFetch } from '../helpers/mock-fetch.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
 const results = createTestResults();
@@ -160,6 +160,11 @@ async function runTests() {
     const searchProps = searchTool!.inputSchema.properties as Record<string, unknown>;
     assert.ok(searchProps.language, 'full search tool must have language');
     assert.ok(searchProps.safesearch, 'full search tool must have safesearch');
+    const safesearchSchema = searchProps.safesearch as Record<string, unknown>;
+    assert.equal(safesearchSchema.type, 'string');
+    assert.deepEqual(safesearchSchema.enum, ['0', '1', '2']);
+    assert.equal(safesearchSchema.default, '0');
+    assert.ok(!(safesearchSchema.enum as unknown[]).some((value) => typeof value === 'number'));
 
     const suggestionsTool = result.tools.find((t) => t.name === 'searxng_search_suggestions');
     assert.ok(suggestionsTool);
@@ -270,6 +275,29 @@ async function runTests() {
     });
 
     assert.equal(result.content[0].type, 'text');
+
+    fetchMocker.restore();
+    delete process.env.SEARXNG_URL;
+    await client.close();
+  }, results);
+
+  await testFunction('tools/call searxng_web_search accepts string safesearch and forwards numeric query param', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+    fetchMocker.mock(mockFetch);
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: 'searxng_web_search',
+      arguments: {
+        query: 'test',
+        safesearch: '2',
+      },
+    });
+
+    assert.equal(result.content[0].type, 'text');
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.searchParams.get('safesearch'), '2');
 
     fetchMocker.restore();
     delete process.env.SEARXNG_URL;

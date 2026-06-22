@@ -168,7 +168,7 @@ export function createMcpServer(): McpServer {
           args.pageno,
           args.time_range,
           args.language,
-          args.safesearch,
+          args.safesearch === undefined ? undefined : Number(args.safesearch),
           args.min_score,
           args.num_results,
           args.categories,

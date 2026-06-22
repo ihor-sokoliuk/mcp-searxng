@@ -92,7 +92,7 @@ AI Assistant (e.g. Claude)
     - `pageno` (number, optional): Search page number, starts at 1 (default 1)
     - `time_range` (string, optional): Filter results by time range - one of: "day", "week", "month", "year" (default: none)
     - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
-    - `safesearch` (number, optional): Safe search filter level (0: None, 1: Moderate, 2: Strict) (default: instance setting)
+    - `safesearch` (string enum, optional): Safe search filter level, one of `"0"` (None), `"1"` (Moderate), or `"2"` (Strict). Legacy numeric values `0`, `1`, and `2` are still accepted for backward compatibility. (default: instance setting)
     - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
     - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
     - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). When live `/config` is available, values are trimmed and normalized case-insensitively to the instance's canonical category names; unknown values are rejected with available categories listed. If `/config` is unavailable, values are forwarded as-is with a warning. Default: SearXNG instance default.
