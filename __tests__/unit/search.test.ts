@@ -2008,9 +2008,13 @@ async function runTests() {
       await performWebSearch(mockServer as any, 'all cooled');
       assert.fail('Expected all-cooled error');
     } catch (error: any) {
-      assert.ok(error.message.includes('All configured SearXNG instances are in cooldown after repeated failures'), error.message);
-      assert.ok(error.message.includes('https://cooled-one.example.com'), error.message);
-      assert.ok(error.message.includes('https://cooled-two.example.com'), error.message);
+      // Exact-match (not URL substring .includes()) so the assertion also covers
+      // ordering and the absence of double spaces, and avoids CodeQL's
+      // incomplete-url-substring-sanitization false positive on test code.
+      assert.equal(
+        error.message,
+        'All configured SearXNG instances are in cooldown after repeated failures: https://cooled-one.example.com, https://cooled-two.example.com.',
+      );
       assert.ok(!error.message.includes('  '), error.message);
     }
     assert.equal(fetchCalled, false);
