@@ -268,6 +268,10 @@ async function runTests() {
     assert.equal(properties.categories.type, 'string');
     assert.ok(properties.categories.description.includes('case-insensitively'), properties.categories.description);
     assert.ok(properties.categories.description.includes('/config'), properties.categories.description);
+    assert.ok(properties.categories.description.includes('common'), properties.categories.description);
+    assert.ok(properties.categories.description.includes('available'), properties.categories.description);
+    assert.ok(properties.categories.description.includes('forwarded'), properties.categories.description);
+    assert.ok(!properties.categories.description.includes('rejected'), properties.categories.description);
   }, results);
 
   await testFunction('WEB_SEARCH_TOOL schema includes engines property', () => {
@@ -275,6 +279,10 @@ async function runTests() {
     assert.ok(properties.engines, 'WEB_SEARCH_TOOL must expose engines parameter');
     assert.equal(properties.engines.type, 'string');
     assert.ok(properties.engines.description.includes('case-insensitively'), properties.engines.description);
+    assert.ok(properties.engines.description.includes('common'), properties.engines.description);
+    assert.ok(properties.engines.description.includes('available'), properties.engines.description);
+    assert.ok(properties.engines.description.includes('forwarded'), properties.engines.description);
+    assert.ok(!properties.engines.description.includes('rejected'), properties.engines.description);
     assert.ok(!properties.engines.description.includes('matched exactly'), properties.engines.description);
   }, results);
 
@@ -362,6 +370,9 @@ async function runTests() {
   await testFunction('INSTANCE_INFO_TOOL schema exposes capability controls', () => {
     const props = INSTANCE_INFO_TOOL.inputSchema.properties as Record<string, any>;
     assert.equal(INSTANCE_INFO_TOOL.name, 'searxng_instance_info');
+    assert.ok(INSTANCE_INFO_TOOL.description.includes('all reachable configured SearXNG instances'), INSTANCE_INFO_TOOL.description);
+    assert.ok(INSTANCE_INFO_TOOL.description.includes('common'), INSTANCE_INFO_TOOL.description);
+    assert.ok(INSTANCE_INFO_TOOL.description.includes('available'), INSTANCE_INFO_TOOL.description);
     assert.ok(props.includeEngines);
     assert.ok(props.includeDisabled);
     assert.ok(props.category);

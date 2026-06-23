@@ -408,9 +408,14 @@ async function runTests() {
     assert.equal(result.content[0].type, 'text');
     const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
     assert.equal(payload.available, true);
-    assert.deepEqual(payload.categories, ['general', 'news']);
-    assert.deepEqual(payload.engines.enabled, ['google']);
-    assert.deepEqual(payload.engines.disabled, ['bing']);
+    assert.deepEqual(payload.instancesReachable, ['http://localhost:8080']);
+    assert.equal(payload.sourceUrl, undefined);
+    assert.deepEqual(payload.categories.common, ['general', 'news']);
+    assert.deepEqual(payload.categories.available, ['general', 'news']);
+    assert.deepEqual(payload.engines.common.enabled, ['google']);
+    assert.deepEqual(payload.engines.available.enabled, ['google']);
+    assert.deepEqual(payload.engines.common.disabled, ['bing']);
+    assert.deepEqual(payload.engines.available.disabled, ['bing']);
 
     fetchMocker.restore();
     delete process.env.SEARXNG_URL;

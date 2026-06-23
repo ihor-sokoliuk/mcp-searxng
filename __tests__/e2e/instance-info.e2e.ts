@@ -49,7 +49,12 @@ async function runTests() {
     const payload = JSON.parse(text);
     assert.equal(typeof payload.available, 'boolean');
     if (payload.available) {
-      assert.ok(Array.isArray(payload.categories), 'available payload should include categories array');
+      assert.ok(Array.isArray(payload.instancesReachable), 'available payload should include reachable instances array');
+      assert.ok(payload.instancesReachable.length > 0, 'available payload should include at least one reachable instance');
+      assert.ok(Array.isArray(payload.categories?.common), 'available payload should include common categories array');
+      assert.ok(Array.isArray(payload.categories?.available), 'available payload should include available categories array');
+      assert.ok(Array.isArray(payload.engines?.common?.enabled), 'available payload should include common enabled engines array');
+      assert.ok(Array.isArray(payload.engines?.available?.enabled), 'available payload should include available enabled engines array');
     } else {
       assert.equal(typeof payload.message, 'string', 'unavailable payload should include a message');
     }

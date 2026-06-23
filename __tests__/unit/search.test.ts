@@ -1096,96 +1096,88 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('invalid engine names from live /config throw helpful validation error', async () => {
+  await testFunction('unknown engine names from live /config pass through in caller order', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
     const mockServer = createMockServer();
-    let searchCalled = false;
+    const requestedUrls: string[] = [];
 
     fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
       const parsedUrl = new URL(url.toString());
       if (parsedUrl.pathname.endsWith('/config')) {
         return createMockFetch({ json: makeConfigWithEngines() })(url);
       }
-      searchCalled = true;
       return createMockFetch({ json: { results: [] } })(url);
     });
 
-    try {
-      await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'google,missing,bad');
-      assert.fail('Expected invalid engine validation error');
-    } catch (error: any) {
-      assert.ok(error.message.includes('Invalid SearXNG engine name(s): missing, bad'), error.message);
-      assert.ok(error.message.includes('searxng_instance_info'), error.message);
-    }
-    assert.equal(searchCalled, false, 'Search should not run after validation failure');
+    await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'Google, missing , Semantic Scholar, bad');
+
+    assert.equal(requestedUrls.length, 2, 'Expected /config validation before search');
+    const searchUrl = new URL(requestedUrls[1]);
+    assert.equal(searchUrl.searchParams.get('engines'), 'google,missing,semantic scholar,bad');
 
     fetchMocker.restore();
     envManager.restore();
   }, results);
 
-  await testFunction('unknown category from live /config throws validation error with available categories', async () => {
+  await testFunction('unknown category from live /config passes through in caller order', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
     const mockServer = createMockServer();
-    let searchCalled = false;
+    const requestedUrls: string[] = [];
 
     fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
       const parsedUrl = new URL(url.toString());
       if (parsedUrl.pathname.endsWith('/config')) {
         return createMockFetch({ json: makeConfigWithEngines() })(url);
       }
-      searchCalled = true;
       return createMockFetch({ json: { results: [] } })(url);
     });
 
-    try {
-      await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, 'unknown');
-      assert.fail('Expected invalid category validation error');
-    } catch (error: any) {
-      assert.ok(error.message.includes('Invalid SearXNG category name(s): unknown'), error.message);
-      assert.ok(error.message.includes('Available categories: general, news, social media'), error.message);
-      assert.ok(error.message.includes('searxng_instance_info'), error.message);
-    }
-    assert.equal(searchCalled, false, 'Search should not run after validation failure');
+    await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, 'News, unknown , Social Media');
+
+    assert.equal(requestedUrls.length, 2, 'Expected /config validation before search');
+    const searchUrl = new URL(requestedUrls[1]);
+    assert.equal(searchUrl.searchParams.get('categories'), 'news,unknown,social media');
 
     fetchMocker.restore();
     envManager.restore();
   }, results);
 
-  await testFunction('unknown engine from live /config throws validation error with available engines', async () => {
+  await testFunction('available-only engine from aggregate /config is accepted and normalized', async () => {
     clearInstanceInfoCacheForTests();
-    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_URL', 'https://one.example.com;https://two.example.com');
 
     const mockServer = createMockServer();
-    let searchCalled = false;
+    const requestedUrls: string[] = [];
 
     fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
       const parsedUrl = new URL(url.toString());
       if (parsedUrl.pathname.endsWith('/config')) {
-        return createMockFetch({ json: makeConfigWithEngines() })(url);
+        const config = makeConfigWithEngines();
+        if (parsedUrl.origin === 'https://two.example.com') {
+          config.engines.push({ name: 'qwant', disabled: false });
+        }
+        return createMockFetch({ json: config })(url);
       }
-      searchCalled = true;
       return createMockFetch({ json: { results: [] } })(url);
     });
 
-    try {
-      await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'missing');
-      assert.fail('Expected invalid engine validation error');
-    } catch (error: any) {
-      assert.ok(error.message.includes('Invalid SearXNG engine name(s): missing'), error.message);
-      assert.ok(error.message.includes('Available engines:'), error.message);
-      assert.ok(error.message.includes('semantic scholar'), error.message);
-    }
-    assert.equal(searchCalled, false, 'Search should not run after validation failure');
+    await performWebSearch(mockServer as any, 'test query', 1, undefined, undefined, undefined, undefined, undefined, undefined, 'Qwant', 'json');
+
+    const searchUrl = new URL(requestedUrls.find((requestedUrl) => new URL(requestedUrl).pathname.endsWith('/search'))!);
+    assert.equal(searchUrl.searchParams.get('engines'), 'qwant');
 
     fetchMocker.restore();
     envManager.restore();
   }, results);
 
-  await testFunction('stale config refreshes once and then normalizes newly available value', async () => {
+  await testFunction('unknown value with cached config is forwarded without refresh retry', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
@@ -1199,10 +1191,6 @@ async function runTests() {
       if (parsedUrl.pathname.endsWith('/config')) {
         configFetchCount++;
         const config = makeConfigWithEngines();
-        if (configFetchCount === 2) {
-          config.categories.push('software wikis');
-          config.engines.push({ name: 'annas archive', disabled: false });
-        }
         return createMockFetch({ json: config })(url);
       }
       return createMockFetch({ json: { results: [] } })(url);
@@ -1221,12 +1209,12 @@ async function runTests() {
       'Annas Archive',
     );
 
-    assert.equal(configFetchCount, 2, 'Expected cached config plus one refresh');
+    assert.equal(configFetchCount, 1, 'Expected cached config without invalid-value refresh retry');
     const configRequests = requestedUrls.filter((url) => new URL(url).pathname.endsWith('/config'));
-    assert.equal(configRequests.length, 2, 'Expected exactly one refresh request');
-    const searchUrl = new URL(requestedUrls[2]);
-    assert.equal(searchUrl.searchParams.get('categories'), 'software wikis');
-    assert.equal(searchUrl.searchParams.get('engines'), 'annas archive');
+    assert.equal(configRequests.length, 1, 'Expected exactly one config request');
+    const searchUrl = new URL(requestedUrls[1]);
+    assert.equal(searchUrl.searchParams.get('categories'), 'Software Wikis');
+    assert.equal(searchUrl.searchParams.get('engines'), 'Annas Archive');
 
     fetchMocker.restore();
     envManager.restore();

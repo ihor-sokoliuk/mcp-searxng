@@ -234,12 +234,12 @@ export const WEB_SEARCH_TOOL: Tool = {
       categories: {
         type: "string",
         description:
-          "Comma-separated SearXNG categories. Values are normalized case-insensitively to canonical names from live /config; unknown values are rejected with available categories listed. If /config is unavailable, values are forwarded as-is with a warning.",
+          "Comma-separated SearXNG categories. Live /config capabilities are aggregated across reachable instances; prefer searxng_instance_info categories.common for consistent multi-instance results. Values in categories.available are best-effort and may only be honored by some instances. Known values are normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If omitted, each instance uses its server-side default.",
       },
       engines: {
         type: "string",
         description:
-          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Values are normalized case-insensitively to canonical names from live /config; unknown values are rejected with available engines listed. If /config is unavailable, values are forwarded as-is with a warning.",
+          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Live /config capabilities are aggregated across reachable instances; prefer searxng_instance_info engines.common for consistent multi-instance results. Values in engines.available are best-effort and may only be honored by some instances. Known values are normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If omitted, each instance uses its server-side default.",
       },
       response_format: {
         type: "string",
@@ -281,7 +281,7 @@ export const SUGGESTIONS_TOOL: Tool = {
 export const INSTANCE_INFO_TOOL: Tool = {
   name: "searxng_instance_info",
   description:
-    "Discovers capabilities from the configured SearXNG instance via /config, including categories, engines, defaults, locales, and plugins.",
+    "Discovers capabilities from all reachable configured SearXNG instances via /config, including categories.common/available, engines.common/available, defaults, locales, and plugins.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: true,
