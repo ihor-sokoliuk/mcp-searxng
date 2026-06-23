@@ -187,7 +187,8 @@ async function runTests() {
     let capturedUrl = '';
     fetchMocker.mock(async (url, _opts) => {
       capturedUrl = url as string;
-      return { ok: true, json: async () => ({ results: [{ title: 'R', url: 'https://x.com', content: 'c', score: 1 }] }), text: async () => '' } as any;
+      const body = JSON.stringify({ results: [{ title: 'R', url: 'https://x.com', content: 'c', score: 1 }] });
+      return { ok: true, json: async () => JSON.parse(body), text: async () => body } as any;
     });
     const { client } = await connect();
 

@@ -35,7 +35,17 @@ export function createMockFetch(options: FetchMockOptions = {}) {
       ok,
       status,
       statusText,
-      text: async () => body,
+      // text() and json() come from one body on a real Response — mirror json
+      // into text when only json is given so a text-first reader stays consistent.
+      text: async () => {
+        if (body) {
+          return body;
+        }
+        if (json !== null) {
+          return JSON.stringify(json);
+        }
+        return '';
+      },
       json: async () => {
         if (json !== null) {
           return json;
@@ -64,7 +74,7 @@ export function createCapturingMockFetch() {
       ok: true,
       status: 200,
       statusText: 'OK',
-      text: async () => '<html><body>Test</body></html>',
+      text: async () => JSON.stringify({ results: [] }),
       json: async () => ({ results: [] })
     } as Response;
   };
