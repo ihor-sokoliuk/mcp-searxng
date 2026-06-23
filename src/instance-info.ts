@@ -64,23 +64,11 @@ function categoryNamesFromEngines(config: SearXNGConfig): string[] {
   return [...names];
 }
 
-function categoryNamesFromArray(categories: unknown[]): string[] {
+function categoryNamesFromList(values: unknown[]): string[] {
   const names = new Set<string>();
 
-  for (const category of categories) {
+  for (const category of values) {
     if (typeof category === "string" && category.trim() !== "") {
-      names.add(category);
-    }
-  }
-
-  return [...names];
-}
-
-function categoryNamesFromObject(categories: Record<string, unknown>): string[] {
-  const names = new Set<string>();
-
-  for (const category of Object.keys(categories)) {
-    if (category.trim() !== "") {
       names.add(category);
     }
   }
@@ -90,10 +78,10 @@ function categoryNamesFromObject(categories: Record<string, unknown>): string[] 
 
 function configuredCategoryNames(config: SearXNGConfig): string[] {
   if (Array.isArray(config.categories)) {
-    return categoryNamesFromArray(config.categories);
+    return categoryNamesFromList(config.categories);
   }
   if (config.categories && typeof config.categories === "object") {
-    return categoryNamesFromObject(config.categories);
+    return categoryNamesFromList(Object.keys(config.categories));
   }
   return [];
 }

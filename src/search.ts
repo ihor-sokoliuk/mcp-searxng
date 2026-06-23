@@ -255,11 +255,6 @@ type MultiInstanceSearchResult = {
   servedBy: string[];
 };
 
-type EmptyInstanceResult = {
-  instanceUrl: string;
-  data: SearXNGWeb;
-};
-
 type FailedInstanceResult = {
   instanceUrl: string;
   error: unknown;
@@ -498,15 +493,13 @@ async function fetchSearchFromInstance(
           responseText = '[Could not read response text]';
         }
 
-        const context: ErrorContext = { url: url.toString() };
-        throw createJSONError(responseText, context);
+        throw createJSONError(responseText);
       }
     }
   }
 
   if (!data.results) {
-    const context: ErrorContext = { url: url.toString(), query: request.query };
-    throw createDataError(data, context);
+    throw createDataError();
   }
 
   return {
@@ -545,7 +538,7 @@ async function performFailoverSearch(
   const healthySet = new Set(healthyInstances);
   const skippedInstances = instances.filter((instanceUrl) => !healthySet.has(instanceUrl));
   const failures: FailedInstanceResult[] = [];
-  const emptyResults: EmptyInstanceResult[] = [];
+  const emptyResults: InstanceSearchResult[] = [];
 
   for (const instanceUrl of healthyInstances) {
     try {

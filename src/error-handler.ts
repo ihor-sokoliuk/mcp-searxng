@@ -111,12 +111,12 @@ export function createServerError(status: number, statusText: string, responseBo
   return new MCPSearXNGError(`🚫 ${target} Error (${status}): ${statusText}`);
 }
 
-export function createJSONError(responseText: string, context: ErrorContext): MCPSearXNGError {
+export function createJSONError(responseText: string): MCPSearXNGError {
   const preview = responseText.substring(0, 100).replace(/\n/g, ' ');
   return new MCPSearXNGError(`🔍 SearXNG Response Error: Invalid JSON format. Response: "${preview}..."`);
 }
 
-export function createDataError(data: any, context: ErrorContext): MCPSearXNGError {
+export function createDataError(): MCPSearXNGError {
   return new MCPSearXNGError(`🔍 SearXNG Data Error: Missing results array in response`);
 }
 
@@ -139,7 +139,7 @@ export function createContentError(message: string, url: string): MCPSearXNGErro
   return new MCPSearXNGError(`📄 Content Error: ${message} (${url})`);
 }
 
-export function createConversionError(error: any, url: string, htmlContent: string): MCPSearXNGError {
+export function createConversionError(url: string): MCPSearXNGError {
   return new MCPSearXNGError(`🔄 Conversion Error: Cannot convert HTML to Markdown (${url})`);
 }
 
@@ -148,7 +148,7 @@ export function createTimeoutError(timeout: number, url: string): MCPSearXNGErro
   return new MCPSearXNGError(`⏱️ Timeout Error: ${hostname} took longer than ${timeout}ms to respond`);
 }
 
-export function createEmptyContentWarning(url: string, htmlLength: number, htmlPreview: string): string {
+export function createEmptyContentWarning(url: string): string {
   return `📄 Content Warning: Page fetched but appears empty after conversion (${url}). May contain only media or require JavaScript.`;
 }
 
