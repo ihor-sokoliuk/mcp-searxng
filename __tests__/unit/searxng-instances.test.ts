@@ -92,6 +92,41 @@ async function runTests() {
     assert.deepEqual(getHealthySearxngInstances(instances, now + 60003), instances);
   }, results);
 
+  await testFunction('expired cooldown resets failure counter before re-cooling', () => {
+    clearSearxngInstanceStateForTests();
+    const instances = ['https://a.example.com'];
+    const now = 1000;
+
+    recordSearxngInstanceFailure('https://a.example.com', now);
+    recordSearxngInstanceFailure('https://a.example.com', now + 1);
+    recordSearxngInstanceFailure('https://a.example.com', now + 2);
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 3), []);
+
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 60001), []);
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 60002), instances);
+
+    recordSearxngInstanceFailure('https://a.example.com', now + 60004);
+    recordSearxngInstanceFailure('https://a.example.com', now + 60005);
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 60006), instances);
+
+    recordSearxngInstanceFailure('https://a.example.com', now + 60007);
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 60008), []);
+  }, results);
+
+  await testFunction('observing cooldown expiry clears stale health entry', () => {
+    clearSearxngInstanceStateForTests();
+    const instances = ['https://a.example.com'];
+    const now = 1000;
+
+    recordSearxngInstanceFailure('https://a.example.com', now);
+    recordSearxngInstanceFailure('https://a.example.com', now + 1);
+    recordSearxngInstanceFailure('https://a.example.com', now + 2);
+
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 60003), instances);
+    recordSearxngInstanceFailure('https://a.example.com', now + 60004);
+    assert.deepEqual(getHealthySearxngInstances(instances, now + 60005), instances);
+  }, results);
+
   await testFunction('successful response resets consecutive failures before cooldown', () => {
     clearSearxngInstanceStateForTests();
     const instances = ['https://a.example.com'];

@@ -441,33 +441,26 @@ function getDefaultSafesearch(mcpServer: McpServer): number | undefined {
 function buildSearchUrl(instanceUrl: string, request: SearchRequest): URL {
   const parsedUrl = new URL(instanceUrl.endsWith('/') ? instanceUrl : instanceUrl + '/');
   const url = new URL('search', parsedUrl);
+  const setOptionalParam = (name: string, value: string | undefined): void => {
+    if (value !== undefined) {
+      url.searchParams.set(name, value);
+    }
+  };
 
   url.searchParams.set("q", request.query);
   url.searchParams.set("format", "json");
   url.searchParams.set("pageno", request.pageno.toString());
-
-  if (
-    request.time_range !== undefined &&
-    ["day", "week", "month", "year"].includes(request.time_range)
-  ) {
-    url.searchParams.set("time_range", request.time_range);
-  }
-
-  if (request.effectiveLanguage && request.effectiveLanguage !== "all") {
-    url.searchParams.set("language", request.effectiveLanguage);
-  }
-
-  if (request.effectiveSafesearch !== undefined && [0, 1, 2].includes(request.effectiveSafesearch)) {
-    url.searchParams.set("safesearch", request.effectiveSafesearch.toString());
-  }
-
-  if (request.filters.categories) {
-    url.searchParams.set("categories", request.filters.categories);
-  }
-
-  if (request.filters.engines) {
-    url.searchParams.set("engines", request.filters.engines);
-  }
+  setOptionalParam("time_range", request.time_range !== undefined && ["day", "week", "month", "year"].includes(request.time_range)
+    ? request.time_range
+    : undefined);
+  setOptionalParam("language", request.effectiveLanguage && request.effectiveLanguage !== "all"
+    ? request.effectiveLanguage
+    : undefined);
+  setOptionalParam("safesearch", request.effectiveSafesearch !== undefined && [0, 1, 2].includes(request.effectiveSafesearch)
+    ? request.effectiveSafesearch.toString()
+    : undefined);
+  setOptionalParam("categories", request.filters.categories || undefined);
+  setOptionalParam("engines", request.filters.engines || undefined);
 
   return url;
 }
