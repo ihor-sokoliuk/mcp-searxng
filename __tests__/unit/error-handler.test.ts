@@ -118,7 +118,12 @@ async function runTests() {
 
   await testFunction('createEmptyContentWarning includes the URL', () => {
     const warning = createEmptyContentWarning('https://test.com');
-    assert.ok(warning.includes('https://test.com'));
+    // Exact-match the full message (not url.includes) — a substring URL check
+    // trips CodeQL's incomplete-URL-sanitization rule and asserts less anyway.
+    assert.equal(
+      warning,
+      '📄 Content Warning: Page fetched but appears empty after conversion (https://test.com). May contain only media or require JavaScript.'
+    );
   }, results);
 
   await testFunction('validateEnvironment success', () => {
