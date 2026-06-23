@@ -576,6 +576,12 @@ function hasSearchResults(data: SearXNGWeb): boolean {
 }
 
 function createAllInstancesFailedError(failures: FailedInstanceResult[], skippedInstances: string[]): MCPSearXNGError {
+  if (failures.length === 0 && skippedInstances.length > 0) {
+    return new MCPSearXNGError(
+      `All configured SearXNG instances are in cooldown after repeated failures: ${skippedInstances.join(", ")}.`
+    );
+  }
+
   const failureDetails = failures
     .map(({ instanceUrl, error }) => `${instanceUrl}: ${error instanceof Error ? error.message : String(error)}`)
     .join("; ");
@@ -592,7 +598,8 @@ async function performFailoverSearch(
   request: SearchRequest,
 ): Promise<MultiInstanceSearchResult> {
   const healthyInstances = getHealthySearxngInstances(instances);
-  const skippedInstances = instances.filter((instanceUrl) => !healthyInstances.includes(instanceUrl));
+  const healthySet = new Set(healthyInstances);
+  const skippedInstances = instances.filter((instanceUrl) => !healthySet.has(instanceUrl));
   const failures: FailedInstanceResult[] = [];
   const emptyResults: EmptyInstanceResult[] = [];
 
@@ -656,9 +663,12 @@ function mergeFanoutResults(results: InstanceSearchResult[]): SearXNGWeb {
     }
   }
 
+  const mergedResults = [...byUrl.values()].sort((a, b) => resultScore(b) - resultScore(a));
+
   return {
     ...base,
-    results: [...byUrl.values()].sort((a, b) => resultScore(b) - resultScore(a)),
+    number_of_results: mergedResults.length,
+    results: mergedResults,
   };
 }
 
@@ -668,7 +678,8 @@ async function performFanoutSearch(
   request: SearchRequest,
 ): Promise<MultiInstanceSearchResult> {
   const healthyInstances = getHealthySearxngInstances(instances);
-  const skippedInstances = instances.filter((instanceUrl) => !healthyInstances.includes(instanceUrl));
+  const healthySet = new Set(healthyInstances);
+  const skippedInstances = instances.filter((instanceUrl) => !healthySet.has(instanceUrl));
   const settledResults = await Promise.all(healthyInstances.map(async (instanceUrl) => {
     try {
       const result = await fetchSearchFromInstance(mcpServer, instanceUrl, request);
