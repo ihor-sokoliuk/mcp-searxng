@@ -431,14 +431,14 @@ export async function fetchAndConvertToMarkdown(
     let markdownContent: string;
     try {
       markdownContent = NodeHtmlMarkdown.translate(htmlContent);
-    } catch (error: any) {
-      throw createConversionError(error, url, htmlContent);
+    } catch {
+      throw createConversionError(url);
     }
 
     if (!markdownContent || markdownContent.trim().length === 0) {
       logMessage(mcpServer, "warning", `Empty content after conversion: ${url}`);
       // DON'T cache empty/failed conversions - return warning directly
-      return createEmptyContentWarning(url, htmlContent.length, htmlContent);
+      return createEmptyContentWarning(url);
     }
 
     // Only cache successful markdown conversion

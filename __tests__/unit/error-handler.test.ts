@@ -98,11 +98,11 @@ async function runTests() {
   await testFunction('Specialized error creators', () => {
     const context = { searxngUrl: 'https://searx.example.com' };
     
-    assert.ok(createJSONError('invalid json', context) instanceof MCPSearXNGError);
-    assert.ok(createDataError({}, context) instanceof MCPSearXNGError);
+    assert.ok(createJSONError('invalid json') instanceof MCPSearXNGError);
+    assert.ok(createDataError() instanceof MCPSearXNGError);
     assert.ok(createURLFormatError('invalid-url') instanceof MCPSearXNGError);
     assert.ok(createContentError('test error', 'https://example.com') instanceof MCPSearXNGError);
-    assert.ok(createConversionError(new Error('test'), 'https://example.com', '<html>') instanceof MCPSearXNGError);
+    assert.ok(createConversionError('https://example.com') instanceof MCPSearXNGError);
     assert.ok(createTimeoutError(5000, 'https://example.com') instanceof MCPSearXNGError);
     assert.ok(createUnexpectedError(new Error('test'), context) instanceof MCPSearXNGError);
   }, results);
@@ -111,7 +111,7 @@ async function runTests() {
     assert.ok(typeof createNoResultsMessage('test query') === 'string');
     assert.ok(createNoResultsMessage('test').includes('No results found'));
     
-    const warning = createEmptyContentWarning('https://example.com', 100, '<html>');
+    const warning = createEmptyContentWarning('https://example.com');
     assert.ok(typeof warning === 'string');
     assert.ok(warning.includes('Content Warning'));
   }, results);
@@ -119,7 +119,7 @@ async function runTests() {
   await testFunction('createEmptyContentWarning with various content', () => {
     const contents = ['', '<html></html>', '<div>content</div>', 'plain text'];
     for (const content of contents) {
-      const warning = createEmptyContentWarning('https://test.com', content.length, content);
+      const warning = createEmptyContentWarning('https://test.com');
       assert.ok(typeof warning === 'string');
     }
   }, results);
