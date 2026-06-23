@@ -1,22 +1,50 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
 import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
-import { getPrimarySearxngInstance } from "./searxng-instances.js";
+import { getSearxngInstances } from "./searxng-instances.js";
 
 type SearXNGConfig = Record<string, any>;
 type ConfigResult =
   | { available: true; config: SearXNGConfig; sourceUrl: string }
-  | { available: false; message: string; status?: number; sourceUrl?: string };
+  | { available: false; message: string; status?: number; sourceUrl: string };
+type ConfigFailure = { sourceUrl: string; message: string; status?: number };
+type ReachableConfig = { config: SearXNGConfig; sourceUrl: string };
+type AggregateConfigResult =
+  | { available: true; configs: ReachableConfig[]; failures: ConfigFailure[] }
+  | { available: false; message: string; failures: ConfigFailure[] };
+type CachedConfigFailure = { until: number; message: string; status?: number };
 
-let cachedConfig: SearXNGConfig | null = null;
-let cachedBaseUrl: string | null = null;
+const CONFIG_FAILURE_CACHE_TTL_MS = 60_000;
+const cachedConfigs = new Map<string, SearXNGConfig>();
+const cachedConfigFailures = new Map<string, CachedConfigFailure>();
 
-function unavailable(message: string, status?: number, sourceUrl?: string): string {
-  return JSON.stringify({
-    available: false,
-    ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+function redactInstanceUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (!url.username && !url.password) {
+      return raw;
+    }
+    url.username = "";
+    url.password = "";
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function redactFailures(failures: ConfigFailure[]): ConfigFailure[] {
+  return failures.map(({ sourceUrl, message, status }) => ({
+    sourceUrl: redactInstanceUrl(sourceUrl),
     message,
     ...(status !== undefined ? { status } : {}),
+  }));
+}
+
+function unavailable(message: string, failures: ConfigFailure[] = []): string {
+  return JSON.stringify({
+    available: false,
+    message,
+    ...(failures.length > 0 ? { instancesUnreachable: redactFailures(failures) } : {}),
   }, null, 2);
 }
 
@@ -36,22 +64,42 @@ function categoryNamesFromEngines(config: SearXNGConfig): string[] {
   return [...names];
 }
 
-function namesFromCategories(config: SearXNGConfig): string[] {
+function categoryNamesFromArray(categories: unknown[]): string[] {
   const names = new Set<string>();
 
-  if (Array.isArray(config.categories)) {
-    for (const category of config.categories) {
-      if (typeof category === "string" && category.trim() !== "") {
-        names.add(category);
-      }
-    }
-  } else if (config.categories && typeof config.categories === "object") {
-    for (const category of Object.keys(config.categories)) {
-      if (category.trim() !== "") {
-        names.add(category);
-      }
+  for (const category of categories) {
+    if (typeof category === "string" && category.trim() !== "") {
+      names.add(category);
     }
   }
+
+  return [...names];
+}
+
+function categoryNamesFromObject(categories: Record<string, unknown>): string[] {
+  const names = new Set<string>();
+
+  for (const category of Object.keys(categories)) {
+    if (category.trim() !== "") {
+      names.add(category);
+    }
+  }
+
+  return [...names];
+}
+
+function configuredCategoryNames(config: SearXNGConfig): string[] {
+  if (Array.isArray(config.categories)) {
+    return categoryNamesFromArray(config.categories);
+  }
+  if (config.categories && typeof config.categories === "object") {
+    return categoryNamesFromObject(config.categories);
+  }
+  return [];
+}
+
+function namesFromCategories(config: SearXNGConfig): string[] {
+  const names = new Set<string>(configuredCategoryNames(config));
 
   for (const category of categoryNamesFromEngines(config)) {
     names.add(category);
@@ -70,7 +118,7 @@ function engineCategories(engine: any): string[] {
   return [];
 }
 
-function collectEngines(config: SearXNGConfig, includeDisabled: boolean, category?: string) {
+function engineSets(config: SearXNGConfig, category?: string) {
   const enabled = new Set<string>();
   const disabled = new Set<string>();
 
@@ -83,20 +131,16 @@ function collectEngines(config: SearXNGConfig, includeDisabled: boolean, categor
       if (category && !categories.includes(category)) {
         continue;
       }
+
       if (engine.disabled) {
-        if (includeDisabled) {
-          disabled.add(engine.name);
-        }
+        disabled.add(engine.name);
       } else {
         enabled.add(engine.name);
       }
     }
   }
 
-  return {
-    enabled: [...enabled].sort(),
-    ...(includeDisabled ? { disabled: [...disabled].sort() } : {}),
-  };
+  return { enabled, disabled };
 }
 
 function allEngineNames(config: SearXNGConfig): Set<string> {
@@ -113,64 +157,138 @@ function allEngineNames(config: SearXNGConfig): Set<string> {
   return names;
 }
 
+function sorted(values: Set<string>): string[] {
+  return [...values].sort();
+}
+
+function union(sets: Set<string>[]): Set<string> {
+  const result = new Set<string>();
+  for (const set of sets) {
+    for (const value of set) {
+      result.add(value);
+    }
+  }
+  return result;
+}
+
+function intersection(sets: Set<string>[]): Set<string> {
+  if (sets.length === 0) {
+    return new Set();
+  }
+
+  const result = new Set(sets[0]);
+  for (const set of sets.slice(1)) {
+    for (const value of [...result]) {
+      if (!set.has(value)) {
+        result.delete(value);
+      }
+    }
+  }
+  return result;
+}
+
+function categoriesForConfig(config: SearXNGConfig, category?: string): Set<string> {
+  const names = category
+    ? namesFromCategories(config).filter((name) => name === category)
+    : namesFromCategories(config);
+  return new Set(names);
+}
+
+function aggregateCategories(configs: ReachableConfig[], category?: string) {
+  const sets = configs.map(({ config }) => categoriesForConfig(config, category));
+  return {
+    common: sorted(intersection(sets)),
+    available: sorted(union(sets)),
+  };
+}
+
+function aggregateEngines(configs: ReachableConfig[], includeDisabled: boolean, category?: string) {
+  const perInstance = configs.map(({ config }) => engineSets(config, category));
+  const payload: Record<string, Record<string, string[]>> = {
+    common: {
+      enabled: sorted(intersection(perInstance.map(({ enabled }) => enabled))),
+    },
+    available: {
+      enabled: sorted(union(perInstance.map(({ enabled }) => enabled))),
+    },
+  };
+
+  if (includeDisabled) {
+    payload.common.disabled = sorted(intersection(perInstance.map(({ disabled }) => disabled)));
+    payload.available.disabled = sorted(union(perInstance.map(({ disabled }) => disabled)));
+  }
+
+  return payload;
+}
+
 function formatInstanceInfo(
-  config: SearXNGConfig,
-  sourceUrl: string,
+  configs: ReachableConfig[],
+  failures: ConfigFailure[],
   includeEngines: boolean,
   includeDisabled: boolean,
   category?: string,
 ): string {
-  const categories = category
-    ? namesFromCategories(config).filter((name) => name === category)
-    : namesFromCategories(config);
+  const primary = configs[0].config;
 
   const payload: Record<string, unknown> = {
     available: true,
-    sourceUrl,
-    categories,
+    instancesReachable: configs.map(({ sourceUrl }) => redactInstanceUrl(sourceUrl)),
+    ...(failures.length > 0 ? { instancesUnreachable: redactFailures(failures) } : {}),
+    categories: aggregateCategories(configs, category),
     defaults: {
-      safesearch: config.search?.safe_search ?? config.default_safe_search,
-      locale: config.default_locale,
-      language: config.default_language,
-      theme: config.default_theme,
+      safesearch: primary.search?.safe_search ?? primary.default_safe_search,
+      locale: primary.default_locale,
+      language: primary.default_language,
+      theme: primary.default_theme,
     },
-    locales: config.locales,
-    plugins: config.plugins ?? [],
+    defaultsNote: "Defaults, locales, and plugins are reported from the primary reachable instance and may vary across configured instances.",
+    locales: primary.locales,
+    plugins: primary.plugins ?? [],
   };
 
   if (includeEngines) {
-    payload.engines = collectEngines(config, includeDisabled, category);
+    payload.engines = aggregateEngines(configs, includeDisabled, category);
   }
 
   return JSON.stringify(payload, null, 2);
 }
 
 export function clearInstanceInfoCacheForTests(): void {
-  cachedConfig = null;
-  cachedBaseUrl = null;
+  cachedConfigs.clear();
+  cachedConfigFailures.clear();
 }
 
-async function fetchConfig(mcpServer: McpServer, refresh = false): Promise<ConfigResult> {
-  const base = getPrimarySearxngInstance();
-  if (!base) {
-    return {
-      available: false,
-      message: "SEARXNG_URL is not configured; cannot fetch SearXNG /config.",
-    };
+function getCachedFailure(base: string, now = Date.now()): ConfigResult | null {
+  const cached = cachedConfigFailures.get(base);
+  if (!cached) {
+    return null;
   }
 
-  if (refresh) {
-    cachedConfig = null;
+  if (cached.until <= now) {
+    cachedConfigFailures.delete(base);
+    return null;
   }
 
-  if (cachedConfig && cachedBaseUrl === base) {
-    return { available: true, config: cachedConfig, sourceUrl: base };
-  }
+  return {
+    available: false,
+    sourceUrl: base,
+    message: cached.message,
+    ...(cached.status !== undefined ? { status: cached.status } : {}),
+  };
+}
 
-  const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
-  const url = new URL("config", parsedBase);
+function cacheFailure(base: string, message: string, status?: number): void {
+  cachedConfigFailures.set(base, {
+    until: Date.now() + CONFIG_FAILURE_CACHE_TTL_MS,
+    message,
+    ...(status !== undefined ? { status } : {}),
+  });
+}
 
+async function requestInstanceConfig(mcpServer: McpServer, base: string): Promise<ConfigResult> {
   try {
+    const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
+    const url = new URL("config", parsedBase);
     const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
     };
@@ -182,43 +300,107 @@ async function fetchConfig(mcpServer: McpServer, refresh = false): Promise<Confi
 
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
+      const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
       return {
         available: false,
-        message: `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`,
+        message,
         status: response.status,
         sourceUrl: base,
       };
     }
 
-    cachedConfig = await response.json() as SearXNGConfig;
-    cachedBaseUrl = base;
-    return { available: true, config: cachedConfig, sourceUrl: base };
+    const config = await response.json() as SearXNGConfig;
+    return { available: true, config, sourceUrl: base };
   } catch (error) {
-    logMessage(mcpServer, "warning", `SearXNG /config fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${redactInstanceUrl(base)}: ${error instanceof Error ? error.message : String(error)}`);
+    const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
     return {
       available: false,
-      message: "SearXNG /config is unavailable; instance capability discovery could not complete.",
+      message,
       sourceUrl: base,
     };
   }
 }
 
-export async function getKnownEngines(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
-  const result = await fetchConfig(mcpServer, refresh);
+async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Promise<ConfigResult> {
+  const cached = cachedConfigs.get(base);
+  if (cached) {
+    return { available: true, config: cached, sourceUrl: base };
+  }
+
+  const cachedFailure = getCachedFailure(base);
+  if (cachedFailure) {
+    return cachedFailure;
+  }
+
+  const result = await requestInstanceConfig(mcpServer, base);
+  if (result.available) {
+    cachedConfigs.set(base, result.config);
+    cachedConfigFailures.delete(base);
+  } else {
+    cacheFailure(base, result.message, result.status);
+  }
+
+  return result;
+}
+
+async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<AggregateConfigResult> {
+  const instances = getSearxngInstances();
+  if (instances.length === 0) {
+    return {
+      available: false,
+      message: "SEARXNG_URL is not configured; cannot fetch SearXNG /config.",
+      failures: [],
+    };
+  }
+
+  if (refresh) {
+    cachedConfigs.clear();
+    cachedConfigFailures.clear();
+  }
+
+  const results = await Promise.all(instances.map((instance) => fetchConfigFromInstance(mcpServer, instance)));
+  const configs = results
+    .filter((result): result is { available: true; config: SearXNGConfig; sourceUrl: string } => result.available)
+    .map(({ config, sourceUrl }) => ({ config, sourceUrl }));
+  const failures = results
+    .filter((result): result is { available: false; message: string; status?: number; sourceUrl: string } => !result.available)
+    .map(({ sourceUrl, message, status }) => ({
+      sourceUrl,
+      message,
+      ...(status !== undefined ? { status } : {}),
+    }));
+
+  if (configs.length === 0) {
+    return {
+      available: false,
+      message: "SearXNG /config is unavailable; no configured instances answered capability discovery.",
+      failures,
+    };
+  }
+
+  return { available: true, configs, failures };
+}
+
+async function getAggregatedCapability(
+  mcpServer: McpServer,
+  refresh: boolean,
+  extractor: (config: SearXNGConfig) => Set<string>,
+): Promise<Set<string> | null> {
+  const result = await fetchConfigs(mcpServer, refresh);
   if (!result.available) {
     return null;
   }
 
-  return allEngineNames(result.config);
+  return union(result.configs.map(({ config }) => extractor(config)));
+}
+
+export async function getKnownEngines(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
+  return getAggregatedCapability(mcpServer, refresh, allEngineNames);
 }
 
 export async function getKnownCategories(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
-  const result = await fetchConfig(mcpServer, refresh);
-  if (!result.available) {
-    return null;
-  }
-
-  return new Set(namesFromCategories(result.config));
+  return getAggregatedCapability(mcpServer, refresh, (config) => new Set(namesFromCategories(config)));
 }
 
 export async function fetchInstanceInfo(
@@ -228,10 +410,10 @@ export async function fetchInstanceInfo(
   category?: string,
   refresh = false,
 ): Promise<string> {
-  const result = await fetchConfig(mcpServer, refresh);
+  const result = await fetchConfigs(mcpServer, refresh);
   if (!result.available) {
-    return unavailable(result.message, result.status, result.sourceUrl);
+    return unavailable(result.message, result.failures);
   }
 
-  return formatInstanceInfo(result.config, result.sourceUrl, includeEngines, includeDisabled, category);
+  return formatInstanceInfo(result.configs, result.failures, includeEngines, includeDisabled, category);
 }

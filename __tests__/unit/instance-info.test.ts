@@ -58,6 +58,22 @@ function makeConfigWithCategoryArray() {
   return config;
 }
 
+function makeSecondaryConfig() {
+  return {
+    categories: ['general', 'images'],
+    engines: [
+      { name: 'google', categories: ['general'], disabled: false },
+      { name: 'qwant', categories: ['general'], disabled: false },
+      { name: 'bing', categories: ['general'], disabled: true },
+      { name: 'flickr', categories: ['images'], disabled: false },
+    ],
+    default_locale: 'fr',
+    default_theme: 'oscar',
+    search: { safe_search: 2 },
+    plugins: ['Secondary plugin'],
+  };
+}
+
 async function runTests() {
   console.log('🧪 Testing: instance-info.ts\n');
 
@@ -71,9 +87,14 @@ async function runTests() {
     const payload = JSON.parse(result);
 
     assert.equal(payload.available, true);
-    assert.deepEqual(payload.categories, ['general', 'news']);
-    assert.deepEqual(payload.engines.enabled, ['brave', 'google']);
-    assert.deepEqual(payload.engines.disabled, ['bing']);
+    assert.deepEqual(payload.instancesReachable, ['https://test-searx.example.com']);
+    assert.equal(payload.sourceUrl, undefined);
+    assert.deepEqual(payload.categories.common, ['general', 'news']);
+    assert.deepEqual(payload.categories.available, ['general', 'news']);
+    assert.deepEqual(payload.engines.common.enabled, ['brave', 'google']);
+    assert.deepEqual(payload.engines.available.enabled, ['brave', 'google']);
+    assert.deepEqual(payload.engines.common.disabled, ['bing']);
+    assert.deepEqual(payload.engines.available.disabled, ['bing']);
     assert.equal(payload.defaults.safesearch, 1);
     assert.equal(payload.defaults.theme, 'simple');
     assert.deepEqual(payload.plugins, ['Hash plugin']);
@@ -92,8 +113,10 @@ async function runTests() {
     const payload = JSON.parse(result);
 
     assert.equal(payload.available, true);
-    assert.deepEqual(payload.categories, ['general', 'science', 'social media']);
-    assert.deepEqual(payload.engines.enabled, ['google', 'mastodon', 'semantic scholar']);
+    assert.deepEqual(payload.categories.common, ['general', 'science', 'social media']);
+    assert.deepEqual(payload.categories.available, ['general', 'science', 'social media']);
+    assert.deepEqual(payload.engines.common.enabled, ['google', 'mastodon', 'semantic scholar']);
+    assert.deepEqual(payload.engines.available.enabled, ['google', 'mastodon', 'semantic scholar']);
 
     fetchMocker.restore();
     envManager.restore();
@@ -107,8 +130,10 @@ async function runTests() {
 
     const result = JSON.parse(await fetchInstanceInfo(mockServer as any, true, false, 'social media'));
 
-    assert.deepEqual(result.categories, ['social media']);
-    assert.deepEqual(result.engines.enabled, ['mastodon']);
+    assert.deepEqual(result.categories.common, ['social media']);
+    assert.deepEqual(result.categories.available, ['social media']);
+    assert.deepEqual(result.engines.common.enabled, ['mastodon']);
+    assert.deepEqual(result.engines.available.enabled, ['mastodon']);
 
     fetchMocker.restore();
     envManager.restore();
@@ -153,7 +178,8 @@ async function runTests() {
     const refreshed = JSON.parse(await fetchInstanceInfo(mockServer as any, false, false, undefined, true));
 
     assert.equal(fetchCount, 2);
-    assert.deepEqual(refreshed.categories, ['general', 'images', 'news']);
+    assert.deepEqual(refreshed.categories.common, ['general', 'images', 'news']);
+    assert.deepEqual(refreshed.categories.available, ['general', 'images', 'news']);
 
     fetchMocker.restore();
     envManager.restore();
@@ -170,7 +196,11 @@ async function runTests() {
 
     assert.equal(payload.available, false);
     assert.ok(payload.message.includes('/config'));
-    assert.equal(payload.status, 403);
+    assert.deepEqual(payload.instancesUnreachable, [{
+      sourceUrl: 'https://test-searx.example.com',
+      message: 'SearXNG /config is unavailable: HTTP 403 Forbidden',
+      status: 403,
+    }]);
 
     fetchMocker.restore();
     envManager.restore();
@@ -184,9 +214,12 @@ async function runTests() {
 
     const result = JSON.parse(await fetchInstanceInfo(mockServer as any, true, false, 'news'));
 
-    assert.deepEqual(result.categories, ['news']);
-    assert.deepEqual(result.engines.enabled, ['brave']);
-    assert.equal(result.engines.disabled, undefined);
+    assert.deepEqual(result.categories.common, ['news']);
+    assert.deepEqual(result.categories.available, ['news']);
+    assert.deepEqual(result.engines.common.enabled, ['brave']);
+    assert.deepEqual(result.engines.available.enabled, ['brave']);
+    assert.equal(result.engines.common.disabled, undefined);
+    assert.equal(result.engines.available.disabled, undefined);
 
     fetchMocker.restore();
     envManager.restore();
@@ -200,8 +233,10 @@ async function runTests() {
 
     const result = JSON.parse(await fetchInstanceInfo(mockServer as any, true, false));
 
-    assert.deepEqual(result.engines.enabled, ['brave', 'google']);
-    assert.equal(result.engines.disabled, undefined);
+    assert.deepEqual(result.engines.common.enabled, ['brave', 'google']);
+    assert.deepEqual(result.engines.available.enabled, ['brave', 'google']);
+    assert.equal(result.engines.common.disabled, undefined);
+    assert.equal(result.engines.available.disabled, undefined);
 
     fetchMocker.restore();
     envManager.restore();
@@ -240,28 +275,126 @@ async function runTests() {
     await fetchInstanceInfo(mockServer as any);
 
     const url = new URL(getCapturedUrl());
-    assert.ok(url.pathname.includes('/subpath/config'), `Expected /subpath/config, got ${url.pathname}`);
+    assert.equal(url.pathname, '/subpath/config');
 
     fetchMocker.restore();
     envManager.restore();
   }, results);
 
-  await testFunction('multi-URL SEARXNG_URL fetches /config from primary and reports source URL', async () => {
+  await testFunction('multi-URL SEARXNG_URL aggregates capabilities from all reachable instances', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://primary.example.com/base;https://secondary.example.com');
     const mockServer = createMockServer();
-    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+    const requestedUrls: string[] = [];
     fetchMocker.mock(async (url, options) => {
-      await mockFetch(url, options);
+      requestedUrls.push(url.toString());
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.origin === 'https://secondary.example.com') {
+        return createMockFetch({ json: makeSecondaryConfig() })(url, options);
+      }
       return createMockFetch({ json: makeConfig() })(url, options);
     });
 
-    const result = JSON.parse(await fetchInstanceInfo(mockServer as any));
+    const result = JSON.parse(await fetchInstanceInfo(mockServer as any, true, true));
 
-    const url = new URL(getCapturedUrl());
-    assert.equal(url.origin, 'https://primary.example.com');
-    assert.ok(url.pathname.includes('/base/config'), `Expected primary /base/config, got ${url.pathname}`);
-    assert.equal(result.sourceUrl, 'https://primary.example.com/base');
+    assert.equal(requestedUrls.length, 2);
+    assert.ok(requestedUrls.some((requestedUrl) => new URL(requestedUrl).pathname === '/base/config'));
+    assert.deepEqual(result.instancesReachable, ['https://primary.example.com/base', 'https://secondary.example.com']);
+    assert.equal(result.sourceUrl, undefined);
+    assert.deepEqual(result.categories.common, ['general']);
+    assert.deepEqual(result.categories.available, ['general', 'images', 'news']);
+    assert.deepEqual(result.engines.common.enabled, ['google']);
+    assert.deepEqual(result.engines.available.enabled, ['brave', 'flickr', 'google', 'qwant']);
+    assert.deepEqual(result.engines.common.disabled, ['bing']);
+    assert.deepEqual(result.engines.available.disabled, ['bing']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('unreachable multi-URL instance is negative-cached until refresh retries it', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://up.example.com;https://flaky.example.com');
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    let flakyAttempts = 0;
+    fetchMocker.mock(async (url, options) => {
+      requestedUrls.push(url.toString());
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.origin === 'https://flaky.example.com') {
+        flakyAttempts++;
+        if (flakyAttempts === 1) {
+          throw new Error('temporary outage');
+        }
+        return createMockFetch({ json: makeSecondaryConfig() })(url, options);
+      }
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    const first = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const second = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const refreshed = JSON.parse(await fetchInstanceInfo(mockServer as any, true, false, undefined, true));
+
+    assert.deepEqual(first.instancesReachable, ['https://up.example.com']);
+    assert.deepEqual(first.instancesUnreachable, [{
+      sourceUrl: 'https://flaky.example.com',
+      message: 'SearXNG /config is unavailable; instance capability discovery could not complete.',
+    }]);
+    assert.deepEqual(second.instancesReachable, ['https://up.example.com']);
+    assert.deepEqual(second.instancesUnreachable, first.instancesUnreachable);
+    assert.deepEqual(refreshed.instancesReachable, ['https://up.example.com', 'https://flaky.example.com']);
+    assert.equal(refreshed.instancesUnreachable, undefined);
+    assert.equal(flakyAttempts, 2, 'failed instance should not be refetched until refresh clears negative cache');
+    assert.equal(requestedUrls.filter((requestedUrl) => new URL(requestedUrl).origin === 'https://up.example.com').length, 2);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('credential-bearing instance URLs are redacted from capability payload', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@reachable.example.com;https://user:pass@flaky.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url, options) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'flaky.example.com') {
+        throw new Error('temporary outage');
+      }
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const serialized = JSON.stringify(payload);
+
+    assert.equal(payload.instancesReachable[0], 'https://reachable.example.com/');
+    assert.equal(payload.instancesUnreachable[0].sourceUrl, 'https://flaky.example.com/');
+    assert.ok(!serialized.includes('user:pass@'), serialized);
+    assert.ok(!serialized.includes('user:'), serialized);
+    assert.ok(!serialized.includes(':pass@'), serialized);
+    assert.ok(!serialized.includes('pass@'), serialized);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('credential-bearing instance URLs are redacted from unavailable payload', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@down-one.example.com;https://user:pass@down-two.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      throw new Error('config blocked');
+    });
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const serialized = JSON.stringify(payload);
+
+    assert.equal(payload.available, false);
+    assert.equal(payload.instancesUnreachable[0].sourceUrl, 'https://down-one.example.com/');
+    assert.equal(payload.instancesUnreachable[1].sourceUrl, 'https://down-two.example.com/');
+    assert.ok(!serialized.includes('user:pass@'), serialized);
+    assert.ok(!serialized.includes('user:'), serialized);
+    assert.ok(!serialized.includes(':pass@'), serialized);
+    assert.ok(!serialized.includes('pass@'), serialized);
 
     fetchMocker.restore();
     envManager.restore();
