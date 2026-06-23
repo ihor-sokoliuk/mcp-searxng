@@ -216,7 +216,6 @@ export const WEB_SEARCH_TOOL: Tool = {
         description:
           "Safe search filter level (0: None, 1: Moderate, 2: Strict)",
         enum: ["0", "1", "2"],
-        default: "0",
       },
       min_score: {
         type: "number",

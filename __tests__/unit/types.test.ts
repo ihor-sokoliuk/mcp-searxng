@@ -83,7 +83,8 @@ async function runTests() {
     assert.ok(properties.time_range.enum.includes('week'));
     assert.equal(properties.safesearch.type, 'string');
     assert.deepEqual(properties.safesearch.enum, ['0', '1', '2']);
-    assert.equal(properties.safesearch.default, '0');
+    assert.equal(properties.safesearch.default, undefined);
+    assert.ok(!Object.hasOwn(properties.safesearch, 'default'));
     assert.ok(!properties.safesearch.enum.some((value: unknown) => typeof value === 'number'));
     assert.equal(properties.min_score.type, 'number');
     assert.equal(properties.min_score.minimum, 0);
