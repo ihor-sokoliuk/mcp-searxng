@@ -3,6 +3,20 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-06-23
+
+### Added
+
+- **Multi-instance failover and optional parallel fanout for `SEARXNG_URL`:** `SEARXNG_URL` now accepts several semicolon-separated SearXNG replica URLs that are treated as interchangeable. In the default failover mode a search tries each instance in order until one returns results; an instance with 3 consecutive hard failures is skipped for 60 seconds, while a `200 OK` with an empty result set is treated as healthy and does not trigger cooldown. Set the new `SEARXNG_FANOUT=true` to instead query all healthy instances in parallel and merge results — deduplicated by canonical URL, keeping the highest-scoring copy and ordered by descending score. A single-URL `SEARXNG_URL` behaves exactly as before, so no configuration change is required. (FEAT-047, [#128](https://github.com/ihor-sokoliuk/mcp-searxng/pull/128))
+
+- **Capability discovery aggregated across all instances for filter guidance:** `searxng_instance_info` and the `categories`/`engines` search parameters now aggregate live `/config` capabilities from every reachable configured instance instead of a single one. The tool reports `common` categories and engines (supported on every reachable instance, so safe for consistent multi-instance results) alongside best-effort `available` values, keeping filter guidance accurate when replicas differ in their enabled engines. A `/config` endpoint that fails is skipped for about 60 seconds, or retried immediately when `searxng_instance_info` is called with `refresh=true`. (FEAT-048, [#130](https://github.com/ihor-sokoliuk/mcp-searxng/pull/130))
+
+### Fixed
+
+- **`safesearch` accepted as a string enum and honoring the instance default when omitted:** `safesearch` is now declared as a string enum (`"0"`, `"1"`, `"2"`) so MCP clients that send every tool argument as a string — notably Gemini and Antigravity — no longer fail schema validation. The schema default was also dropped, so omitting `safesearch` now falls back to each instance's server-side default instead of forcing a value. (BUG-006, [#127](https://github.com/ihor-sokoliuk/mcp-searxng/pull/127))
+
+- **Docker Compose HTTP transport reachable from the host:** The HTTP transport in the provided `docker-compose` setup now binds to `0.0.0.0` instead of a loopback address, so the mapped port is reachable from the host rather than only from inside the container.
+
 ## [1.7.2] - 2026-06-20
 
 ### Security
