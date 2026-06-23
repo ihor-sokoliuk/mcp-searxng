@@ -438,29 +438,43 @@ function getDefaultSafesearch(mcpServer: McpServer): number | undefined {
   return parsed;
 }
 
+function normalizeTimeRangeParam(value: string | undefined): string | undefined {
+  return value !== undefined && ["day", "week", "month", "year"].includes(value)
+    ? value
+    : undefined;
+}
+
+function normalizeLanguageParam(value: string | undefined): string | undefined {
+  return value && value !== "all" ? value : undefined;
+}
+
+function normalizeSafesearchParam(value: number | undefined): string | undefined {
+  return value !== undefined && [0, 1, 2].includes(value) ? value.toString() : undefined;
+}
+
+function normalizeTruthyParam(value: string | undefined): string | undefined {
+  return value || undefined;
+}
+
 function buildSearchUrl(instanceUrl: string, request: SearchRequest): URL {
   const parsedUrl = new URL(instanceUrl.endsWith('/') ? instanceUrl : instanceUrl + '/');
   const url = new URL('search', parsedUrl);
-  const setOptionalParam = (name: string, value: string | undefined): void => {
+  const params: Array<[string, string | undefined]> = [
+    ["q", request.query],
+    ["format", "json"],
+    ["pageno", request.pageno.toString()],
+    ["time_range", normalizeTimeRangeParam(request.time_range)],
+    ["language", normalizeLanguageParam(request.effectiveLanguage)],
+    ["safesearch", normalizeSafesearchParam(request.effectiveSafesearch)],
+    ["categories", normalizeTruthyParam(request.filters.categories)],
+    ["engines", normalizeTruthyParam(request.filters.engines)],
+  ];
+
+  for (const [name, value] of params) {
     if (value !== undefined) {
       url.searchParams.set(name, value);
     }
-  };
-
-  url.searchParams.set("q", request.query);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("pageno", request.pageno.toString());
-  setOptionalParam("time_range", request.time_range !== undefined && ["day", "week", "month", "year"].includes(request.time_range)
-    ? request.time_range
-    : undefined);
-  setOptionalParam("language", request.effectiveLanguage && request.effectiveLanguage !== "all"
-    ? request.effectiveLanguage
-    : undefined);
-  setOptionalParam("safesearch", request.effectiveSafesearch !== undefined && [0, 1, 2].includes(request.effectiveSafesearch)
-    ? request.effectiveSafesearch.toString()
-    : undefined);
-  setOptionalParam("categories", request.filters.categories || undefined);
-  setOptionalParam("engines", request.filters.engines || undefined);
+  }
 
   return url;
 }
