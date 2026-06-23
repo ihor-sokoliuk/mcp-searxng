@@ -116,12 +116,9 @@ async function runTests() {
     assert.ok(warning.includes('Content Warning'));
   }, results);
 
-  await testFunction('createEmptyContentWarning with various content', () => {
-    const contents = ['', '<html></html>', '<div>content</div>', 'plain text'];
-    for (const content of contents) {
-      const warning = createEmptyContentWarning('https://test.com');
-      assert.ok(typeof warning === 'string');
-    }
+  await testFunction('createEmptyContentWarning includes the URL', () => {
+    const warning = createEmptyContentWarning('https://test.com');
+    assert.ok(warning.includes('https://test.com'));
   }, results);
 
   await testFunction('validateEnvironment success', () => {
