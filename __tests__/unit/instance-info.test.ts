@@ -351,6 +351,55 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('credential-bearing instance URLs are redacted from capability payload', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@reachable.example.com;https://user:pass@flaky.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url, options) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'flaky.example.com') {
+        throw new Error('temporary outage');
+      }
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const serialized = JSON.stringify(payload);
+
+    assert.ok(payload.instancesReachable[0].includes('reachable.example.com'), 'reachable host should be preserved');
+    assert.ok(payload.instancesUnreachable[0].sourceUrl.includes('flaky.example.com'), 'unreachable host should be preserved');
+    assert.ok(!serialized.includes('user:pass@'), serialized);
+    assert.ok(!serialized.includes('user:'), serialized);
+    assert.ok(!serialized.includes(':pass@'), serialized);
+    assert.ok(!serialized.includes('pass@'), serialized);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('credential-bearing instance URLs are redacted from unavailable payload', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@down-one.example.com;https://user:pass@down-two.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      throw new Error('config blocked');
+    });
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const serialized = JSON.stringify(payload);
+
+    assert.equal(payload.available, false);
+    assert.ok(payload.instancesUnreachable[0].sourceUrl.includes('down-one.example.com'));
+    assert.ok(payload.instancesUnreachable[1].sourceUrl.includes('down-two.example.com'));
+    assert.ok(!serialized.includes('user:pass@'), serialized);
+    assert.ok(!serialized.includes('user:'), serialized);
+    assert.ok(!serialized.includes(':pass@'), serialized);
+    assert.ok(!serialized.includes('pass@'), serialized);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('config request uses search proxy dispatcher when configured', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');

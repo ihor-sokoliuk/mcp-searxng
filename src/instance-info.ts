@@ -18,11 +18,33 @@ const CONFIG_FAILURE_CACHE_TTL_MS = 60_000;
 const cachedConfigs = new Map<string, SearXNGConfig>();
 const cachedConfigFailures = new Map<string, CachedConfigFailure>();
 
+function redactInstanceUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (!url.username && !url.password) {
+      return raw;
+    }
+    url.username = "";
+    url.password = "";
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function redactFailures(failures: ConfigFailure[]): ConfigFailure[] {
+  return failures.map(({ sourceUrl, message, status }) => ({
+    sourceUrl: redactInstanceUrl(sourceUrl),
+    message,
+    ...(status !== undefined ? { status } : {}),
+  }));
+}
+
 function unavailable(message: string, failures: ConfigFailure[] = []): string {
   return JSON.stringify({
     available: false,
     message,
-    ...(failures.length > 0 ? { instancesUnreachable: failures } : {}),
+    ...(failures.length > 0 ? { instancesUnreachable: redactFailures(failures) } : {}),
   }, null, 2);
 }
 
@@ -190,8 +212,8 @@ function formatInstanceInfo(
 
   const payload: Record<string, unknown> = {
     available: true,
-    instancesReachable: configs.map(({ sourceUrl }) => sourceUrl),
-    ...(failures.length > 0 ? { instancesUnreachable: failures } : {}),
+    instancesReachable: configs.map(({ sourceUrl }) => redactInstanceUrl(sourceUrl)),
+    ...(failures.length > 0 ? { instancesUnreachable: redactFailures(failures) } : {}),
     categories: aggregateCategories(configs, category),
     defaults: {
       safesearch: primary.search?.safe_search ?? primary.default_safe_search,
@@ -270,7 +292,7 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
     const config = await response.json() as SearXNGConfig;
     return { available: true, config, sourceUrl: base };
   } catch (error) {
-    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${base}: ${error instanceof Error ? error.message : String(error)}`);
+    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${redactInstanceUrl(base)}: ${error instanceof Error ? error.message : String(error)}`);
     const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
     return {
       available: false,
