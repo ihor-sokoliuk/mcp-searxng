@@ -215,35 +215,17 @@ function buildCanonicalLookup(knownValues: Set<string>): Map<string, string> {
 function normalizeCommaSeparated(value: string, knownValues: Set<string>) {
   const lookup = buildCanonicalLookup(knownValues);
   const normalized: string[] = [];
-  const invalid: string[] = [];
 
   for (const requested of splitCommaSeparated(value)) {
     const canonical = lookup.get(requested.toLowerCase());
     if (canonical === undefined) {
-      invalid.push(requested);
+      normalized.push(requested);
     } else {
       normalized.push(canonical);
     }
   }
 
-  return {
-    normalized: normalized.join(","),
-    invalid,
-  };
-}
-
-function formatAvailableValues(label: string, values: Set<string>): string {
-  const available = [...values].sort().join(", ");
-  return available === "" ? "" : ` Available ${label}: ${available}.`;
-}
-
-function createValidationError(kind: "category" | "engine", invalid: string[], available: Set<string>): MCPSearXNGError {
-  const label = kind === "category" ? "categories" : "engines";
-  return new MCPSearXNGError(
-    `🔍 Invalid SearXNG ${kind} name(s): ${invalid.join(", ")}.` +
-    formatAvailableValues(label, available) +
-    ` Use the searxng_instance_info tool to discover available ${label}.`,
-  );
+  return normalized.join(",");
 }
 
 type NormalizedFilters = {
@@ -330,54 +312,16 @@ async function normalizeSearchFilters(
     }
   }
 
-  let normalizedCategories = effectiveCategories && knownCategories
+  const normalizedCategories = effectiveCategories && knownCategories
     ? normalizeCommaSeparated(effectiveCategories, knownCategories)
     : undefined;
-  let normalizedEngines = effectiveEngines && knownEngines
+  const normalizedEngines = effectiveEngines && knownEngines
     ? normalizeCommaSeparated(effectiveEngines, knownEngines)
     : undefined;
 
-  if (
-    (normalizedCategories && normalizedCategories.invalid.length > 0) ||
-    (normalizedEngines && normalizedEngines.invalid.length > 0)
-  ) {
-    if (effectiveCategories) {
-      knownCategories = await getKnownCategories(mcpServer, true);
-      knownEngines = effectiveEngines && knownCategories !== null
-        ? await getKnownEngines(mcpServer)
-        : knownEngines;
-    } else if (effectiveEngines) {
-      knownEngines = await getKnownEngines(mcpServer, true);
-    }
-
-    if (knownCategories === null || knownEngines === null) {
-      return {
-        categories: effectiveCategories,
-        engines: effectiveEngines,
-        validationWarning: unavailableWarning,
-        validationNote: unavailableNote,
-      };
-    }
-
-    normalizedCategories = effectiveCategories && knownCategories
-      ? normalizeCommaSeparated(effectiveCategories, knownCategories)
-      : undefined;
-    normalizedEngines = effectiveEngines && knownEngines
-      ? normalizeCommaSeparated(effectiveEngines, knownEngines)
-      : undefined;
-  }
-
-  if (normalizedCategories && normalizedCategories.invalid.length > 0 && knownCategories) {
-    throw createValidationError("category", normalizedCategories.invalid, knownCategories);
-  }
-
-  if (normalizedEngines && normalizedEngines.invalid.length > 0 && knownEngines) {
-    throw createValidationError("engine", normalizedEngines.invalid, knownEngines);
-  }
-
   return {
-    categories: normalizedCategories ? normalizedCategories.normalized : undefined,
-    engines: normalizedEngines ? normalizedEngines.normalized : undefined,
+    categories: normalizedCategories,
+    engines: normalizedEngines,
   };
 }
 

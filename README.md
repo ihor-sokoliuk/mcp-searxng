@@ -95,8 +95,8 @@ AI Assistant (e.g. Claude)
     - `safesearch` (string enum, optional): Safe search filter level, one of `"0"` (None), `"1"` (Moderate), or `"2"` (Strict). Legacy numeric values `0`, `1`, and `2` are still accepted for backward compatibility. (default: instance setting)
     - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
     - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
-    - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). When live `/config` is available, values are trimmed and normalized case-insensitively to the instance's canonical category names; unknown values are rejected with available categories listed. If `/config` is unavailable, values are forwarded as-is with a warning. Default: SearXNG instance default.
-    - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`, `"semantic scholar"`). When live `/config` is available, values are trimmed and normalized case-insensitively to canonical engine names, including engines disabled by default; unknown values are rejected with available engines listed. If `/config` is unavailable, values are forwarded as-is with a warning.
+    - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `categories.common` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.
+    - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`, `"semantic scholar"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `engines.common` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively, including engines disabled by default; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.
     - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. (default: `"text"`)
 
 - **searxng_search_suggestions**
@@ -106,7 +106,7 @@ AI Assistant (e.g. Claude)
     - `language` (string, optional): Language code for suggestions (e.g., "en", "fr", "de") or "all" (default: "all")
 
 - **searxng_instance_info**
-  - Discover categories, engines, defaults, locales, and plugins exposed by the configured SearXNG instance
+  - Discover categories, engines, defaults, locales, and plugins exposed by all reachable configured SearXNG instances. The response reports `common` values present on every reachable instance and `available` values present on at least one reachable instance.
   - Inputs:
     - `includeEngines` (boolean, optional): Include enabled engine names in the response. (default: false)
     - `includeDisabled` (boolean, optional): Include disabled engine names when `includeEngines` is true. (default: false)
