@@ -1953,6 +1953,7 @@ async function runTests() {
         return createMockFetch({
           json: {
             query: 'fanout',
+            number_of_results: 2,
             results: [
               { title: 'Lower Duplicate', content: 'Low', url: 'https://Example.com/same#section', score: 0.2 },
               { title: 'Missing Score', content: 'No score', url: 'not a url', score: undefined },
@@ -1963,6 +1964,7 @@ async function runTests() {
       return createMockFetch({
         json: {
           query: 'fanout',
+          number_of_results: 3,
           results: [
             { title: 'Highest', content: 'High', url: 'https://example.com/high', score: 0.95 },
             { title: 'Higher Duplicate', content: 'Better', url: 'https://example.com/same', score: 0.7 },
@@ -1978,6 +1980,40 @@ async function runTests() {
     assert.deepEqual(requestedHosts.sort(), ['https://one.example.com', 'https://two.example.com']);
     assert.deepEqual(payload.servedBy, ['https://one.example.com', 'https://two.example.com']);
     assert.deepEqual(payload.results.map((entry: any) => entry.title), ['Highest', 'Higher Duplicate', 'Raw URL Copy']);
+    assert.equal(payload.number_of_results, payload.results.length);
+    assert.equal(payload.number_of_results, 3);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('all cooled down instances throw cooldown-specific message without double spaces', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://cooled-one.example.com;https://cooled-two.example.com');
+
+    for (const instanceUrl of ['https://cooled-one.example.com', 'https://cooled-two.example.com']) {
+      recordSearxngInstanceFailure(instanceUrl, Date.now());
+      recordSearxngInstanceFailure(instanceUrl, Date.now());
+      recordSearxngInstanceFailure(instanceUrl, Date.now());
+    }
+
+    const mockServer = createMockServer();
+    let fetchCalled = false;
+    fetchMocker.mock(async () => {
+      fetchCalled = true;
+      return createMockFetch({ json: { results: [] } })('https://unused.example.com');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'all cooled');
+      assert.fail('Expected all-cooled error');
+    } catch (error: any) {
+      assert.ok(error.message.includes('All configured SearXNG instances are in cooldown after repeated failures'), error.message);
+      assert.ok(error.message.includes('https://cooled-one.example.com'), error.message);
+      assert.ok(error.message.includes('https://cooled-two.example.com'), error.message);
+      assert.ok(!error.message.includes('  '), error.message);
+    }
+    assert.equal(fetchCalled, false);
 
     fetchMocker.restore();
     envManager.restore();
