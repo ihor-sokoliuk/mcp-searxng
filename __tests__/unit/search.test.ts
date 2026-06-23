@@ -245,19 +245,37 @@ async function runTests() {
     
     const mockServer = createMockServer();
     
-    fetchMocker.mock(async () => ({
-      ok: true,
-      json: async () => {
-        throw new Error('Invalid JSON');
-      },
-      text: async () => 'Invalid JSON response'
-    } as any));
+    // Simulate a real single-use body: once json() consumes it, text() fails.
+    // The buggy path (text() after json()) would lose the preview entirely.
+    fetchMocker.mock(async () => {
+      let bodyConsumed = false;
+      return {
+        ok: true,
+        json: async () => {
+          bodyConsumed = true;
+          throw new Error('Invalid JSON');
+        },
+        text: async () => {
+          if (bodyConsumed) {
+            throw new TypeError('Body is unusable: Body has already been read');
+          }
+          return 'Invalid JSON response';
+        }
+      } as any;
+    });
 
     try {
       await performWebSearch(mockServer as any, 'test query');
       assert.fail('Should have thrown JSON parsing error');
     } catch (error: any) {
-      assert.ok(error.message.includes('JSON Error') || error.message.includes('Invalid JSON') || error.name === 'MCPSearXNGError');
+      assert.equal(error.name, 'MCPSearXNGError');
+      // Regression (BUG-008 review): the error must carry the real response
+      // preview, not the '[Could not read response text]' placeholder that the
+      // body-already-consumed bug produced.
+      assert.ok(
+        error.message.includes('Invalid JSON response'),
+        `expected response preview in error message, got: ${error.message}`
+      );
     }
 
     fetchMocker.restore();

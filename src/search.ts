@@ -480,19 +480,22 @@ async function fetchSearchFromInstance(
       throw createServerError(response.status, response.statusText, responseBody, context);
     }
   } else {
+    // Read the body as text once, then parse — a Response body is single-use, so
+    // calling response.text() after response.json() consumed it always throws and
+    // would leave the error preview empty.
+    let responseText: string;
     try {
-      data = (await response.json()) as SearXNGWeb;
-    } catch (error: any) {
+      responseText = await response.text();
+    } catch {
+      responseText = '[Could not read response text]';
+    }
+
+    try {
+      data = JSON.parse(responseText) as SearXNGWeb;
+    } catch {
       if (isHtmlFallbackEnabled()) {
         data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
       } else {
-        let responseText: string;
-        try {
-          responseText = await response.text();
-        } catch {
-          responseText = '[Could not read response text]';
-        }
-
         throw createJSONError(responseText);
       }
     }
