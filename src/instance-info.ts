@@ -243,17 +243,7 @@ function cacheFailure(base: string, message: string, status?: number): void {
   });
 }
 
-async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Promise<ConfigResult> {
-  const cached = cachedConfigs.get(base);
-  if (cached) {
-    return { available: true, config: cached, sourceUrl: base };
-  }
-
-  const cachedFailure = getCachedFailure(base);
-  if (cachedFailure) {
-    return cachedFailure;
-  }
-
+async function requestInstanceConfig(mcpServer: McpServer, base: string): Promise<ConfigResult> {
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
     const url = new URL("config", parsedBase);
@@ -269,7 +259,6 @@ async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Prom
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
       const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
-      cacheFailure(base, message, response.status);
       return {
         available: false,
         message,
@@ -279,19 +268,38 @@ async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Prom
     }
 
     const config = await response.json() as SearXNGConfig;
-    cachedConfigs.set(base, config);
-    cachedConfigFailures.delete(base);
     return { available: true, config, sourceUrl: base };
   } catch (error) {
     logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${base}: ${error instanceof Error ? error.message : String(error)}`);
     const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
-    cacheFailure(base, message);
     return {
       available: false,
       message,
       sourceUrl: base,
     };
   }
+}
+
+async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Promise<ConfigResult> {
+  const cached = cachedConfigs.get(base);
+  if (cached) {
+    return { available: true, config: cached, sourceUrl: base };
+  }
+
+  const cachedFailure = getCachedFailure(base);
+  if (cachedFailure) {
+    return cachedFailure;
+  }
+
+  const result = await requestInstanceConfig(mcpServer, base);
+  if (result.available) {
+    cachedConfigs.set(base, result.config);
+    cachedConfigFailures.delete(base);
+  } else {
+    cacheFailure(base, result.message, result.status);
+  }
+
+  return result;
 }
 
 async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<AggregateConfigResult> {
