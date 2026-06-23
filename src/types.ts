@@ -239,7 +239,7 @@ export const WEB_SEARCH_TOOL: Tool = {
       engines: {
         type: "string",
         description:
-          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Live /config capabilities are aggregated across reachable instances; prefer searxng_instance_info engines.common for consistent multi-instance results. Values in engines.available are best-effort and may only be honored by some instances. Known values are normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If /config is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.",
+          "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Live /config capabilities are aggregated across reachable instances; prefer searxng_instance_info engines.common.enabled for consistent multi-instance results. Values in engines.available.enabled are best-effort and may only be honored by some instances. Known values are normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If /config is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.",
       },
       response_format: {
         type: "string",
