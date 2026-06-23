@@ -312,7 +312,7 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('unreachable multi-URL instance is reported and not cached as unreachable', async () => {
+  await testFunction('unreachable multi-URL instance is negative-cached until refresh retries it', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://up.example.com;https://flaky.example.com');
     const mockServer = createMockServer();
@@ -333,16 +333,19 @@ async function runTests() {
 
     const first = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
     const second = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+    const refreshed = JSON.parse(await fetchInstanceInfo(mockServer as any, true, false, undefined, true));
 
     assert.deepEqual(first.instancesReachable, ['https://up.example.com']);
     assert.deepEqual(first.instancesUnreachable, [{
       sourceUrl: 'https://flaky.example.com',
       message: 'SearXNG /config is unavailable; instance capability discovery could not complete.',
     }]);
-    assert.deepEqual(second.instancesReachable, ['https://up.example.com', 'https://flaky.example.com']);
-    assert.equal(second.instancesUnreachable, undefined);
-    assert.equal(flakyAttempts, 2, 'failed instance should be retried on later calls');
-    assert.equal(requestedUrls.filter((requestedUrl) => new URL(requestedUrl).origin === 'https://up.example.com').length, 1);
+    assert.deepEqual(second.instancesReachable, ['https://up.example.com']);
+    assert.deepEqual(second.instancesUnreachable, first.instancesUnreachable);
+    assert.deepEqual(refreshed.instancesReachable, ['https://up.example.com', 'https://flaky.example.com']);
+    assert.equal(refreshed.instancesUnreachable, undefined);
+    assert.equal(flakyAttempts, 2, 'failed instance should not be refetched until refresh clears negative cache');
+    assert.equal(requestedUrls.filter((requestedUrl) => new URL(requestedUrl).origin === 'https://up.example.com').length, 2);
 
     fetchMocker.restore();
     envManager.restore();

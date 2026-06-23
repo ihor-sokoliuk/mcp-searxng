@@ -47,7 +47,7 @@ This is a Model Context Protocol (MCP) server that provides web search, autocomp
 ## Available Tools
 
 ### 1. searxng_web_search
-Performs web searches using the configured SearXNG instance.
+Performs web searches using the configured SearXNG instance or replica list, with failover/fanout when multiple instances are configured.
 
 **Parameters:**
 - \`query\` (required): The search query string

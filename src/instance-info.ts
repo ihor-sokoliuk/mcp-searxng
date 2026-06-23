@@ -12,8 +12,11 @@ type ReachableConfig = { config: SearXNGConfig; sourceUrl: string };
 type AggregateConfigResult =
   | { available: true; configs: ReachableConfig[]; failures: ConfigFailure[] }
   | { available: false; message: string; failures: ConfigFailure[] };
+type CachedConfigFailure = { until: number; message: string; status?: number };
 
+const CONFIG_FAILURE_CACHE_TTL_MS = 60_000;
 const cachedConfigs = new Map<string, SearXNGConfig>();
+const cachedConfigFailures = new Map<string, CachedConfigFailure>();
 
 function unavailable(message: string, failures: ConfigFailure[] = []): string {
   return JSON.stringify({
@@ -76,7 +79,6 @@ function engineCategories(engine: any): string[] {
 function engineSets(config: SearXNGConfig, category?: string) {
   const enabled = new Set<string>();
   const disabled = new Set<string>();
-  const all = new Set<string>();
 
   if (Array.isArray(config.engines)) {
     for (const engine of config.engines) {
@@ -88,7 +90,6 @@ function engineSets(config: SearXNGConfig, category?: string) {
         continue;
       }
 
-      all.add(engine.name);
       if (engine.disabled) {
         disabled.add(engine.name);
       } else {
@@ -97,7 +98,7 @@ function engineSets(config: SearXNGConfig, category?: string) {
     }
   }
 
-  return { enabled, disabled, all };
+  return { enabled, disabled };
 }
 
 function allEngineNames(config: SearXNGConfig): Set<string> {
@@ -212,12 +213,45 @@ function formatInstanceInfo(
 
 export function clearInstanceInfoCacheForTests(): void {
   cachedConfigs.clear();
+  cachedConfigFailures.clear();
+}
+
+function getCachedFailure(base: string, now = Date.now()): ConfigResult | null {
+  const cached = cachedConfigFailures.get(base);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.until <= now) {
+    cachedConfigFailures.delete(base);
+    return null;
+  }
+
+  return {
+    available: false,
+    sourceUrl: base,
+    message: cached.message,
+    ...(cached.status !== undefined ? { status: cached.status } : {}),
+  };
+}
+
+function cacheFailure(base: string, message: string, status?: number): void {
+  cachedConfigFailures.set(base, {
+    until: Date.now() + CONFIG_FAILURE_CACHE_TTL_MS,
+    message,
+    ...(status !== undefined ? { status } : {}),
+  });
 }
 
 async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Promise<ConfigResult> {
   const cached = cachedConfigs.get(base);
   if (cached) {
     return { available: true, config: cached, sourceUrl: base };
+  }
+
+  const cachedFailure = getCachedFailure(base);
+  if (cachedFailure) {
+    return cachedFailure;
   }
 
   try {
@@ -234,9 +268,11 @@ async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Prom
 
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
+      const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
+      cacheFailure(base, message, response.status);
       return {
         available: false,
-        message: `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`,
+        message,
         status: response.status,
         sourceUrl: base,
       };
@@ -244,12 +280,15 @@ async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Prom
 
     const config = await response.json() as SearXNGConfig;
     cachedConfigs.set(base, config);
+    cachedConfigFailures.delete(base);
     return { available: true, config, sourceUrl: base };
   } catch (error) {
     logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${base}: ${error instanceof Error ? error.message : String(error)}`);
+    const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
+    cacheFailure(base, message);
     return {
       available: false,
-      message: "SearXNG /config is unavailable; instance capability discovery could not complete.",
+      message,
       sourceUrl: base,
     };
   }
@@ -267,6 +306,7 @@ async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<Aggr
 
   if (refresh) {
     cachedConfigs.clear();
+    cachedConfigFailures.clear();
   }
 
   const results = await Promise.all(instances.map((instance) => fetchConfigFromInstance(mcpServer, instance)));
@@ -292,22 +332,25 @@ async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<Aggr
   return { available: true, configs, failures };
 }
 
-export async function getKnownEngines(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
+async function getAggregatedCapability(
+  mcpServer: McpServer,
+  refresh: boolean,
+  extractor: (config: SearXNGConfig) => Set<string>,
+): Promise<Set<string> | null> {
   const result = await fetchConfigs(mcpServer, refresh);
   if (!result.available) {
     return null;
   }
 
-  return union(result.configs.map(({ config }) => allEngineNames(config)));
+  return union(result.configs.map(({ config }) => extractor(config)));
+}
+
+export async function getKnownEngines(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
+  return getAggregatedCapability(mcpServer, refresh, allEngineNames);
 }
 
 export async function getKnownCategories(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
-  const result = await fetchConfigs(mcpServer, refresh);
-  if (!result.available) {
-    return null;
-  }
-
-  return union(result.configs.map(({ config }) => new Set(namesFromCategories(config))));
+  return getAggregatedCapability(mcpServer, refresh, (config) => new Set(namesFromCategories(config)));
 }
 
 export async function fetchInstanceInfo(
