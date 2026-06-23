@@ -163,7 +163,8 @@ async function runTests() {
     const safesearchSchema = searchProps.safesearch as Record<string, unknown>;
     assert.equal(safesearchSchema.type, 'string');
     assert.deepEqual(safesearchSchema.enum, ['0', '1', '2']);
-    assert.equal(safesearchSchema.default, '0');
+    assert.equal(safesearchSchema.default, undefined);
+    assert.ok(!Object.hasOwn(safesearchSchema, 'default'));
     assert.ok(!(safesearchSchema.enum as unknown[]).some((value) => typeof value === 'number'));
 
     const suggestionsTool = result.tools.find((t) => t.name === 'searxng_search_suggestions');
