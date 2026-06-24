@@ -9,6 +9,10 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 | `SEARXNG_URL` | Yes | — | URL of your SearXNG instance, or a semicolon-separated list of interchangeable replica base URLs. Single URL behavior is unchanged. Format: `<protocol>://<hostname>[:<port>]` (e.g. `http://localhost:8080` or `https://one.example.com;https://two.example.com`) |
 | `SEARXNG_FANOUT` | No | `false` | Set to `true` to query all healthy configured SearXNG instances in parallel and merge results. Default failover mode tries instances in order until one returns results. |
 
+When `SEARXNG_URL` contains multiple semicolon-separated URLs, they are treated as interchangeable replicas. Default mode fails over in order when an instance hard-fails or returns no results. A reachable `200 OK` response with an empty `results` array is considered healthy and does not trigger cooldown. Instances with 3 consecutive hard failures are skipped for 60 seconds.
+
+With `SEARXNG_FANOUT=true`, all healthy instances are queried in parallel. Results are deduplicated by canonical URL, the copy with the highest `score` is kept, and merged results are ordered by descending score. Capability discovery and filter guidance aggregate `/config` data from all reachable configured instances; `common` categories/engines work everywhere reachable, while `available` values are best-effort. A `/config` endpoint that fails is skipped for about 60 seconds before retry, or retried immediately when `searxng_instance_info` is called with `refresh=true`. Search suggestions use the first configured instance.
+
 ## Authentication
 
 | Variable | Required | Default | Description |
@@ -44,10 +48,6 @@ Operator-level defaults applied when the caller omits the corresponding per-call
 |---|---|---|---|
 | `SEARXNG_MAX_RESULTS` | No | — | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
 | `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet. Longer snippets are truncated and marked with `…`. Invalid values are ignored. Recommended: `500` for smaller context windows. |
-
-When `SEARXNG_URL` contains multiple semicolon-separated URLs, they are treated as interchangeable replicas. Default mode fails over in order when an instance hard-fails or returns no results. A reachable `200 OK` response with an empty `results` array is considered healthy and does not trigger cooldown. Instances with 3 consecutive hard failures are skipped for 60 seconds.
-
-With `SEARXNG_FANOUT=true`, all healthy instances are queried in parallel. Results are deduplicated by canonical URL, the copy with the highest `score` is kept, and merged results are ordered by descending score. Capability discovery and filter guidance aggregate `/config` data from all reachable configured instances; `common` categories/engines work everywhere reachable, while `available` values are best-effort. A `/config` endpoint that fails is skipped for about 60 seconds before retry, or retried immediately when `searxng_instance_info` is called with `refresh=true`. Search suggestions use the first configured instance.
 
 ## Search Compatibility
 
@@ -91,7 +91,7 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
-| `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
+| `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. Works in pair with `MCP_HTTP_PORT` only. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
 
 **HTTP endpoints (when HTTP mode is active):**
 - `POST/GET/DELETE /mcp` — MCP protocol
