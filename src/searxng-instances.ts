@@ -54,6 +54,21 @@ export function validateSearxngInstanceUrl(value: string): string | null {
   return null;
 }
 
+export function redactSearxngInstanceUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (!url.username && !url.password) {
+      return raw;
+    }
+
+    url.username = "";
+    url.password = "";
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 export function isSearxngFanoutEnabled(): boolean {
   return process.env.SEARXNG_FANOUT === "true";
 }

@@ -10,6 +10,7 @@ import {
   isSearxngFanoutEnabled,
   recordSearxngInstanceFailure,
   recordSearxngInstanceSuccess,
+  redactSearxngInstanceUrl,
 } from "./searxng-instances.js";
 import {
   MCPSearXNGError,
@@ -139,22 +140,34 @@ async function fetchWithSearchTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const rawUrl = url.toString();
+  const redactedUrl = redactSearxngInstanceUrl(rawUrl);
 
   try {
-    logMessage(mcpServer, "info", `Making request to: ${url.toString()}`);
-    return await fetch(url.toString(), {
+    logMessage(mcpServer, "info", `Making request to: ${redactedUrl}`);
+    return await fetch(rawUrl, {
       ...requestOptions,
       signal: controller.signal,
     });
   } catch (error: any) {
-    logMessage(mcpServer, "error", `Network error during search request: ${error.message}`, { query, url: url.toString() });
+    const redactedMessage = typeof error.message === "string"
+      ? error.message.replaceAll(rawUrl, redactedUrl)
+      : error.message;
+    const redactedError = {
+      ...error,
+      message: redactedMessage,
+      code: error.code,
+      cause: error.cause,
+      name: error.name,
+    };
+    logMessage(mcpServer, "error", `Network error during search request: ${redactedMessage}`, { query, url: redactedUrl });
     const context: ErrorContext = {
-      url: url.toString(),
+      url: redactedUrl,
       searxngUrl,
       proxyAgent: !!(requestOptions as any).dispatcher,
       username: process.env.AUTH_USERNAME,
     };
-    throw createNetworkError(error, context);
+    throw createNetworkError(redactedError, context);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -169,7 +182,7 @@ async function fetchHtmlFallbackSearch(
   searxngUrl: string,
 ): Promise<SearXNGWeb> {
   const htmlUrl = buildHtmlFallbackUrl(jsonUrl);
-  logMessage(mcpServer, "info", `Retrying search with HTML fallback: ${htmlUrl.toString()}`);
+  logMessage(mcpServer, "info", `Retrying search with HTML fallback: ${redactSearxngInstanceUrl(htmlUrl.toString())}`);
 
   const response = await fetchWithSearchTimeout(mcpServer, htmlUrl, requestOptions, timeoutMs, query, searxngUrl);
   if (!response.ok) {
@@ -181,7 +194,7 @@ async function fetchHtmlFallbackSearch(
     }
 
     const context: ErrorContext = {
-      url: htmlUrl.toString(),
+      url: redactSearxngInstanceUrl(htmlUrl.toString()),
       searxngUrl,
     };
     throw createServerError(response.status, response.statusText, responseBody, context);
@@ -474,7 +487,7 @@ async function fetchSearchFromInstance(
       }
 
       const context: ErrorContext = {
-        url: url.toString(),
+        url: redactSearxngInstanceUrl(url.toString()),
         searxngUrl: instanceUrl
       };
       throw createServerError(response.status, response.statusText, responseBody, context);
@@ -518,15 +531,15 @@ function hasSearchResults(data: SearXNGWeb): boolean {
 function createAllInstancesFailedError(failures: FailedInstanceResult[], skippedInstances: string[]): MCPSearXNGError {
   if (failures.length === 0 && skippedInstances.length > 0) {
     return new MCPSearXNGError(
-      `All configured SearXNG instances are in cooldown after repeated failures: ${skippedInstances.join(", ")}.`
+      `All configured SearXNG instances are in cooldown after repeated failures: ${skippedInstances.map(redactSearxngInstanceUrl).join(", ")}.`
     );
   }
 
   const failureDetails = failures
-    .map(({ instanceUrl, error }) => `${instanceUrl}: ${error instanceof Error ? error.message : String(error)}`)
+    .map(({ instanceUrl, error }) => `${redactSearxngInstanceUrl(instanceUrl)}: ${error instanceof Error ? error.message : String(error)}`)
     .join("; ");
   const skippedDetails = skippedInstances.length > 0
-    ? ` Skipped cooled-down instances: ${skippedInstances.join(", ")}.`
+    ? ` Skipped cooled-down instances: ${skippedInstances.map(redactSearxngInstanceUrl).join(", ")}.`
     : "";
 
   return new MCPSearXNGError(`All configured SearXNG instances failed. ${failureDetails}${skippedDetails}`);
@@ -727,6 +740,7 @@ export async function performWebSearch(
     data = multiResult.data;
     servedBy = multiResult.servedBy;
   }
+  const redactedServedBy = servedBy.map(redactSearxngInstanceUrl);
 
   const results = data.results
     .filter((result) => min_score === undefined || (result.score || 0) >= min_score);
@@ -739,14 +753,14 @@ export async function performWebSearch(
       ...data,
       results: slicedResults,
       ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
-      ...(includeProvenance ? { servedBy } : {}),
+      ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
     }, null, 2);
   }
 
   const metadata = formatSearchMetadata(data);
   const leadingSections = [
     includeProvenance
-      ? `Served by SearXNG ${servedBy.length === 1 ? "instance" : "instances"}: ${servedBy.join(", ")}`
+      ? `Served by SearXNG ${redactedServedBy.length === 1 ? "instance" : "instances"}: ${redactedServedBy.join(", ")}`
       : null,
     filters.validationNote ?? null,
     data.sourceFormat === "html" ? "Note: Results parsed from SearXNG HTML fallback; metadata is limited." : null,
