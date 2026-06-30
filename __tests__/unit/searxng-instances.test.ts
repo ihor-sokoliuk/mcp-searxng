@@ -15,6 +15,7 @@ import {
   getSearxngInstances,
   isSearxngFanoutEnabled,
   parseSearxngUrls,
+  redactSearxngInstanceUrl,
   recordSearxngInstanceFailure,
   recordSearxngInstanceSuccess,
   validateSearxngInstanceUrl,
@@ -62,6 +63,43 @@ async function runTests() {
   await testFunction('validateSearxngInstanceUrl rejects invalid and non-http URLs', () => {
     assert.ok(validateSearxngInstanceUrl('not-a-url')?.includes('not-a-url'));
     assert.ok(validateSearxngInstanceUrl('ftp://search.example.com')?.includes('ftp:'));
+  }, results);
+
+  await testFunction('redactSearxngInstanceUrl removes username and password userinfo', () => {
+    assert.equal(
+      redactSearxngInstanceUrl('https://user:pass@search.example.com/path?q=1'),
+      'https://search.example.com/path?q=1',
+    );
+  }, results);
+
+  await testFunction('redactSearxngInstanceUrl removes username-only userinfo', () => {
+    assert.equal(
+      redactSearxngInstanceUrl('https://user@search.example.com/path'),
+      'https://search.example.com/path',
+    );
+  }, results);
+
+  await testFunction('redactSearxngInstanceUrl removes password-only userinfo', () => {
+    assert.equal(
+      redactSearxngInstanceUrl('https://:pass@search.example.com/path'),
+      'https://search.example.com/path',
+    );
+  }, results);
+
+  await testFunction('redactSearxngInstanceUrl leaves invalid strings unchanged', () => {
+    assert.equal(redactSearxngInstanceUrl('not a url'), 'not a url');
+  }, results);
+
+  await testFunction('redactSearxngInstanceUrl leaves credential-free URLs byte-identical', () => {
+    const urls = [
+      'https://search.example.com',
+      'https://SEARCH.example.com/%7Euser?q=a%20b',
+      'http://localhost:8080/searxng/?q=test#top',
+    ];
+
+    for (const url of urls) {
+      assert.equal(redactSearxngInstanceUrl(url), url);
+    }
   }, results);
 
   await testFunction('isSearxngFanoutEnabled is true only for literal true', () => {

@@ -16,7 +16,7 @@ import {
   recordSearxngInstanceFailure,
 } from '../../src/searxng-instances.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
-import { createMockServer } from '../helpers/mock-server.js';
+import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch, createAbortableMockFetch } from '../helpers/mock-fetch.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -343,6 +343,45 @@ async function runTests() {
       url: 'https://example.com/alpha',
       content: 'Alpha result snippet from a SearXNG simple theme result page.',
     });
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('HTML fallback retry log redacts credential-bearing configured URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://user:pass@fallback-log.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    fetchMocker.mock(async (url) => {
+      const requestUrl = new URL(url.toString());
+
+      if (requestUrl.searchParams.get('format') === 'json') {
+        return {
+          ok: false,
+          status: 403,
+          statusText: 'Forbidden',
+          text: async () => 'JSON format is disabled',
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => searxngHtmlFixture,
+      } as Response;
+    });
+
+    await performWebSearch(server as any, 'fallback log');
+
+    const fallbackLog = getLoggingCalls()
+      .map((call) => call.data?.message)
+      .find((message) => typeof message === 'string' && message.includes('Retrying search with HTML fallback:'));
+    assert.ok(fallbackLog, 'Expected HTML fallback retry log');
+    assert.match(fallbackLog, /fallback-log\.example\.com/);
+    assert.ok(!fallbackLog.includes('user:pass@'), fallbackLog);
+    assert.ok(!fallbackLog.includes('pass'), fallbackLog);
 
     fetchMocker.restore();
     envManager.restore();
@@ -1819,6 +1858,60 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('multi-instance servedBy provenance redacts configured URL credentials in JSON output', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@first.example.com;https://user:pass@second.example.com');
+    envManager.delete('SEARXNG_FANOUT');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'first.example.com') {
+        throw new Error('first down');
+      }
+      return createMockFetch({
+        json: {
+          query: 'redacted servedBy',
+          results: [
+            { title: 'Second Result', content: 'Recovered', url: 'https://example.com/recovered', score: 0.9 },
+          ],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'redacted servedBy', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.deepEqual(payload.servedBy, ['https://second.example.com/']);
+    assert.ok(!result.includes('user:pass@'), result);
+    assert.ok(!result.includes('user'), result);
+    assert.ok(!result.includes('pass'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('multi-instance servedBy provenance redacts configured URL credentials in text output', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@empty-one.example.com;https://user:pass@empty-two.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { query: 'empty text', results: [] } }));
+
+    const result = await performWebSearch(mockServer as any, 'empty text');
+
+    assert.equal(
+      result.split('\n')[0],
+      'Served by SearXNG instances: https://empty-one.example.com/, https://empty-two.example.com/',
+    );
+    assert.ok(!result.includes('user:pass@'), result);
+    assert.ok(!result.includes('user'), result);
+    assert.ok(!result.includes('pass'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('empty multi-instance response is healthy and fails over without cooldown', async () => {
     clearSearxngInstanceStateForTests();
     envManager.set('SEARXNG_URL', 'https://empty.example.com;https://second.example.com');
@@ -1912,6 +2005,109 @@ async function runTests() {
       assert.match(error.message, /first\.example\.com failed/);
       assert.match(error.message, /second\.example\.com failed/);
     }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('all multi-instance hard failures redact credential-bearing configured URLs in aggregate error', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@first.example.com;https://user:pass@second.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      throw new Error(`${url.toString()} failed`);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'all fail redacted');
+      assert.fail('Expected aggregate multi-instance failure');
+    } catch (error: any) {
+      assert.ok(error.message.includes('All configured SearXNG instances failed'), error.message);
+      assert.match(error.message, /first\.example\.com/);
+      assert.match(error.message, /second\.example\.com/);
+      assert.ok(!error.message.includes('user:pass@'), error.message);
+      assert.ok(!error.message.includes('user'), error.message);
+      assert.ok(!error.message.includes('pass'), error.message);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('credential-free aggregate hard-failure text is unchanged exactly', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      throw new Error(`${parsedUrl.hostname} failed`);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'all fail exact');
+      assert.fail('Expected aggregate multi-instance failure');
+    } catch (error: any) {
+      assert.equal(
+        error.message,
+        'All configured SearXNG instances failed. https://first.example.com: 🌐 Network Error: first.example.com failed; https://second.example.com: 🌐 Network Error: second.example.com failed',
+      );
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('single-instance ECONNREFUSED error redacts credential-bearing configured URL', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@only.example.com');
+
+    const mockServer = createMockServer();
+    const refused = new Error('connect ECONNREFUSED');
+    (refused as any).code = 'ECONNREFUSED';
+    fetchMocker.mock(async () => {
+      throw refused;
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'refused');
+      assert.fail('Expected ECONNREFUSED error');
+    } catch (error: any) {
+      assert.match(error.message, /only\.example\.com/);
+      assert.ok(!error.message.includes('user:pass@'), error.message);
+      assert.ok(!error.message.includes('user'), error.message);
+      assert.ok(!error.message.includes('pass'), error.message);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('search request log redacts credential-bearing configured URL', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@log.example.com');
+
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'log redaction',
+        results: [
+          { title: 'Logged Result', content: 'Logged', url: 'https://example.com/logged', score: 1 },
+        ],
+      },
+    }));
+
+    await performWebSearch(server as any, 'log redaction');
+
+    const requestLog = getLoggingCalls()
+      .map((call) => call.data?.message)
+      .find((message) => typeof message === 'string' && message.includes('Making request to:'));
+    assert.ok(requestLog, 'Expected Making request to log');
+    assert.match(requestLog, /log\.example\.com/);
+    assert.ok(!requestLog.includes('user:pass@'), requestLog);
+    assert.ok(!requestLog.includes('user'), requestLog);
+    assert.ok(!requestLog.includes('pass'), requestLog);
 
     fetchMocker.restore();
     envManager.restore();
@@ -2026,6 +2222,43 @@ async function runTests() {
         'All configured SearXNG instances are in cooldown after repeated failures: https://cooled-one.example.com, https://cooled-two.example.com.',
       );
       assert.ok(!error.message.includes('  '), error.message);
+    }
+    assert.equal(fetchCalled, false);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('all cooled down credential-bearing instances redact credentials and do not fetch', async () => {
+    clearSearxngInstanceStateForTests();
+    const configuredUrls = [
+      'https://user:pass@cooled-one.example.com',
+      'https://user:pass@cooled-two.example.com',
+    ];
+    envManager.set('SEARXNG_URL', configuredUrls.join(';'));
+
+    for (const instanceUrl of configuredUrls) {
+      recordSearxngInstanceFailure(instanceUrl, Date.now());
+      recordSearxngInstanceFailure(instanceUrl, Date.now());
+      recordSearxngInstanceFailure(instanceUrl, Date.now());
+    }
+
+    const mockServer = createMockServer();
+    let fetchCalled = false;
+    fetchMocker.mock(async () => {
+      fetchCalled = true;
+      return createMockFetch({ json: { results: [] } })('https://unused.example.com');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'all cooled redacted');
+      assert.fail('Expected all-cooled error');
+    } catch (error: any) {
+      assert.match(error.message, /cooled-one\.example\.com/);
+      assert.match(error.message, /cooled-two\.example\.com/);
+      assert.ok(!error.message.includes('user:pass@'), error.message);
+      assert.ok(!error.message.includes('user'), error.message);
+      assert.ok(!error.message.includes('pass'), error.message);
     }
     assert.equal(fetchCalled, false);
 
