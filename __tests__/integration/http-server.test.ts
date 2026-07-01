@@ -182,6 +182,11 @@ async function runTests() {
 
     assert.equal(res.status, 200);
     assert.ok(res.headers['mcp-session-id'], 'Expected new mcp-session-id header in response');
+    assert.notEqual(
+      res.headers['mcp-session-id'],
+      'stale-session-abc',
+      'Server should mint a fresh session id, not echo the stale client-supplied one'
+    );
   }, results);
 
   await testFunction('compatibility mode still allows health and init flow', async () => {
