@@ -21,11 +21,58 @@ async function runTests() {
     envManager.delete('MCP_HTTP_HARDEN');
     envManager.delete('MCP_HTTP_AUTH_TOKEN');
     envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+    envManager.delete('MCP_HTTP_TRUST_PROXY');
 
     const config = getHttpSecurityConfig();
     assert.equal(config.harden, false);
     assert.equal(config.requireAuth, false);
     assert.equal(config.restrictOrigins, false);
+    assert.equal(config.trustProxy, false);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY=false keeps trust proxy disabled', () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', 'false');
+
+    const config = getHttpSecurityConfig();
+    assert.equal(config.trustProxy, false);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY=true enables boolean trust proxy', () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', 'true');
+
+    const config = getHttpSecurityConfig();
+    assert.equal(config.trustProxy, true);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY=1 enables single-hop trust proxy', () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', '1');
+
+    const config = getHttpSecurityConfig();
+    assert.equal(config.trustProxy, 1);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY subnet value passes through unchanged', () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', '10.0.0.0/8');
+
+    const config = getHttpSecurityConfig();
+    assert.equal(config.trustProxy, '10.0.0.0/8');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY trims surrounding whitespace', () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', '  loopback  ');
+
+    const config = getHttpSecurityConfig();
+    assert.equal(config.trustProxy, 'loopback');
 
     envManager.restore();
   }, results);

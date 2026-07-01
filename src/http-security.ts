@@ -6,6 +6,7 @@ export interface HttpSecurityConfig {
   allowedOrigins: string[];
   enableDnsRebindingProtection: boolean;
   allowedHosts: string[];
+  trustProxy: boolean | number | string;
   exposeFullConfig: boolean;
   allowPrivateUrls: boolean;
 }
@@ -19,6 +20,20 @@ function parseCsv(value: string | undefined): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseTrustProxy(value: string | undefined): boolean | number | string {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "false") {
+    return false;
+  }
+  if (trimmed === "true") {
+    return true;
+  }
+  if (/^[1-9]\d*$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+  return trimmed;
 }
 
 export function getHttpSecurityConfig(): HttpSecurityConfig {
@@ -35,6 +50,7 @@ export function getHttpSecurityConfig(): HttpSecurityConfig {
     allowedOrigins,
     enableDnsRebindingProtection: harden,
     allowedHosts: allowedHosts.length > 0 ? allowedHosts : ["127.0.0.1", "localhost"],
+    trustProxy: parseTrustProxy(process.env.MCP_HTTP_TRUST_PROXY),
     exposeFullConfig: isEnabled(process.env.MCP_HTTP_EXPOSE_FULL_CONFIG),
     allowPrivateUrls: isEnabled(process.env.MCP_HTTP_ALLOW_PRIVATE_URLS),
   };

@@ -24,8 +24,87 @@ function createTestMcpServer(): McpServer {
   );
 }
 
+async function captureConsoleOutput(action: () => Promise<void>): Promise<string[]> {
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const output: string[] = [];
+  const capture = (...args: unknown[]) => {
+    output.push(args.map(arg => {
+      if (arg instanceof Error) {
+        return `${arg.name}: ${arg.message}`;
+      }
+      return String(arg);
+    }).join(' '));
+  };
+
+  console.error = capture;
+  console.warn = capture;
+
+  try {
+    await action();
+  } finally {
+    console.error = originalError;
+    console.warn = originalWarn;
+  }
+
+  return output;
+}
+
 async function runTests() {
   console.log('🧪 Integration Testing: http-server.ts\n');
+
+  await testFunction('default trust proxy setting remains disabled', async () => {
+    envManager.delete('MCP_HTTP_TRUST_PROXY');
+
+    const app = await createHttpServer(() => createTestMcpServer());
+    assert.equal(app.get('trust proxy'), false);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('GET /health accepts X-Forwarded-For when trust proxy is unset', async () => {
+    envManager.delete('MCP_HTTP_TRUST_PROXY');
+
+    const app = await createHttpServer(() => createTestMcpServer());
+    let status: number | undefined;
+    await captureConsoleOutput(async () => {
+      const res = await request(app)
+        .get('/health')
+        .set('X-Forwarded-For', '203.0.113.10');
+      status = res.status;
+    });
+
+    assert.equal(status, 200);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY=true sets Express trust proxy to true', async () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', 'true');
+
+    const app = await createHttpServer(() => createTestMcpServer());
+    assert.equal(app.get('trust proxy'), true);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY=1 sets Express trust proxy to one hop', async () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', '1');
+
+    const app = await createHttpServer(() => createTestMcpServer());
+    assert.equal(app.get('trust proxy'), 1);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('MCP_HTTP_TRUST_PROXY subnet value passes through to Express', async () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', '10.0.0.0/8');
+
+    const app = await createHttpServer(() => createTestMcpServer());
+    assert.equal(app.get('trust proxy'), '10.0.0.0/8');
+
+    envManager.restore();
+  }, results);
 
   await testFunction('GET /health returns healthy status', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
@@ -417,6 +496,41 @@ async function runTests() {
       res.headers['ratelimit-remaining'] || res.headers['x-ratelimit-remaining'],
       'RateLimit-Remaining header should be present on /health'
     );
+  }, results);
+
+  await testFunction('Rate limiting: trust proxy suppresses X-Forwarded-For validation warning', async () => {
+    envManager.delete('MCP_HTTP_TRUST_PROXY');
+
+    const defaultApp = await createHttpServer(() => createTestMcpServer());
+    const defaultOutput = await captureConsoleOutput(async () => {
+      await request(defaultApp)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('X-Forwarded-For', '203.0.113.10')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
+    });
+    assert.ok(
+      defaultOutput.some(line => line.includes('ERR_ERL_UNEXPECTED_X_FORWARDED_FOR')),
+      'negative control should emit express-rate-limit X-Forwarded-For validation warning'
+    );
+
+    envManager.set('MCP_HTTP_TRUST_PROXY', 'true');
+
+    const trustedApp = await createHttpServer(() => createTestMcpServer());
+    const trustedOutput = await captureConsoleOutput(async () => {
+      await request(trustedApp)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('X-Forwarded-For', '203.0.113.10')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
+    });
+    assert.equal(trustedApp.get('trust proxy'), true);
+    assert.ok(
+      !trustedOutput.some(line => line.includes('ERR_ERL_UNEXPECTED_X_FORWARDED_FOR')),
+      'trusted proxy should suppress express-rate-limit X-Forwarded-For validation warning'
+    );
+
+    envManager.restore();
   }, results);
 
   await testFunction('Rate limiting: POST /mcp limit resets after window expires', async () => {
