@@ -65,7 +65,7 @@ export function redactSearxngInstanceUrl(raw: string): string {
     url.password = "";
     return url.toString();
   } catch {
-    return raw.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/@]*@/, "$1");
+    return raw.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/]*@/, "$1");
   }
 }
 

@@ -98,6 +98,15 @@ async function runTests() {
     assert.ok(!redacted.includes('pass'), redacted);
   }, results);
 
+  await testFunction('redactSearxngInstanceUrl strips multi-at userinfo from unparsable URL strings', () => {
+    const redacted = redactSearxngInstanceUrl('https://a:b@c@ho st.example.com');
+
+    assert.equal(redacted, 'https://ho st.example.com');
+    assert.ok(redacted.includes('ho st.example.com'), redacted);
+    assert.ok(!redacted.includes('a:b'), redacted);
+    assert.ok(!redacted.includes('@c'), redacted);
+  }, results);
+
   await testFunction('redactSearxngInstanceUrl leaves non-URL strings unchanged after parse failure', () => {
     assert.equal(redactSearxngInstanceUrl('not a url'), 'not a url');
   }, results);

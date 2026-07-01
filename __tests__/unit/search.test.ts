@@ -969,6 +969,28 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('read-only error message (aborted request) does not throw a secondary TypeError', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@abort.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => {
+      throw new DOMException('This operation was aborted', 'AbortError');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'abort');
+      assert.fail('Expected a handled network error');
+    } catch (error: any) {
+      assert.ok(!/only a getter|set property message/.test(error.message), error.message);
+      assert.match(error.message, /^🌐 Network Error:/);
+      assert.ok(!error.message.includes('user:pass@'), error.message);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('SEARXNG_TIMEOUT_MS env override is respected (50 ms fires before 500 ms mock)', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.set('SEARXNG_TIMEOUT_MS', '50');
