@@ -75,6 +75,9 @@ export async function createHttpServer(
   const app = express();
   const security = getHttpSecurityConfig();
   validateHttpSecurityConfig(security);
+  if (security.trustProxy !== false) {
+    app.set('trust proxy', security.trustProxy);
+  }
 
   app.use(express.json());
   

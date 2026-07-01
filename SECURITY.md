@@ -84,7 +84,7 @@ For HTTP mode, bind to `127.0.0.1` unless external access is required:
 MCP_HTTP_HOST=127.0.0.1
 ```
 
-The default bind address is `0.0.0.0` (all interfaces), which exposes the port on the network.
+The default bind address is `127.0.0.1` (loopback only); set `MCP_HTTP_HOST=0.0.0.0` to expose the port on all interfaces.
 
 ### TLS and CA Certificates
 
@@ -118,6 +118,7 @@ MCP_HTTP_PORT=3000
 ```
 MCP_HTTP_HARDEN=true
 MCP_HTTP_HOST=127.0.0.1             # put a reverse proxy in front
+MCP_HTTP_TRUST_PROXY=1              # trust one reverse-proxy hop
 MCP_HTTP_AUTH_TOKEN=<random-256bit>
 MCP_HTTP_ALLOWED_ORIGINS=https://your-app.example.com
 MCP_HTTP_ALLOWED_HOSTS=your-app.example.com
@@ -125,6 +126,8 @@ MCP_HTTP_ALLOW_PRIVATE_URLS=false   # default, keep this off
 ```
 
 Place the server behind a TLS-terminating reverse proxy (nginx, Caddy, Traefik). Do not expose the MCP HTTP port directly to the internet.
+
+Enable `MCP_HTTP_TRUST_PROXY` only when the server is behind a trusted reverse proxy that strips and sets `X-Forwarded-For`. Enabling it on a directly exposed server lets clients spoof their IP address to evade rate limits and forge request IPs in logs.
 
 ### Secrets in Environment Variables
 

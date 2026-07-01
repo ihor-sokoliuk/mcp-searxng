@@ -92,6 +92,7 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 |---|---|---|---|
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
 | `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. Works in pair with `MCP_HTTP_PORT` only. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
+| `MCP_HTTP_TRUST_PROXY` | No | `false` | Express `trust proxy` setting for deployments behind a trusted reverse proxy. Use `true`, a trusted hop count such as `1`, or a proxy subnet/preset such as `loopback` or `10.0.0.0/8`. |
 
 **HTTP endpoints (when HTTP mode is active):**
 - `POST/GET/DELETE /mcp` — MCP protocol
@@ -112,6 +113,8 @@ Rate limiting is always active in HTTP mode to prevent resource exhaustion. Two 
 Requests exceeding a limit receive HTTP 429 with a JSON-RPC error body (`code: -32029`). `/health` has a fixed limit of 60 requests per minute. Standard `RateLimit-*` headers are included on all responses.
 
 The in-memory store is per-process; for horizontally scaled deployments replace it with a shared Redis store via `express-rate-limit`'s `store` option.
+
+When HTTP mode runs behind a trusted reverse proxy, set `MCP_HTTP_TRUST_PROXY` so Express can resolve the client IP from proxy headers before rate-limit keys and request logs are computed. For a single trusted proxy hop, use `MCP_HTTP_TRUST_PROXY=1`. Leave it unset for direct exposure; enabling it without a trusted proxy lets clients spoof `X-Forwarded-For`. This setting is distinct from outbound `HTTP_PROXY` / `HTTPS_PROXY`, which control this server's requests to SearXNG or URLs.
 
 ## Hardened HTTP Mode
 
@@ -179,6 +182,7 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "NO_PROXY": "localhost,127.0.0.1,.local,.internal",
         "MCP_HTTP_PORT": "3000",
         "MCP_HTTP_HOST": "0.0.0.0",
+        "MCP_HTTP_TRUST_PROXY": "1",
         "MCP_HTTP_HARDEN": "true",
         "MCP_HTTP_AUTH_TOKEN": "replace-me",
         "MCP_HTTP_ALLOWED_ORIGINS": "https://app.example.com",

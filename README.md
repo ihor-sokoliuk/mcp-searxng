@@ -239,6 +239,8 @@ By default the server uses STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode:
 
 **Endpoints:** `POST/GET/DELETE /mcp` (MCP protocol), `GET /health` (health check)
 
+For reverse-proxy deployments, see [CONFIGURATION.md](CONFIGURATION.md) for `MCP_HTTP_TRUST_PROXY` so rate limiting and logs use the correct client IP.
+
 **Test it:**
 
 ```bash
