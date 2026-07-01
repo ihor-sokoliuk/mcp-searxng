@@ -90,6 +90,18 @@ async function runTests() {
     assert.equal(redactSearxngInstanceUrl('not a url'), 'not a url');
   }, results);
 
+  await testFunction('redactSearxngInstanceUrl strips userinfo from unparsable URL strings', () => {
+    const redacted = redactSearxngInstanceUrl('https://user:pass@ho st.example.com');
+
+    assert.equal(redacted, 'https://ho st.example.com');
+    assert.ok(!redacted.includes('user'), redacted);
+    assert.ok(!redacted.includes('pass'), redacted);
+  }, results);
+
+  await testFunction('redactSearxngInstanceUrl leaves non-URL strings unchanged after parse failure', () => {
+    assert.equal(redactSearxngInstanceUrl('not a url'), 'not a url');
+  }, results);
+
   await testFunction('redactSearxngInstanceUrl leaves credential-free URLs byte-identical', () => {
     const urls = [
       'https://search.example.com',

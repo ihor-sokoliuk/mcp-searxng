@@ -286,7 +286,9 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
     const config = await response.json() as SearXNGConfig;
     return { available: true, config, sourceUrl: base };
   } catch (error) {
-    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${redactSearxngInstanceUrl(base)}: ${error instanceof Error ? error.message : String(error)}`);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const safeMessage = rawMessage.replaceAll(base, redactSearxngInstanceUrl(base));
+    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${redactSearxngInstanceUrl(base)}: ${safeMessage}`);
     const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
     return {
       available: false,

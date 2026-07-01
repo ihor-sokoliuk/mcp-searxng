@@ -10,7 +10,7 @@ import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { fetchInstanceInfo, clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
-import { createMockServer } from '../helpers/mock-server.js';
+import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -395,6 +395,28 @@ async function runTests() {
     assert.ok(!serialized.includes('user:'), serialized);
     assert.ok(!serialized.includes(':pass@'), serialized);
     assert.ok(!serialized.includes('pass@'), serialized);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('config fetch failure log redacts credential-bearing URL from error message', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://user:pass@config-log.example.com');
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    fetchMocker.mock(async () => {
+      throw new Error('failed to fetch https://user:pass@config-log.example.com/config');
+    });
+
+    await fetchInstanceInfo(server as any, true);
+
+    const warningLog = getLoggingCalls()
+      .map((call) => call.data?.message)
+      .find((message) => typeof message === 'string' && message.includes('SearXNG /config fetch failed'));
+    assert.ok(warningLog, 'Expected /config fetch warning log');
+    assert.match(warningLog, /^SearXNG \/config fetch failed for https:\/\/config-log\.example\.com\//);
+    assert.ok(!warningLog.includes('user:pass@'), warningLog);
+    assert.ok(!warningLog.includes('pass'), warningLog);
 
     fetchMocker.restore();
     envManager.restore();

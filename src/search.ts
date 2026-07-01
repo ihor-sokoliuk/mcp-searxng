@@ -150,24 +150,17 @@ async function fetchWithSearchTimeout(
       signal: controller.signal,
     });
   } catch (error: any) {
-    const redactedMessage = typeof error.message === "string"
-      ? error.message.replaceAll(rawUrl, redactedUrl)
-      : error.message;
-    const redactedError = {
-      ...error,
-      message: redactedMessage,
-      code: error.code,
-      cause: error.cause,
-      name: error.name,
-    };
-    logMessage(mcpServer, "error", `Network error during search request: ${redactedMessage}`, { query, url: redactedUrl });
+    if (typeof error.message === "string") {
+      error.message = error.message.replaceAll(rawUrl, redactedUrl);
+    }
+    logMessage(mcpServer, "error", `Network error during search request: ${error.message}`, { query, url: redactedUrl });
     const context: ErrorContext = {
       url: redactedUrl,
-      searxngUrl,
+      searxngUrl: redactSearxngInstanceUrl(searxngUrl),
       proxyAgent: !!(requestOptions as any).dispatcher,
       username: process.env.AUTH_USERNAME,
     };
-    throw createNetworkError(redactedError, context);
+    throw createNetworkError(error, context);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -195,7 +188,7 @@ async function fetchHtmlFallbackSearch(
 
     const context: ErrorContext = {
       url: redactSearxngInstanceUrl(htmlUrl.toString()),
-      searxngUrl,
+      searxngUrl: redactSearxngInstanceUrl(searxngUrl),
     };
     throw createServerError(response.status, response.statusText, responseBody, context);
   }
@@ -488,7 +481,7 @@ async function fetchSearchFromInstance(
 
       const context: ErrorContext = {
         url: redactSearxngInstanceUrl(url.toString()),
-        searxngUrl: instanceUrl
+        searxngUrl: redactSearxngInstanceUrl(instanceUrl)
       };
       throw createServerError(response.status, response.statusText, responseBody, context);
     }

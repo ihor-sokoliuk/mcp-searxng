@@ -379,7 +379,7 @@ async function runTests() {
       .map((call) => call.data?.message)
       .find((message) => typeof message === 'string' && message.includes('Retrying search with HTML fallback:'));
     assert.ok(fallbackLog, 'Expected HTML fallback retry log');
-    assert.match(fallbackLog, /fallback-log\.example\.com/);
+    assert.match(fallbackLog, /^Retrying search with HTML fallback: https:\/\/fallback-log\.example\.com\//);
     assert.ok(!fallbackLog.includes('user:pass@'), fallbackLog);
     assert.ok(!fallbackLog.includes('pass'), fallbackLog);
 
@@ -2024,8 +2024,8 @@ async function runTests() {
       assert.fail('Expected aggregate multi-instance failure');
     } catch (error: any) {
       assert.ok(error.message.includes('All configured SearXNG instances failed'), error.message);
-      assert.match(error.message, /first\.example\.com/);
-      assert.match(error.message, /second\.example\.com/);
+      assert.match(error.message, /^All configured SearXNG instances failed\. https:\/\/first\.example\.com\/: /);
+      assert.match(error.message, /^All configured SearXNG instances failed\..*https:\/\/second\.example\.com\/: /);
       assert.ok(!error.message.includes('user:pass@'), error.message);
       assert.ok(!error.message.includes('user'), error.message);
       assert.ok(!error.message.includes('pass'), error.message);
@@ -2074,7 +2074,7 @@ async function runTests() {
       await performWebSearch(mockServer as any, 'refused');
       assert.fail('Expected ECONNREFUSED error');
     } catch (error: any) {
-      assert.match(error.message, /only\.example\.com/);
+      assert.match(error.message, /^🌐 Connection Error: SearXNG server is not responding \(https:\/\/only\.example\.com\//);
       assert.ok(!error.message.includes('user:pass@'), error.message);
       assert.ok(!error.message.includes('user'), error.message);
       assert.ok(!error.message.includes('pass'), error.message);
@@ -2104,7 +2104,7 @@ async function runTests() {
       .map((call) => call.data?.message)
       .find((message) => typeof message === 'string' && message.includes('Making request to:'));
     assert.ok(requestLog, 'Expected Making request to log');
-    assert.match(requestLog, /log\.example\.com/);
+    assert.match(requestLog, /^Making request to: https:\/\/log\.example\.com\//);
     assert.ok(!requestLog.includes('user:pass@'), requestLog);
     assert.ok(!requestLog.includes('user'), requestLog);
     assert.ok(!requestLog.includes('pass'), requestLog);
@@ -2254,8 +2254,7 @@ async function runTests() {
       await performWebSearch(mockServer as any, 'all cooled redacted');
       assert.fail('Expected all-cooled error');
     } catch (error: any) {
-      assert.match(error.message, /cooled-one\.example\.com/);
-      assert.match(error.message, /cooled-two\.example\.com/);
+      assert.equal(error.message, 'All configured SearXNG instances are in cooldown after repeated failures: https://cooled-one.example.com/, https://cooled-two.example.com/.');
       assert.ok(!error.message.includes('user:pass@'), error.message);
       assert.ok(!error.message.includes('user'), error.message);
       assert.ok(!error.message.includes('pass'), error.message);
