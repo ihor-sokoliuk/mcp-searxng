@@ -92,7 +92,7 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 |---|---|---|---|
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
 | `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. Works in pair with `MCP_HTTP_PORT` only. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
-| `MCP_HTTP_TRUST_PROXY` | No | `false` | Express `trust proxy` setting for deployments behind a trusted reverse proxy. Use `true`, a trusted hop count such as `1`, or a proxy subnet/preset such as `loopback` or `10.0.0.0/8`. |
+| `MCP_HTTP_TRUST_PROXY` | No | `false` | Express `trust proxy` setting for deployments behind a trusted reverse proxy. Use `true`, a trusted hop count such as `1`, or a proxy subnet/preset such as `loopback` or `10.0.0.0/8`. Unset, `false`, or `0` disables it (the secure default). |
 
 **HTTP endpoints (when HTTP mode is active):**
 - `POST/GET/DELETE /mcp` — MCP protocol

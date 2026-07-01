@@ -41,6 +41,15 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('MCP_HTTP_TRUST_PROXY=0 disables trust proxy (not a bogus subnet)', () => {
+    envManager.set('MCP_HTTP_TRUST_PROXY', '0');
+
+    const config = getHttpSecurityConfig();
+    assert.equal(config.trustProxy, false);
+
+    envManager.restore();
+  }, results);
+
   await testFunction('MCP_HTTP_TRUST_PROXY=true enables boolean trust proxy', () => {
     envManager.set('MCP_HTTP_TRUST_PROXY', 'true');
 

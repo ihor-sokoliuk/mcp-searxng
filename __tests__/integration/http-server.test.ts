@@ -31,7 +31,13 @@ async function captureConsoleOutput(action: () => Promise<void>): Promise<string
   const capture = (...args: unknown[]) => {
     output.push(args.map(arg => {
       if (arg instanceof Error) {
-        return `${arg.name}: ${arg.message}`;
+        // Include `.code` explicitly: express-rate-limit logs a ValidationError
+        // whose code (e.g. ERR_ERL_UNEXPECTED_X_FORWARDED_FOR) lives on `.code`,
+        // so the assertion should not rely on it also appearing in `.message`.
+        const code = (arg as { code?: unknown }).code;
+        return code !== undefined
+          ? `${arg.name}[${String(code)}]: ${arg.message}`
+          : `${arg.name}: ${arg.message}`;
       }
       return String(arg);
     }).join(' '));
