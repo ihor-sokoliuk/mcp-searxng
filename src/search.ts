@@ -150,17 +150,20 @@ async function fetchWithSearchTimeout(
       signal: controller.signal,
     });
   } catch (error: any) {
-    if (typeof error.message === "string") {
-      error.message = error.message.replaceAll(rawUrl, redactedUrl);
-    }
-    logMessage(mcpServer, "error", `Network error during search request: ${error.message}`, { query, url: redactedUrl });
+    const safeMessage = typeof error?.message === "string"
+      ? error.message.replaceAll(rawUrl, redactedUrl)
+      : error?.message;
+    const safeError = new Error(safeMessage);
+    (safeError as any).code = error?.code;
+    (safeError as any).cause = error?.cause;
+    logMessage(mcpServer, "error", `Network error during search request: ${safeMessage}`, { query, url: redactedUrl });
     const context: ErrorContext = {
       url: redactedUrl,
       searxngUrl: redactSearxngInstanceUrl(searxngUrl),
       proxyAgent: !!(requestOptions as any).dispatcher,
       username: process.env.AUTH_USERNAME,
     };
-    throw createNetworkError(error, context);
+    throw createNetworkError(safeError, context);
   } finally {
     clearTimeout(timeoutId);
   }
