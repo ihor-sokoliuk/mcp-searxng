@@ -24,7 +24,9 @@ function parseCsv(value: string | undefined): string[] {
 
 function parseTrustProxy(value: string | undefined): boolean | number | string {
   const trimmed = value?.trim();
-  if (!trimmed || trimmed === "false") {
+  // Treat "0" as disabled (false): operators use 0 to turn numeric knobs off,
+  // and Express would otherwise mis-parse the string "0" as a bogus trust subnet.
+  if (!trimmed || trimmed === "false" || trimmed === "0") {
     return false;
   }
   if (trimmed === "true") {
