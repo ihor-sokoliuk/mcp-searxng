@@ -79,9 +79,10 @@ async function runTests() {
     assert.equal(res.body.jsonrpc, '2.0');
     assert.ok(res.body.error);
     assert.equal(res.body.error.code, -32000);
+    assert.equal(res.body.error.message, 'Bad Request: No valid session ID provided');
   }, results);
 
-  await testFunction('POST /mcp with unknown sessionId and non-initialize body returns 400', async () => {
+  await testFunction('POST /mcp with unknown sessionId and non-initialize body returns 404 Session not found', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
@@ -90,8 +91,11 @@ async function runTests() {
       .set('mcp-session-id', 'unknown-session-abc')
       .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
 
-    // mcp-session-id is set but transport not found — falls through to invalid request
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 404);
+    assert.equal(res.body.jsonrpc, '2.0');
+    assert.ok(res.body.error);
+    assert.equal(res.body.error.code, -32001);
+    assert.equal(res.body.error.message, 'Session not found');
   }, results);
 
   await testFunction('GET /mcp without sessionId returns 400', async () => {
@@ -157,6 +161,29 @@ async function runTests() {
     assert.ok(res.headers['mcp-session-id'], 'Expected mcp-session-id header in response');
   }, results);
 
+  await testFunction('POST /mcp with stale sessionId and initialize request creates new session', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    const res = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', 'stale-session-abc')
+      .send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      });
+
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['mcp-session-id'], 'Expected new mcp-session-id header in response');
+  }, results);
+
   await testFunction('compatibility mode still allows health and init flow', async () => {
     envManager.delete('MCP_HTTP_HARDEN');
     envManager.delete('MCP_HTTP_AUTH_TOKEN');
@@ -205,6 +232,7 @@ async function runTests() {
       });
 
     assert.equal(res.status, 401);
+    assert.equal(res.body.error.code, -32001);
     envManager.restore();
   }, results);
 
@@ -282,7 +310,9 @@ async function runTests() {
       .set('Accept', 'application/json, text/event-stream')
       .set('mcp-session-id', sessionId)
       .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
-    assert.equal(postRes.status, 400, 'request after DELETE should be rejected');
+    assert.equal(postRes.status, 404, 'request after DELETE should be rejected');
+    assert.equal(postRes.body.error.code, -32001);
+    assert.equal(postRes.body.error.message, 'Session not found');
   }, results);
 
   // --- Rate Limiting ---

@@ -97,6 +97,8 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 - `POST/GET/DELETE /mcp` — MCP protocol
 - `GET /health` — health check
 
+HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-id` on a non-initialize `POST /mcp` receives HTTP 404 with JSON-RPC error code `-32001` and message `"Session not found"`. Clients should recover by running `initialize` again; initialize requests are accepted even when they still carry a stale session header.
+
 ## Rate Limiting (HTTP mode)
 
 Rate limiting is always active in HTTP mode to prevent resource exhaustion. Two separate limits protect different request types.

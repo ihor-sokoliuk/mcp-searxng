@@ -124,7 +124,7 @@ export async function createHttpServer(
       transport = session.transport;
       mcpServer = session.mcpServer;
       logMessage(mcpServer, "debug", `Reusing session: ${sessionId}`);
-    } else if (!sessionId && isInitializeRequest(req.body)) {
+    } else if (isInitializeRequest(req.body)) {
       // New initialization request — create fresh McpServer and transport
       mcpServer = createMcpServer();
 
@@ -158,11 +158,12 @@ export async function createHttpServer(
         contentType: req.headers['content-type'],
         accept: req.headers['accept']
       });
-      res.status(400).json({
+      const sessionNotFound = Boolean(sessionId);
+      res.status(sessionNotFound ? 404 : 400).json({
         jsonrpc: '2.0',
         error: {
-          code: -32000,
-          message: 'Bad Request: No valid session ID provided',
+          code: sessionNotFound ? -32001 : -32000,
+          message: sessionNotFound ? 'Session not found' : 'Bad Request: No valid session ID provided',
         },
         id: null,
       });
