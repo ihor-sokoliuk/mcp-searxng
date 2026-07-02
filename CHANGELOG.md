@@ -3,6 +3,22 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-07-02
+
+### Added
+
+- **Configurable Express `trust proxy` for HTTP mode (`MCP_HTTP_TRUST_PROXY`):** When the Streamable HTTP transport runs behind a trusted reverse proxy, set `MCP_HTTP_TRUST_PROXY` so Express resolves the real client IP from `X-Forwarded-For` before computing rate-limit keys and request logs. Accepts `true`, a trusted hop count such as `1`, or a subnet/preset such as `loopback` or `10.0.0.0/8`; unset, `false`, or `0` disables it, which stays the secure default (enabling it without a real proxy in front lets clients spoof `X-Forwarded-For`). This is distinct from the outbound `HTTP_PROXY` / `HTTPS_PROXY` settings that govern this server's own requests. (FEAT-051, [#140](https://github.com/ihor-sokoliuk/mcp-searxng/pull/140))
+
+### Fixed
+
+- **HTTP session recovered after a server restart:** The Streamable HTTP `sessions` map is in-memory, so a client that reused its `mcp-session-id` across a server restart got wedged — a fresh `initialize` still carried the stale header and fell through to `400 / -32000`. `initialize` is now accepted regardless of any stale session header, and unknown session IDs on non-`initialize` POSTs return `404 / -32001 "Session not found"` (matching the MCP SDK's own shape) so clients can detect a dead session and re-initialize. (BUG-010, [#139](https://github.com/ihor-sokoliuk/mcp-searxng/pull/139))
+
+- **Search JSON-parse errors keep the real response preview:** A `fetch` response body is single-use, and the old path called `response.text()` in the catch after `response.json()` had already consumed it, so a JSON-parse failure always degraded to `[Could not read response text]`. The body is now read as text first and then parsed, so the error carries the actual response preview — making misconfigured or HTML-returning instances far easier to diagnose. (BUG-008, [#131](https://github.com/ihor-sokoliuk/mcp-searxng/pull/131))
+
+### Security
+
+- **`SEARXNG_URL` credentials redacted in errors, logs, and provenance:** Embedded userinfo (`user:pass@host`) in `SEARXNG_URL` no longer leaks into model-visible error messages, client logs, or `servedBy` provenance. A shared redaction helper is now applied at every instance-URL emission point — the aggregate failover error, the `ECONNREFUSED` nested message, request/fallback logs, error context, and `servedBy`. (BUG-007, [#136](https://github.com/ihor-sokoliuk/mcp-searxng/pull/136))
+
 ## [1.8.0] - 2026-06-23
 
 ### Added
