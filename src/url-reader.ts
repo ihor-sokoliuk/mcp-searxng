@@ -43,6 +43,41 @@ type ContentTypeClassification =
   | { kind: "binary"; mediaType: string | null }
   | { kind: "generic"; mediaType: string | null };
 
+const EXACT_READABLE_CONTENT_TYPES = new Map<string, (mediaType: string) => ContentTypeClassification>([
+  ["text/html", (mediaType) => ({ kind: "html", mediaType, language: "html" })],
+  ["application/xhtml+xml", (mediaType) => ({ kind: "html", mediaType, language: "html" })],
+  ["application/json", (mediaType) => ({ kind: "json", mediaType, language: "json" })],
+  ["application/xml", (mediaType) => ({ kind: "text", mediaType, language: "xml" })],
+  ["text/xml", (mediaType) => ({ kind: "text", mediaType, language: "xml" })],
+  ["application/yaml", (mediaType) => ({ kind: "text", mediaType, language: "yaml" })],
+  ["application/x-yaml", (mediaType) => ({ kind: "text", mediaType, language: "yaml" })],
+  ["text/yaml", (mediaType) => ({ kind: "text", mediaType, language: "yaml" })],
+  ["text/x-yaml", (mediaType) => ({ kind: "text", mediaType, language: "yaml" })],
+  ["application/toml", (mediaType) => ({ kind: "text", mediaType, language: "toml" })],
+  ["application/x-toml", (mediaType) => ({ kind: "text", mediaType, language: "toml" })],
+  ["text/toml", (mediaType) => ({ kind: "text", mediaType, language: "toml" })],
+]);
+
+const EXACT_BINARY_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "application/octet-stream",
+  "binary/octet-stream",
+  "application/zip",
+  "application/x-zip",
+  "application/x-zip-compressed",
+  "application/gzip",
+  "application/x-gzip",
+  "application/x-tar",
+  "application/tar",
+  "application/x-7z-compressed",
+  "application/x-rar-compressed",
+  "application/vnd.rar",
+  "application/x-bzip",
+  "application/x-bzip2",
+  "application/x-xz",
+  "application/zstd",
+]);
+
 function isRedirectResponse(response: Response): boolean {
   return REDIRECT_STATUS_CODES.has(response.status);
 }
@@ -245,27 +280,6 @@ function normalizeMediaType(contentType: string | null): string | null {
   return mediaType === "" ? null : mediaType;
 }
 
-function isJsonMediaType(mediaType: string): boolean {
-  return mediaType === "application/json" || mediaType.endsWith("+json");
-}
-
-function isXmlMediaType(mediaType: string): boolean {
-  return mediaType === "application/xml" || mediaType === "text/xml" || mediaType.endsWith("+xml");
-}
-
-function isYamlMediaType(mediaType: string): boolean {
-  return [
-    "application/yaml",
-    "application/x-yaml",
-    "text/yaml",
-    "text/x-yaml",
-  ].includes(mediaType);
-}
-
-function isTomlMediaType(mediaType: string): boolean {
-  return ["application/toml", "application/x-toml", "text/toml"].includes(mediaType);
-}
-
 function isBinaryMediaType(mediaType: string): boolean {
   if (
     mediaType.startsWith("image/") ||
@@ -276,25 +290,7 @@ function isBinaryMediaType(mediaType: string): boolean {
     return true;
   }
 
-  return [
-    "application/pdf",
-    "application/octet-stream",
-    "binary/octet-stream",
-    "application/zip",
-    "application/x-zip",
-    "application/x-zip-compressed",
-    "application/gzip",
-    "application/x-gzip",
-    "application/x-tar",
-    "application/tar",
-    "application/x-7z-compressed",
-    "application/x-rar-compressed",
-    "application/vnd.rar",
-    "application/x-bzip",
-    "application/x-bzip2",
-    "application/x-xz",
-    "application/zstd",
-  ].includes(mediaType);
+  return EXACT_BINARY_CONTENT_TYPES.has(mediaType);
 }
 
 function classifyContentType(contentType: string | null): ContentTypeClassification {
@@ -303,31 +299,18 @@ function classifyContentType(contentType: string | null): ContentTypeClassificat
     return { kind: "generic", mediaType };
   }
 
-  if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
-    return { kind: "html", mediaType, language: "html" };
+  const exactReadable = EXACT_READABLE_CONTENT_TYPES.get(mediaType);
+  if (exactReadable) {
+    return exactReadable(mediaType);
   }
 
-  if (isJsonMediaType(mediaType)) {
+  if (mediaType.endsWith("+json")) {
     return { kind: "json", mediaType, language: "json" };
-  }
-
-  if (isBinaryMediaType(mediaType)) {
+  } else if (isBinaryMediaType(mediaType)) {
     return { kind: "binary", mediaType };
-  }
-
-  if (isYamlMediaType(mediaType)) {
-    return { kind: "text", mediaType, language: "yaml" };
-  }
-
-  if (isTomlMediaType(mediaType)) {
-    return { kind: "text", mediaType, language: "toml" };
-  }
-
-  if (isXmlMediaType(mediaType)) {
+  } else if (mediaType.endsWith("+xml")) {
     return { kind: "text", mediaType, language: "xml" };
-  }
-
-  if (mediaType.startsWith("text/")) {
+  } else if (mediaType.startsWith("text/")) {
     return { kind: "text", mediaType, language: "text" };
   }
 
@@ -343,6 +326,20 @@ function createUnsupportedContentTypeMessage(classification: ContentTypeClassifi
   );
 }
 
+function createNulRejectedContentMessage(classification: ContentTypeClassification): string {
+  if (classification.kind !== "generic" && classification.mediaType !== null) {
+    return (
+      `Body was declared ${classification.mediaType} but appears binary (NUL byte in first 1KB); not read. ` +
+      "Binary, media, archive, and PDF downloads are intentionally not read by web_url_read."
+    );
+  }
+
+  return createUnsupportedContentTypeMessage(
+    classification,
+    `Body appears binary: NUL byte found in the first ${BINARY_SNIFF_PREFIX_BYTES} bytes.`,
+  );
+}
+
 async function cancelResponseBody(response: Response): Promise<void> {
   try {
     await response.body?.cancel();
@@ -351,8 +348,25 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
+function getLongestBacktickRun(text: string): number {
+  let longestRun = 0;
+  let currentRun = 0;
+
+  for (const char of text) {
+    if (char === "`") {
+      currentRun++;
+      longestRun = Math.max(longestRun, currentRun);
+    } else {
+      currentRun = 0;
+    }
+  }
+
+  return longestRun;
+}
+
 function renderFencedMarkdown(language: string, text: string): string {
-  return `\`\`\`${language}\n${text}\n\`\`\``;
+  const fence = "`".repeat(Math.max(3, getLongestBacktickRun(text) + 1));
+  return `${fence}${language}\n${text}\n${fence}`;
 }
 
 function renderJsonMarkdown(text: string): string {
@@ -376,7 +390,24 @@ function concatenateChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array
   return result;
 }
 
-async function readResponseBodyWithLimit(response: Response, maxBytes: number): Promise<BoundedBodyReadResult> {
+function scanPrefixForNul(value: Uint8Array, prefixBytesChecked: number): { hasNul: boolean; prefixBytesChecked: number } {
+  const remainingPrefixBytes = BINARY_SNIFF_PREFIX_BYTES - prefixBytesChecked;
+  const bytesToCheck = Math.min(value.byteLength, remainingPrefixBytes);
+  if (bytesToCheck <= 0) {
+    return { hasNul: false, prefixBytesChecked };
+  }
+
+  return {
+    hasNul: value.subarray(0, bytesToCheck).includes(0),
+    prefixBytesChecked: prefixBytesChecked + bytesToCheck,
+  };
+}
+
+async function readResponseBodyWithLimit(
+  response: Response,
+  maxBytes: number,
+  abortOnNulInPrefix: boolean = false,
+): Promise<BoundedBodyReadResult> {
   if (response.body === null) {
     return { exceeded: false, text: "", bytesRead: 0, hasNulInPrefix: false };
   }
@@ -397,14 +428,16 @@ async function readResponseBodyWithLimit(response: Response, maxBytes: number): 
         continue;
       }
 
-      for (let i = 0; i < value.byteLength && prefixBytesChecked < BINARY_SNIFF_PREFIX_BYTES; i++) {
-        if (value[i] === 0) {
-          hasNulInPrefix = true;
-        }
-        prefixBytesChecked++;
-      }
+      const nulScan = scanPrefixForNul(value, prefixBytesChecked);
+      hasNulInPrefix = hasNulInPrefix || nulScan.hasNul;
+      prefixBytesChecked = nulScan.prefixBytesChecked;
 
       bytesRead += value.byteLength;
+      if (hasNulInPrefix && abortOnNulInPrefix) {
+        await reader.cancel();
+        return { exceeded: false, text: "", bytesRead, hasNulInPrefix };
+      }
+
       if (bytesRead > maxBytes) {
         await reader.cancel();
         return { exceeded: true, bytesRead };
@@ -563,7 +596,7 @@ export async function fetchAndConvertToMarkdown(
     let rawContent: string;
     let hasNulInPrefix = false;
     try {
-      const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes);
+      const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes, true);
       if (bodyRead.exceeded) {
         return createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes);
       }
@@ -576,11 +609,8 @@ export async function fetchAndConvertToMarkdown(
       );
     }
 
-    if (contentType.kind === "generic" && hasNulInPrefix) {
-      return createUnsupportedContentTypeMessage(
-        contentType,
-        `Body appears binary: NUL byte found in the first ${BINARY_SNIFF_PREFIX_BYTES} bytes.`,
-      );
+    if (hasNulInPrefix) {
+      return createNulRejectedContentMessage(contentType);
     }
 
     if (!rawContent || rawContent.trim().length === 0) {

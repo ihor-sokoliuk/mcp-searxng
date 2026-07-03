@@ -834,6 +834,27 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('Readable fenced content uses a longer fence when the body contains backticks', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const body = 'before ``` after';
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+      body,
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.startsWith('````text\n'), `Expected four-backtick opening fence, got: ${result}`);
+      assert.ok(result.endsWith('\n````'), `Expected four-backtick closing fence, got: ${result}`);
+      assert.ok(result.includes(body), `Expected original backticks preserved, got: ${result}`);
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
   await testFunction('Plain text, YAML, TOML, and XML content return fenced readable text', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
@@ -874,6 +895,26 @@ async function runTests() {
         await close();
         urlCache.clear();
       }
+    }
+  }, results);
+
+  await testFunction('Explicit text content with NUL byte in prefix returns binary hint', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+      body: Buffer.from([0x74, 0x65, 0x78, 0x74, 0x00, 0x01, 0x02]),
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('declared text/plain'), `Expected declared content type in hint, got: ${result}`);
+      assert.ok(result.includes('appears binary'), `Expected binary explanation, got: ${result}`);
+      assert.ok(!result.includes('```text'), `Expected binary hint, not fenced text, got: ${result}`);
+    } finally {
+      await close();
+      urlCache.clear();
     }
   }, results);
 
@@ -949,6 +990,64 @@ async function runTests() {
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, url);
       assert.ok(result.includes('Unsupported content type'), `Expected unsupported hint, got: ${result}`);
+      await Promise.race([
+        responseClosedPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ]);
+      assert.ok(responseClosed, 'Expected response stream to be closed');
+      assert.ok(chunksWritten < totalChunks, `Expected early cancellation before ${totalChunks} chunks, wrote ${chunksWritten}`);
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Explicit text content with early NUL cancels before full body download', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    let chunksWritten = 0;
+    let responseClosed = false;
+    let resolveResponseClosed: () => void = () => {};
+    const responseClosedPromise = new Promise<void>((resolve) => {
+      resolveResponseClosed = resolve;
+    });
+    const totalChunks = 100;
+
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.on('close', () => {
+        responseClosed = true;
+        resolveResponseClosed();
+      });
+
+      const writeNext = () => {
+        if (res.destroyed || chunksWritten >= totalChunks) {
+          res.end();
+          return;
+        }
+
+        chunksWritten++;
+        const chunk = chunksWritten === 1
+          ? Buffer.from([0x74, 0x65, 0x78, 0x74, 0x00])
+          : Buffer.alloc(32, chunksWritten);
+        res.write(chunk);
+        setImmediate(writeNext);
+      };
+
+      writeNext();
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('declared text/plain'), `Expected declared content type in hint, got: ${result}`);
+      assert.ok(result.includes('appears binary'), `Expected binary explanation, got: ${result}`);
       await Promise.race([
         responseClosedPromise,
         new Promise<void>((resolve) => setTimeout(resolve, 100)),
