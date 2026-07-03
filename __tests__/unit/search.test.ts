@@ -276,6 +276,18 @@ async function runTests() {
         error.message.includes('Invalid JSON response'),
         `expected response preview in error message, got: ${error.message}`
       );
+      assert.ok(
+        error.message.includes('- json'),
+        `expected SearXNG JSON format remediation in error message, got: ${error.message}`
+      );
+      assert.ok(
+        error.message.includes('search.formats'),
+        `expected SearXNG JSON format remediation in error message, got: ${error.message}`
+      );
+      assert.ok(
+        error.message.includes('SEARXNG_HTML_FALLBACK=true'),
+        `expected HTML fallback remediation in error message, got: ${error.message}`
+      );
     }
 
     fetchMocker.restore();
