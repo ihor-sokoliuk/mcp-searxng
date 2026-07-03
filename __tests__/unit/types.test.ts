@@ -342,7 +342,7 @@ async function runTests() {
     assert.ok(READ_URL_TOOL.description.includes('YAML'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('TOML'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('XML'), READ_URL_TOOL.description);
-    assert.ok(READ_URL_TOOL.description.includes('binary'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('Binary'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('media'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('rejected'), READ_URL_TOOL.description);
   }, results);

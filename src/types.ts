@@ -359,7 +359,7 @@ export const READ_URL_TOOL: Tool = {
   description:
     "Fetches a URL and returns readable content as markdown. " +
     "Content-type aware: HTML is converted to markdown; JSON is pretty-printed; plain text, YAML, TOML, and XML are returned as fenced readable text. " +
-    "binary, media, archive, PDF, and octet-stream downloads are intentionally rejected instead of being returned as raw bytes. " +
+    "Binary, media, archive, PDF, and octet-stream downloads are intentionally rejected instead of being returned as raw bytes. " +
     "Three modes: " +
     "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
     "(2) Section extraction — set `section` to return content under a specific heading. " +
