@@ -403,6 +403,21 @@ function scanPrefixForNul(value: Uint8Array, prefixBytesChecked: number): { hasN
   };
 }
 
+function evaluateChunkLimits(
+  bytesRead: number,
+  maxBytes: number,
+  hasNulInPrefix: boolean,
+  abortOnNulInPrefix: boolean,
+): BoundedBodyReadResult | null {
+  if (hasNulInPrefix && abortOnNulInPrefix) {
+    return { exceeded: false, text: "", bytesRead, hasNulInPrefix };
+  }
+  if (bytesRead > maxBytes) {
+    return { exceeded: true, bytesRead };
+  }
+  return null;
+}
+
 async function readResponseBodyWithLimit(
   response: Response,
   maxBytes: number,
@@ -433,14 +448,10 @@ async function readResponseBodyWithLimit(
       prefixBytesChecked = nulScan.prefixBytesChecked;
 
       bytesRead += value.byteLength;
-      if (hasNulInPrefix && abortOnNulInPrefix) {
+      const limitResult = evaluateChunkLimits(bytesRead, maxBytes, hasNulInPrefix, abortOnNulInPrefix);
+      if (limitResult) {
         await reader.cancel();
-        return { exceeded: false, text: "", bytesRead, hasNulInPrefix };
-      }
-
-      if (bytesRead > maxBytes) {
-        await reader.cancel();
-        return { exceeded: true, bytesRead };
+        return limitResult;
       }
 
       chunks.push(value);
