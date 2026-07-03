@@ -345,7 +345,8 @@ export const LITE_INSTANCE_INFO_TOOL: Tool = {
 
 export const LITE_READ_URL_TOOL: Tool = {
   name: "web_url_read",
-  description: "Fetch URL. Returns page text as markdown.",
+  description:
+    "Fetch URL. Converts HTML to markdown; returns explicit JSON, plain text, YAML, TOML, and XML as readable markdown; binary/media/archive downloads are rejected.",
   inputSchema: {
     type: "object",
     properties: { url: { type: "string", description: "URL to fetch." } },
@@ -356,7 +357,9 @@ export const LITE_READ_URL_TOOL: Tool = {
 export const READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:
-    "Fetches a URL and returns its text content converted to markdown. " +
+    "Fetches a URL and returns readable content as markdown. " +
+    "Content-type aware: HTML is converted to markdown; JSON is pretty-printed; plain text, YAML, TOML, and XML are returned as fenced readable text. " +
+    "binary, media, archive, PDF, and octet-stream downloads are intentionally rejected instead of being returned as raw bytes. " +
     "Three modes: " +
     "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
     "(2) Section extraction — set `section` to return content under a specific heading. " +

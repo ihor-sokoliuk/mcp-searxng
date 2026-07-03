@@ -114,7 +114,13 @@ AI Assistant (e.g. Claude)
     - `refresh` (boolean, optional): Bypass the process cache and fetch fresh `/config` data. (default: false)
 
 - **web_url_read**
-  - Read and convert the content from a URL to markdown with advanced content extraction options
+  - Read URL content as markdown with content-type-aware handling and advanced extraction options
+  - Supported readable content:
+    - HTML (`text/html`, `application/xhtml+xml`) is converted to markdown
+    - JSON (`application/json`, `*+json`) is pretty-printed in a fenced block
+    - Plain text, YAML, TOML, XML, and other safe explicit `text/*` responses are returned as readable fenced text
+    - Missing or generic content types are read under the existing size cap; non-binary bodies continue through the HTML-to-markdown path for compatibility
+  - Binary, media, archive, PDF, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)

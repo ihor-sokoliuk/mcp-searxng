@@ -309,6 +309,16 @@ async function runTests() {
     assert.equal(LITE_READ_URL_TOOL.name, 'web_url_read');
   }, results);
 
+  await testFunction('LITE_READ_URL_TOOL description mentions content-type-aware reads', () => {
+    assert.ok(LITE_READ_URL_TOOL.description.includes('HTML'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('JSON'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('YAML'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('TOML'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('XML'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('binary'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('rejected'), LITE_READ_URL_TOOL.description);
+  }, results);
+
   await testFunction('Full WEB_SEARCH_TOOL schema has multiple properties including language', () => {
     const props = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(props.query);
@@ -323,6 +333,18 @@ async function runTests() {
     assert.ok(props.url);
     assert.ok(props.maxLength, 'Full tool must expose maxLength parameter');
     assert.ok(Object.keys(props).length > 1, 'Full tool must have more than one property');
+  }, results);
+
+  await testFunction('READ_URL_TOOL description mentions supported content types and binary rejection', () => {
+    assert.ok(READ_URL_TOOL.description.includes('HTML'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('JSON'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('plain text'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('YAML'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('TOML'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('XML'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('binary'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('media'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('rejected'), READ_URL_TOOL.description);
   }, results);
 
   await testFunction('isSearXNGSearchSuggestionsArgs accepts query and optional language', () => {
