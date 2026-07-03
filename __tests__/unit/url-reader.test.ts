@@ -710,6 +710,357 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('HTML without Content-Type still uses HTML to Markdown conversion', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><h1>No Type Title</h1><p>This is <strong>HTML</strong>.</p></body></html>';
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200);
+      res.end(testHtml);
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, '# No Type Title\n\nThis is **HTML**.');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Generic non-NUL content still uses HTML to Markdown conversion', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><h1>Generic Type Title</h1><p>Still HTML.</p></body></html>';
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'application/x-custom' });
+      res.end(testHtml);
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, '# Generic Type Title\n\nStill HTML.');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('XHTML content uses HTML to Markdown conversion', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = '<html><body><h1>XHTML Title</h1><p>Readable page.</p></body></html>';
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'application/xhtml+xml; charset=utf-8' },
+      body: testHtml,
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, '# XHTML Title\n\nReadable page.');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('JSON content is pretty-printed in a fenced block', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: '{"name":"searxng","enabled":true,"items":[1,2]}',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, '```json\n{\n  "name": "searxng",\n  "enabled": true,\n  "items": [\n    1,\n    2\n  ]\n}\n```');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Problem JSON content is pretty-printed in a fenced block', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'application/problem+json' },
+      body: '{"type":"about:blank","title":"Bad Request","status":400}',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, '```json\n{\n  "type": "about:blank",\n  "title": "Bad Request",\n  "status": 400\n}\n```');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Invalid JSON content-type returns fenced text with a note', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'application/json' },
+      body: '{"name":',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.startsWith('Note: Response declared JSON but could not be parsed.'));
+      assert.ok(result.includes('```text\n{"name":\n```'), `Expected fenced text, got: ${result}`);
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Plain text, YAML, TOML, and XML content return fenced readable text', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const cases = [
+      {
+        contentType: 'text/plain; charset=utf-8',
+        body: 'plain text\nsecond line',
+        expected: '```text\nplain text\nsecond line\n```',
+      },
+      {
+        contentType: 'application/yaml',
+        body: 'name: searxng\nenabled: true',
+        expected: '```yaml\nname: searxng\nenabled: true\n```',
+      },
+      {
+        contentType: 'application/toml',
+        body: 'name = "searxng"\nenabled = true',
+        expected: '```toml\nname = "searxng"\nenabled = true\n```',
+      },
+      {
+        contentType: 'application/xml',
+        body: '<root><name>searxng</name></root>',
+        expected: '```xml\n<root><name>searxng</name></root>\n```',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const { url, close } = await startTestServer({
+        headers: { 'content-type': testCase.contentType },
+        body: testCase.body,
+      });
+
+      try {
+        const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+        assert.equal(result, testCase.expected);
+      } finally {
+        await close();
+        urlCache.clear();
+      }
+    }
+  }, results);
+
+  await testFunction('Explicit binary, archive, image, and video content-types return unsupported hints', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const cases = [
+      'application/pdf',
+      'application/zip',
+      'image/png',
+      'video/mp4',
+      'application/octet-stream',
+    ];
+
+    for (const contentType of cases) {
+      const { url, close } = await startTestServer({
+        headers: { 'content-type': contentType },
+        body: Buffer.from([0, 1, 2, 3, 4, 5]),
+      });
+
+      try {
+        const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+        assert.ok(result.includes('Unsupported content type'), `Expected unsupported hint for ${contentType}, got: ${result}`);
+        assert.ok(result.includes(contentType), `Expected content type in hint, got: ${result}`);
+        assert.ok(!result.includes('\u0000'), `Hint must not include raw binary bytes: ${result}`);
+      } finally {
+        await close();
+        urlCache.clear();
+      }
+    }
+  }, results);
+
+  await testFunction('Explicit binary content-type cancels before full body download', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    let chunksWritten = 0;
+    let responseClosed = false;
+    let resolveResponseClosed: () => void = () => {};
+    const responseClosedPromise = new Promise<void>((resolve) => {
+      resolveResponseClosed = resolve;
+    });
+    const totalChunks = 100;
+
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'application/pdf' });
+      res.on('close', () => {
+        responseClosed = true;
+        resolveResponseClosed();
+      });
+
+      const writeNext = () => {
+        if (res.destroyed || chunksWritten >= totalChunks) {
+          res.end();
+          return;
+        }
+
+        chunksWritten++;
+        res.write(Buffer.alloc(32, chunksWritten));
+        setImmediate(writeNext);
+      };
+
+      writeNext();
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Unsupported content type'), `Expected unsupported hint, got: ${result}`);
+      await Promise.race([
+        responseClosedPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ]);
+      assert.ok(responseClosed, 'Expected response stream to be closed');
+      assert.ok(chunksWritten < totalChunks, `Expected early cancellation before ${totalChunks} chunks, wrote ${chunksWritten}`);
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Missing Content-Type with NUL byte in prefix returns unsupported hint', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200);
+      res.end(Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x01, 0x02]));
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Unsupported content type'), `Expected unsupported hint, got: ${result}`);
+      assert.ok(result.includes('binary'), `Expected binary explanation, got: ${result}`);
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Successful JSON and text reads are cached', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    let jsonRequestCount = 0;
+    const jsonServer = await startHttpServer((req, res) => {
+      jsonRequestCount++;
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"cached":true}');
+    });
+
+    let textRequestCount = 0;
+    const textServer = await startHttpServer((req, res) => {
+      textRequestCount++;
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('cached text');
+    });
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, jsonServer.url);
+      await fetchAndConvertToMarkdown(mockServer as any, jsonServer.url);
+      await fetchAndConvertToMarkdown(mockServer as any, textServer.url);
+      await fetchAndConvertToMarkdown(mockServer as any, textServer.url);
+
+      assert.equal(jsonRequestCount, 2, 'Second JSON read should use cache');
+      assert.equal(textRequestCount, 2, 'Second text read should use cache');
+    } finally {
+      await jsonServer.close();
+      await textServer.close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Binary-rejected URLs are not cached', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    let requestCount = 0;
+    const { url, close } = await startHttpServer((req, res) => {
+      requestCount++;
+      if (req.method === 'HEAD') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'application/pdf' });
+      res.end(Buffer.from([0, 1, 2, 3]));
+    });
+
+    try {
+      const first = await fetchAndConvertToMarkdown(mockServer as any, url);
+      const second = await fetchAndConvertToMarkdown(mockServer as any, url);
+
+      assert.ok(first.includes('Unsupported content type'));
+      assert.ok(second.includes('Unsupported content type'));
+      assert.equal(requestCount, 4, 'Second binary-rejected read should re-fetch instead of using cache');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
   // ── character pagination ──────────────────────────────────────────────────
 
   await testFunction('Character pagination - maxLength', async () => {

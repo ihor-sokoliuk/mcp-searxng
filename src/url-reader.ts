@@ -27,13 +27,21 @@ interface PaginationOptions {
 }
 
 type BoundedBodyReadResult =
-  | { exceeded: false; text: string; bytesRead: number }
+  | { exceeded: false; text: string; bytesRead: number; hasNulInPrefix: boolean }
   | { exceeded: true; bytesRead: number };
 
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 const HEAD_TIMEOUT_CAP_MS = 3000;
+const BINARY_SNIFF_PREFIX_BYTES = 1024;
+
+type ContentTypeClassification =
+  | { kind: "html"; mediaType: string; language: "html" }
+  | { kind: "json"; mediaType: string; language: "json" }
+  | { kind: "text"; mediaType: string; language: "text" | "yaml" | "toml" | "xml" }
+  | { kind: "binary"; mediaType: string | null }
+  | { kind: "generic"; mediaType: string | null };
 
 function isRedirectResponse(response: Response): boolean {
   return REDIRECT_STATUS_CODES.has(response.status);
@@ -228,6 +236,134 @@ function createContentTooLargeMessage(contentLength: number, maxBytes: number): 
   );
 }
 
+function normalizeMediaType(contentType: string | null): string | null {
+  if (!contentType) {
+    return null;
+  }
+
+  const mediaType = contentType.split(";")[0].trim().toLowerCase();
+  return mediaType === "" ? null : mediaType;
+}
+
+function isJsonMediaType(mediaType: string): boolean {
+  return mediaType === "application/json" || mediaType.endsWith("+json");
+}
+
+function isXmlMediaType(mediaType: string): boolean {
+  return mediaType === "application/xml" || mediaType === "text/xml" || mediaType.endsWith("+xml");
+}
+
+function isYamlMediaType(mediaType: string): boolean {
+  return [
+    "application/yaml",
+    "application/x-yaml",
+    "text/yaml",
+    "text/x-yaml",
+  ].includes(mediaType);
+}
+
+function isTomlMediaType(mediaType: string): boolean {
+  return ["application/toml", "application/x-toml", "text/toml"].includes(mediaType);
+}
+
+function isBinaryMediaType(mediaType: string): boolean {
+  if (
+    mediaType.startsWith("image/") ||
+    mediaType.startsWith("audio/") ||
+    mediaType.startsWith("video/") ||
+    mediaType.startsWith("font/")
+  ) {
+    return true;
+  }
+
+  return [
+    "application/pdf",
+    "application/octet-stream",
+    "binary/octet-stream",
+    "application/zip",
+    "application/x-zip",
+    "application/x-zip-compressed",
+    "application/gzip",
+    "application/x-gzip",
+    "application/x-tar",
+    "application/tar",
+    "application/x-7z-compressed",
+    "application/x-rar-compressed",
+    "application/vnd.rar",
+    "application/x-bzip",
+    "application/x-bzip2",
+    "application/x-xz",
+    "application/zstd",
+  ].includes(mediaType);
+}
+
+function classifyContentType(contentType: string | null): ContentTypeClassification {
+  const mediaType = normalizeMediaType(contentType);
+  if (mediaType === null) {
+    return { kind: "generic", mediaType };
+  }
+
+  if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
+    return { kind: "html", mediaType, language: "html" };
+  }
+
+  if (isJsonMediaType(mediaType)) {
+    return { kind: "json", mediaType, language: "json" };
+  }
+
+  if (isBinaryMediaType(mediaType)) {
+    return { kind: "binary", mediaType };
+  }
+
+  if (isYamlMediaType(mediaType)) {
+    return { kind: "text", mediaType, language: "yaml" };
+  }
+
+  if (isTomlMediaType(mediaType)) {
+    return { kind: "text", mediaType, language: "toml" };
+  }
+
+  if (isXmlMediaType(mediaType)) {
+    return { kind: "text", mediaType, language: "xml" };
+  }
+
+  if (mediaType.startsWith("text/")) {
+    return { kind: "text", mediaType, language: "text" };
+  }
+
+  return { kind: "generic", mediaType };
+}
+
+function createUnsupportedContentTypeMessage(classification: ContentTypeClassification, reason?: string): string {
+  const contentType = classification.mediaType ?? "missing";
+  const reasonText = reason ? ` ${reason}` : "";
+  return (
+    `Unsupported content type: ${contentType}.${reasonText} ` +
+    "Binary, media, archive, and PDF downloads are intentionally not read by web_url_read."
+  );
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Best-effort cancellation: returning the unsupported hint is more useful than surfacing cancellation noise.
+  }
+}
+
+function renderFencedMarkdown(language: string, text: string): string {
+  return `\`\`\`${language}\n${text}\n\`\`\``;
+}
+
+function renderJsonMarkdown(text: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    return renderFencedMarkdown("json", JSON.stringify(parsed, null, 2));
+  } catch {
+    return `Note: Response declared JSON but could not be parsed.\n\n${renderFencedMarkdown("text", text)}`;
+  }
+}
+
 function concatenateChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
   const result = new Uint8Array(totalBytes);
   let offset = 0;
@@ -242,12 +378,14 @@ function concatenateChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array
 
 async function readResponseBodyWithLimit(response: Response, maxBytes: number): Promise<BoundedBodyReadResult> {
   if (response.body === null) {
-    return { exceeded: false, text: "", bytesRead: 0 };
+    return { exceeded: false, text: "", bytesRead: 0, hasNulInPrefix: false };
   }
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytesRead = 0;
+  let prefixBytesChecked = 0;
+  let hasNulInPrefix = false;
 
   try {
     while (true) {
@@ -257,6 +395,13 @@ async function readResponseBodyWithLimit(response: Response, maxBytes: number): 
       }
       if (!value) {
         continue;
+      }
+
+      for (let i = 0; i < value.byteLength && prefixBytesChecked < BINARY_SNIFF_PREFIX_BYTES; i++) {
+        if (value[i] === 0) {
+          hasNulInPrefix = true;
+        }
+        prefixBytesChecked++;
       }
 
       bytesRead += value.byteLength;
@@ -272,7 +417,7 @@ async function readResponseBodyWithLimit(response: Response, maxBytes: number): 
   }
 
   const bodyBytes = concatenateChunks(chunks, bytesRead);
-  return { exceeded: false, text: new TextDecoder("utf-8").decode(bodyBytes), bytesRead };
+  return { exceeded: false, text: new TextDecoder("utf-8").decode(bodyBytes), bytesRead, hasNulInPrefix };
 }
 
 export async function fetchAndConvertToMarkdown(
@@ -408,14 +553,22 @@ export async function fetchAndConvertToMarkdown(
       throw createServerError(response.status, response.statusText, responseBody, context);
     }
 
-    // Retrieve HTML content
-    let htmlContent: string;
+    const contentType = classifyContentType(response.headers.get("content-type"));
+    if (contentType.kind === "binary") {
+      await cancelResponseBody(response);
+      return createUnsupportedContentTypeMessage(contentType);
+    }
+
+    // Retrieve readable content
+    let rawContent: string;
+    let hasNulInPrefix = false;
     try {
       const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes);
       if (bodyRead.exceeded) {
         return createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes);
       }
-      htmlContent = bodyRead.text;
+      rawContent = bodyRead.text;
+      hasNulInPrefix = bodyRead.hasNulInPrefix;
     } catch (error: any) {
       throw createContentError(
         `Failed to read website content: ${error.message || 'Unknown error reading content'}`,
@@ -423,16 +576,29 @@ export async function fetchAndConvertToMarkdown(
       );
     }
 
-    if (!htmlContent || htmlContent.trim().length === 0) {
+    if (contentType.kind === "generic" && hasNulInPrefix) {
+      return createUnsupportedContentTypeMessage(
+        contentType,
+        `Body appears binary: NUL byte found in the first ${BINARY_SNIFF_PREFIX_BYTES} bytes.`,
+      );
+    }
+
+    if (!rawContent || rawContent.trim().length === 0) {
       throw createContentError("Website returned empty content.", url);
     }
 
-    // Convert HTML to Markdown
+    // Convert readable content to Markdown
     let markdownContent: string;
-    try {
-      markdownContent = NodeHtmlMarkdown.translate(htmlContent);
-    } catch {
-      throw createConversionError(url);
+    if (contentType.kind === "json") {
+      markdownContent = renderJsonMarkdown(rawContent);
+    } else if (contentType.kind === "text") {
+      markdownContent = renderFencedMarkdown(contentType.language, rawContent);
+    } else {
+      try {
+        markdownContent = NodeHtmlMarkdown.translate(rawContent);
+      } catch {
+        throw createConversionError(url);
+      }
     }
 
     if (!markdownContent || markdownContent.trim().length === 0) {
@@ -442,7 +608,7 @@ export async function fetchAndConvertToMarkdown(
     }
 
     // Only cache successful markdown conversion
-    urlCache.set(url, htmlContent, markdownContent);
+    urlCache.set(url, rawContent, markdownContent);
 
     // Apply pagination options
     const result = applyPaginationOptions(markdownContent, paginationOptions);
