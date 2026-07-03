@@ -113,7 +113,7 @@ export function createServerError(status: number, statusText: string, responseBo
 
 export function createJSONError(responseText: string): MCPSearXNGError {
   const preview = responseText.substring(0, 100).replace(/\n/g, ' ');
-  return new MCPSearXNGError(`🔍 SearXNG Response Error: Invalid JSON format. Response: "${preview}..."`);
+  return new MCPSearXNGError(`🔍 SearXNG Response Error: Invalid JSON format. Response: "${preview}...". Enable - json under search.formats in your SearXNG settings.yml, or set SEARXNG_HTML_FALLBACK=true.`);
 }
 
 export function createDataError(): MCPSearXNGError {

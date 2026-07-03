@@ -98,7 +98,12 @@ async function runTests() {
   await testFunction('Specialized error creators', () => {
     const context = { searxngUrl: 'https://searx.example.com' };
     
-    assert.ok(createJSONError('invalid json') instanceof MCPSearXNGError);
+    const jsonError = createJSONError('invalid json');
+    assert.ok(jsonError instanceof MCPSearXNGError);
+    assert.ok(jsonError.message.includes('invalid json'));
+    assert.ok(jsonError.message.includes('- json'));
+    assert.ok(jsonError.message.includes('search.formats'));
+    assert.ok(jsonError.message.includes('SEARXNG_HTML_FALLBACK=true'));
     assert.ok(createDataError() instanceof MCPSearXNGError);
     assert.ok(createURLFormatError('invalid-url') instanceof MCPSearXNGError);
     assert.ok(createContentError('test error', 'https://example.com') instanceof MCPSearXNGError);
