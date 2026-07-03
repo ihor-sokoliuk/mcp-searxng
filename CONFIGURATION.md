@@ -84,6 +84,39 @@ Interface-specific proxies take priority over global proxies for their respectiv
 | `URL_READER_HTTP_PROXY` / `URL_READER_HTTPS_PROXY` | No | — | Proxy for `web_url_read` only |
 | `NO_PROXY` | No | — | Comma-separated bypass list (e.g. `localhost,.internal,example.com`) |
 
+## TLS / Corporate CA
+
+Proxy variables route traffic through a proxy. Corporate TLS inspection is a separate trust problem: the proxy re-signs upstream certificates, so Node.js must trust the proxy's root CA.
+
+On Linux and macOS, `mcp-searxng` auto-detects the first readable system CA bundle from these paths:
+
+- `/etc/ssl/certs/ca-certificates.crt` — Debian/Ubuntu/WSL2
+- `/etc/pki/tls/certs/ca-bundle.crt` — RHEL/CentOS/Fedora
+- `/etc/ssl/ca-bundle.pem` — OpenSUSE
+- `/etc/ssl/cert.pem` — Alpine, macOS
+
+If your deployment needs an additional corporate CA, set the standard Node.js `NODE_EXTRA_CA_CERTS` environment variable to a PEM file. This is a Node.js TLS setting, not an `mcp-searxng` configuration variable.
+
+Windows has no universal CA bundle file path, so system CA auto-detection is skipped. If you are behind a TLS-inspecting corporate proxy (for example Zscaler, Netskope, Palo Alto, or Blue Coat) and see errors such as `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` or `self signed certificate in certificate chain`, export the proxy root CA to PEM and point `NODE_EXTRA_CA_CERTS` at it.
+
+```powershell
+# Export from Windows cert store (adjust the subject match to your proxy CA):
+$cert = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -match "YourCorp" } | Select-Object -First 1
+[System.IO.File]::WriteAllBytes("$env:USERPROFILE\corp-ca.cer", $cert.RawData)
+certutil -encode "$env:USERPROFILE\corp-ca.cer" "$env:USERPROFILE\corp-ca.pem"
+```
+
+Example MCP client environment block:
+
+```json
+"env": {
+  "SEARXNG_URL": "https://searxng.example.com",
+  "NODE_EXTRA_CA_CERTS": "C:\\Users\\you\\corp-ca.pem"
+}
+```
+
+Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`. It disables all TLS certificate validation for the Node.js process and makes HTTPS connections vulnerable to interception.
+
 ## HTTP Transport
 
 By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode instead.

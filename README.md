@@ -264,6 +264,8 @@ Full environment variable reference: [CONFIGURATION.md](CONFIGURATION.md)
 
 ## Troubleshooting
 
+If HTTPS requests fail behind a TLS-inspecting corporate proxy with certificate errors, see [TLS / Corporate CA](CONFIGURATION.md#tls--corporate-ca).
+
 ### 403 Forbidden from SearXNG
 
 Your SearXNG instance likely has JSON format disabled. Edit `settings.yml` (usually `/etc/searxng/settings.yml`):
