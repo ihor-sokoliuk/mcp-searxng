@@ -3,6 +3,16 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-07-03
+
+### Added
+
+- **Content-type-aware `web_url_read`:** The URL reader now inspects the response `Content-Type` before converting. HTML is converted to markdown as before; JSON (`application/json` and `*+json`) is pretty-printed in a fenced block; and plain text, YAML, TOML, and XML are returned as readable fenced text. Binary, media, archive, and PDF responses are now rejected with a short hint instead of being decoded into unreadable bytes — fixing the case where fetching a PDF URL fed garbage to the model. Responses whose declared type is missing or generic are sniffed for a NUL byte in the first kilobyte and rejected if they look binary, which also catches binaries mislabeled as `text/plain`; anything textual continues through the existing HTML pipeline unchanged. (FEAT-045, [#142](https://github.com/ihor-sokoliuk/mcp-searxng/pull/142), resolves [#133](https://github.com/ihor-sokoliuk/mcp-searxng/issues/133))
+
+- **Actionable errors when a SearXNG instance returns non-JSON:** When a search gets a `200` response whose body is not JSON — an HTML results page because the instance never enabled `format: json`, or a Cloudflare/WAF interstitial — the error now names both fixes (enable `- json` under `search.formats` in the instance's `settings.yml`, or set `SEARXNG_HTML_FALLBACK=true`) while still including the response preview, instead of failing with an opaque "Invalid JSON format". (FEAT-053, [#141](https://github.com/ihor-sokoliuk/mcp-searxng/pull/141), resolves [#137](https://github.com/ihor-sokoliuk/mcp-searxng/issues/137))
+
+- **Documented `NODE_EXTRA_CA_CERTS` for Windows and corporate-proxy TLS:** A new "TLS / Corporate CA" section in `CONFIGURATION.md` explains that Linux and macOS auto-detect the system CA bundle, while Windows users behind a TLS-inspecting corporate proxy (Zscaler, Netskope, Palo Alto, Blue Coat) must export the proxy's root CA to PEM and point the standard Node.js `NODE_EXTRA_CA_CERTS` variable at it — with the PowerShell export steps and an explicit warning never to use the insecure `NODE_TLS_REJECT_UNAUTHORIZED=0`. No code change; the variable was already honored by Node/undici. (FEAT-054, [#143](https://github.com/ihor-sokoliuk/mcp-searxng/pull/143), resolves [#138](https://github.com/ihor-sokoliuk/mcp-searxng/issues/138))
+
 ## [1.9.0] - 2026-07-02
 
 ### Added
