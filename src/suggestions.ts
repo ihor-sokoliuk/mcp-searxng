@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
-import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
+import { applySearchRequestConfig } from "./proxy.js";
 import { getPrimarySearxngInstance } from "./searxng-instances.js";
 
 export async function performSearchSuggestions(
@@ -24,19 +24,7 @@ export async function performSearchSuggestions(
     const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
     };
-    const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
-    const dispatcher = proxyAgent ?? createDefaultAgent();
-    if (dispatcher) {
-      (requestOptions as any).dispatcher = dispatcher;
-    }
-
-    const userAgent = process.env.USER_AGENT;
-    if (userAgent) {
-      requestOptions.headers = {
-        ...requestOptions.headers,
-        'User-Agent': userAgent
-      };
-    }
+    applySearchRequestConfig(requestOptions, url.toString());
 
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
