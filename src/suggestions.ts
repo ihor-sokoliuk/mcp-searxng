@@ -30,6 +30,14 @@ export async function performSearchSuggestions(
       (requestOptions as any).dispatcher = dispatcher;
     }
 
+    const userAgent = process.env.USER_AGENT;
+    if (userAgent) {
+      requestOptions.headers = {
+        ...requestOptions.headers,
+        'User-Agent': userAgent
+      };
+    }
+
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
       return [];
