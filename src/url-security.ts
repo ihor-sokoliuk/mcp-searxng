@@ -13,11 +13,20 @@ function ipv4ToInt(ip: string): number {
   return ip.split(".").reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
 }
 
-// IANA special-purpose IPv4 ranges beyond the existing RFC1918/link-local checks.
+// Blocked IPv4 ranges — RFC1918 private space plus IANA special-purpose ranges
+// (RFC 6890). Kept as a single CIDR table so every range is enforced by the same
+// integer match and the full blocklist is auditable at a glance. Sorted by network.
 const BLOCKED_V4_CIDRS: [number, number][] = [
+  [ipv4ToInt("0.0.0.0"), 8],       // "this" network / unspecified
+  [ipv4ToInt("10.0.0.0"), 8],      // RFC1918 private
   [ipv4ToInt("100.64.0.0"), 10],   // CGNAT (RFC 6598) - Tailscale default, overlays
+  [ipv4ToInt("127.0.0.0"), 8],     // loopback
+  [ipv4ToInt("169.254.0.0"), 16],  // link-local
+  [ipv4ToInt("172.16.0.0"), 12],   // RFC1918 private
   [ipv4ToInt("192.0.0.0"), 24],    // IETF protocol assignments
   [ipv4ToInt("192.0.2.0"), 24],    // TEST-NET-1
+  [ipv4ToInt("192.88.99.0"), 24],  // 6to4 relay anycast (RFC 7526, deprecated)
+  [ipv4ToInt("192.168.0.0"), 16],  // RFC1918 private
   [ipv4ToInt("198.18.0.0"), 15],   // benchmarking (RFC 2544)
   [ipv4ToInt("198.51.100.0"), 24], // TEST-NET-2
   [ipv4ToInt("203.0.113.0"), 24],  // TEST-NET-3
@@ -28,17 +37,6 @@ const BLOCKED_V4_CIDRS: [number, number][] = [
 export function isPrivateIpv4(hostname: string): boolean {
   if (isIP(hostname) !== 4) {
     return false;
-  }
-
-  if (
-    hostname.startsWith("0.") ||
-    hostname.startsWith("10.") ||
-    hostname.startsWith("127.") ||
-    hostname.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
-    hostname.startsWith("169.254.")
-  ) {
-    return true;
   }
 
   const ip = ipv4ToInt(hostname);

@@ -49,6 +49,38 @@ async function runTests() {
     assert.equal(isPrivateIpv4('100.128.0.5'), false);
   }, results);
 
+  await testFunction('isPrivateIpv4 blocks RFC1918, loopback, link-local, and unspecified ranges', () => {
+    // unspecified 0.0.0.0/8
+    assert.equal(isPrivateIpv4('0.0.0.0'), true);
+    assert.equal(isPrivateIpv4('0.255.255.255'), true);
+    // 10.0.0.0/8 boundaries
+    assert.equal(isPrivateIpv4('10.0.0.1'), true);
+    assert.equal(isPrivateIpv4('9.255.255.255'), false);
+    assert.equal(isPrivateIpv4('11.0.0.0'), false);
+    // loopback 127.0.0.0/8
+    assert.equal(isPrivateIpv4('127.0.0.1'), true);
+    assert.equal(isPrivateIpv4('126.255.255.255'), false);
+    // link-local 169.254.0.0/16 boundaries
+    assert.equal(isPrivateIpv4('169.254.169.254'), true);
+    assert.equal(isPrivateIpv4('169.253.255.255'), false);
+    assert.equal(isPrivateIpv4('169.255.0.0'), false);
+    // RFC1918 172.16.0.0/12 boundaries
+    assert.equal(isPrivateIpv4('172.16.0.0'), true);
+    assert.equal(isPrivateIpv4('172.31.255.255'), true);
+    assert.equal(isPrivateIpv4('172.15.255.255'), false);
+    assert.equal(isPrivateIpv4('172.32.0.0'), false);
+    // RFC1918 192.168.0.0/16 boundaries
+    assert.equal(isPrivateIpv4('192.168.0.1'), true);
+    assert.equal(isPrivateIpv4('192.167.255.255'), false);
+    assert.equal(isPrivateIpv4('192.169.0.0'), false);
+  }, results);
+
+  await testFunction('isPrivateIpv4 blocks 6to4 relay anycast (192.88.99.0/24)', () => {
+    assert.equal(isPrivateIpv4('192.88.99.1'), true);
+    assert.equal(isPrivateIpv4('192.88.98.255'), false);
+    assert.equal(isPrivateIpv4('192.88.100.0'), false);
+  }, results);
+
   await testFunction('isPrivateIPv6 delegates IPv4-mapped CGNAT addresses to IPv4 check', () => {
     assert.equal(isPrivateIPv6('::ffff:100.64.0.1'), true);
   }, results);
