@@ -13,6 +13,32 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 
 const results = createTestResults();
 
+/**
+ * Run `fn` with a controllable clock: `Date.now()` returns a value the test
+ * moves forward via `advance(ms)`, and the real `Date.now` is ALWAYS restored
+ * afterward — even if `fn` (including cache construction) throws — so a failure
+ * can never leak a patched clock into later tests.
+ *
+ * This is the deterministic, instant replacement for real `setTimeout` sleeps
+ * when asserting TTL expiry. `SimpleCache` decides expiry via `Date.now()`
+ * (src/cache.ts), and `setTimeout` (timer clock) vs `Date.now()` (wall clock)
+ * are not guaranteed to advance in lockstep — notably on WSL2, where the wall
+ * clock drifts/resyncs — which is what made the sleep-based versions flaky
+ * (BUG-011).
+ */
+async function withControlledClock(
+  fn: (advance: (ms: number) => void) => void | Promise<void>,
+): Promise<void> {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    await fn((ms) => { now += ms; });
+  } finally {
+    Date.now = realNow;
+  }
+}
+
 async function runTests() {
   console.log('🧪 Testing: cache.ts\n');
 
@@ -49,16 +75,10 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
-  await testFunction('Cache TTL expiration', () => {
-    // Drive expiry with a controlled clock instead of sleeping real time:
-    // get() decides expiry via Date.now() (src/cache.ts), and setTimeout vs
-    // Date.now() are not guaranteed to advance in lockstep (notably on WSL2),
-    // which made the wall-clock version flaky. This is deterministic and instant.
-    const realNow = Date.now;
-    let now = realNow();
-    Date.now = () => now;
+  await testFunction('Cache TTL expiration', () => withControlledClock((advance) => {
+    let testCache: SimpleCache | undefined;
     try {
-      const testCache = new SimpleCache(50); // 50ms TTL
+      testCache = new SimpleCache(50); // 50ms TTL
 
       testCache.set('short-lived', '<html>test</html>', '# Test');
 
@@ -66,45 +86,39 @@ async function runTests() {
       assert.ok(testCache.get('short-lived'));
 
       // Advance past the TTL
-      now += 51;
+      advance(51);
 
       // Should be expired
       assert.equal(testCache.get('short-lived'), null);
-
-      testCache.destroy();
     } finally {
-      Date.now = realNow;
+      testCache?.destroy();
     }
-  }, results);
+  }), results);
 
-  await testFunction('Cache uses CACHE_TTL_MS when constructed without explicit TTL', () => {
+  await testFunction('Cache uses CACHE_TTL_MS when constructed without explicit TTL', () => withControlledClock((advance) => {
     const previousTtl = process.env.CACHE_TTL_MS;
-    process.env.CACHE_TTL_MS = '1000';
-    // Controlled clock (see 'Cache TTL expiration') — deterministic, no real sleep.
-    const realNow = Date.now;
-    let now = realNow();
-    Date.now = () => now;
-    const testCache = new SimpleCache();
-
+    let testCache: SimpleCache | undefined;
     try {
+      process.env.CACHE_TTL_MS = '1000';
+      testCache = new SimpleCache();
+
       testCache.set('env-ttl', '<html>test</html>', '# Test');
 
       assert.ok(testCache.get('env-ttl'));
 
       // Advance past the env-configured 1000ms TTL
-      now += 1001;
+      advance(1001);
 
       assert.equal(testCache.get('env-ttl'), null);
     } finally {
-      Date.now = realNow;
-      testCache.destroy();
+      testCache?.destroy();
       if (previousTtl === undefined) {
         delete process.env.CACHE_TTL_MS;
       } else {
         process.env.CACHE_TTL_MS = previousTtl;
       }
     }
-  }, results);
+  }), results);
 
   await testFunction('Cache falls back to defaults for invalid CACHE_TTL_MS and CACHE_MAX_ENTRIES', () => {
     const previousTtl = process.env.CACHE_TTL_MS;
@@ -186,13 +200,10 @@ async function runTests() {
     testCache.destroy();
   }, results);
 
-  await testFunction('Cache purges expired entries before LFU eviction', () => {
-    // Controlled clock (see 'Cache TTL expiration') — deterministic, no real sleep.
-    const realNow = Date.now;
-    let now = realNow();
-    Date.now = () => now;
+  await testFunction('Cache purges expired entries before LFU eviction', () => withControlledClock((advance) => {
+    let testCache: SimpleCache | undefined;
     try {
-      const testCache = new SimpleCache(50, 2, 1000);
+      testCache = new SimpleCache(50, 2, 1000);
 
       testCache.set('expired-popular-url', '<html>expired</html>', '# Expired');
       for (let i = 0; i < 5; i++) {
@@ -200,7 +211,7 @@ async function runTests() {
       }
 
       // Advance past the 50ms TTL so the popular entry is now expired
-      now += 51;
+      advance(51);
 
       testCache.set('fresh-url', '<html>fresh</html>', '# Fresh');
       testCache.set('new-url', '<html>new</html>', '# New');
@@ -209,12 +220,10 @@ async function runTests() {
       assert.ok(testCache.get('fresh-url'), 'Expected fresh URL to remain cached');
       assert.ok(testCache.get('new-url'), 'Expected new URL to remain cached');
       assert.equal(testCache.getStats().size, 2);
-
-      testCache.destroy();
     } finally {
-      Date.now = realNow;
+      testCache?.destroy();
     }
-  }, results);
+  }), results);
 
   await testFunction('Cache normalizes invalid cleanup interval to default', () => {
     const testCache = new SimpleCache(1000, 500, Number.NaN);
@@ -266,55 +275,46 @@ async function runTests() {
     urlCache.clear();
   }, results);
 
-  await testFunction('Cache get() returns null after TTL expiry', () => {
-    // Controlled clock (see 'Cache TTL expiration') — deterministic, no real sleep.
-    const realNow = Date.now;
-    let now = realNow();
-    Date.now = () => now;
+  await testFunction('Cache get() returns null after TTL expiry', () => withControlledClock((advance) => {
+    let testCache: SimpleCache | undefined;
     try {
-      const testCache = new SimpleCache(50); // 50ms TTL
+      testCache = new SimpleCache(50); // 50ms TTL
 
       testCache.set('cleanup-test', '<html>test</html>', '# Test');
 
       // Advance past the TTL
-      now += 51;
+      advance(51);
 
       assert.equal(testCache.get('cleanup-test'), null);
-
-      testCache.destroy();
     } finally {
-      Date.now = realNow;
+      testCache?.destroy();
     }
-  }, results);
+  }), results);
 
-  await testFunction('Cache cleanup interval removes expired entries', async () => {
-    // The expiry decision is deterministic via a controlled clock; only the 1ms
+  await testFunction('Cache cleanup interval removes expired entries', () => withControlledClock(async (advance) => {
+    // The expiry decision is deterministic via the controlled clock; only the 1ms
     // interval *firing* needs real time (a scheduler dependency, not the flaky
     // wall-clock-vs-timer one). Assert via getStats() — which does NOT lazily
     // expire — so this verifies the background interval purged the entry rather
     // than get()'s own expiry check.
-    const realNow = Date.now;
-    let now = realNow();
-    Date.now = () => now;
+    let testCache: SimpleCache | undefined;
     try {
-      const testCache = new SimpleCache(50, 500, 1); // 50ms TTL, 1ms cleanup interval
+      testCache = new SimpleCache(50, 500, 1); // 50ms TTL, 1ms cleanup interval
 
       testCache.set('cleanup-target', '<html>test</html>', '# Test');
       assert.equal(testCache.getStats().size, 1);
 
       // Logically expire the entry, then let the 1ms interval fire and purge it.
-      now += 51;
+      advance(51);
       for (let i = 0; i < 100 && testCache.getStats().size > 0; i++) {
         await new Promise(resolve => setTimeout(resolve, 5));
       }
 
       assert.equal(testCache.getStats().size, 0, 'Expected cleanup interval to purge the expired entry');
-
-      testCache.destroy();
     } finally {
-      Date.now = realNow;
+      testCache?.destroy();
     }
-  }, results);
+  }), results);
 
   await testFunction('Cache cleanup interval does not keep process alive', () => {
     const testCache = new SimpleCache(1000, 500, 1000);
