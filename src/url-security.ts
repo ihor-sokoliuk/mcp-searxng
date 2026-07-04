@@ -9,19 +9,40 @@ export function isPrivateHostname(hostname: string): boolean {
   return lower === "localhost" || lower.endsWith(".localhost");
 }
 
+function ipv4ToInt(ip: string): number {
+  return ip.split(".").reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
+}
+
+// IANA special-purpose IPv4 ranges beyond the existing RFC1918/link-local checks.
+const BLOCKED_V4_CIDRS: [number, number][] = [
+  [ipv4ToInt("100.64.0.0"), 10],   // CGNAT (RFC 6598) - Tailscale default, overlays
+  [ipv4ToInt("192.0.0.0"), 24],    // IETF protocol assignments
+  [ipv4ToInt("192.0.2.0"), 24],    // TEST-NET-1
+  [ipv4ToInt("198.18.0.0"), 15],   // benchmarking (RFC 2544)
+  [ipv4ToInt("198.51.100.0"), 24], // TEST-NET-2
+  [ipv4ToInt("203.0.113.0"), 24],  // TEST-NET-3
+  [ipv4ToInt("224.0.0.0"), 4],     // multicast
+  [ipv4ToInt("240.0.0.0"), 4],     // reserved / 255.255.255.255 broadcast
+];
+
 export function isPrivateIpv4(hostname: string): boolean {
   if (isIP(hostname) !== 4) {
     return false;
   }
 
-  return (
+  if (
     hostname.startsWith("0.") ||
     hostname.startsWith("10.") ||
     hostname.startsWith("127.") ||
     hostname.startsWith("192.168.") ||
     /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
     hostname.startsWith("169.254.")
-  );
+  ) {
+    return true;
+  }
+
+  const ip = ipv4ToInt(hostname);
+  return BLOCKED_V4_CIDRS.some(([net, bits]) => ((ip ^ net) >>> (32 - bits)) === 0);
 }
 
 export function isPrivateIPv6(hostname: string): boolean {

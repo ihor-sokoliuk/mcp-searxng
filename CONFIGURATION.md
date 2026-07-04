@@ -164,7 +164,7 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 
 ## URL Reader Security
 
-`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, IPv6 loopback/ULA/link-local addresses, and IPv4-mapped IPv6 private addresses.
+`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, CGNAT (`100.64.0.0/10`), IANA special-purpose IPv4 ranges, IPv6 loopback/ULA/link-local addresses, and IPv4-mapped IPv6 private addresses.
 
 Redirects are also checked before they are followed. A public URL that redirects to a private/internal URL is blocked.
 
