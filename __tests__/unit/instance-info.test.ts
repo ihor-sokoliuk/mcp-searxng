@@ -441,6 +441,46 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('config request includes User-Agent header when USER_AGENT is set', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('USER_AGENT', 'MyBot/1.0');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    await fetchInstanceInfo(mockServer as any);
+
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(headers?.['User-Agent'], 'MyBot/1.0');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('config request omits User-Agent header when USER_AGENT is unset', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('USER_AGENT');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    await fetchInstanceInfo(mockServer as any);
+
+    const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
+    assert.ok(!headers['User-Agent'], `Expected no User-Agent header`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Instance Info Module');
   return results;
 }

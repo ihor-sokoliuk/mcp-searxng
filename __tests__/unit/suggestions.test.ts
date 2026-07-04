@@ -170,6 +170,46 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('autocompleter request includes User-Agent header when USER_AGENT is set', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('USER_AGENT', 'MyBot/1.0');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(headers?.['User-Agent'], 'MyBot/1.0');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('autocompleter request omits User-Agent header when USER_AGENT is unset', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('USER_AGENT');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
+    assert.ok(!headers['User-Agent'], `Expected no User-Agent header`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Suggestions Module');
   return results;
 }

@@ -272,6 +272,14 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
       (requestOptions as any).dispatcher = dispatcher;
     }
 
+    const userAgent = process.env.USER_AGENT;
+    if (userAgent) {
+      requestOptions.headers = {
+        ...requestOptions.headers,
+        'User-Agent': userAgent
+      };
+    }
+
     const response = await fetch(url.toString(), requestOptions);
     if (!response.ok) {
       const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
