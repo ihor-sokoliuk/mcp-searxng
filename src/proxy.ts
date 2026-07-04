@@ -290,9 +290,17 @@ export function createDefaultAgent(): Agent | undefined {
  * Apply the shared SearXNG-instance request configuration — the SEARCH-group
  * proxy dispatcher and the global `USER_AGENT` header — to an outgoing request.
  *
- * Centralizes the config used by every instance-side fetch (`searxng_web_search`,
- * `/config`, autocompleter) so they route through the same proxy and present a
- * consistent User-Agent identity, without duplicating the wiring per call site.
+ * Used by the two instance-side fetches that don't build their own auth headers:
+ * the `/config` fetch (`instance-info.ts`) and the autocompleter fetch
+ * (`suggestions.ts`), so both route through the same proxy and present a
+ * consistent User-Agent identity without duplicating the wiring. `searxng_web_search`
+ * still builds its own options in `search.ts` (Basic-Auth handling is interleaved
+ * there); folding it in here is tracked under FEAT-050.
+ *
+ * Callers pass a freshly-built `RequestInit`; `headers`, when already present, is a
+ * plain object (the convention across this codebase), so the spread-merge preserves
+ * any existing entries — other `HeadersInit` shapes (a `Headers` instance or tuple
+ * array) are never passed here and are intentionally not normalized.
  */
 export function applySearchRequestConfig(
   requestOptions: RequestInit,
