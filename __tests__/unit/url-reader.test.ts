@@ -27,7 +27,7 @@ const results = createTestResults();
 const envManager = new EnvManager();
 const require = createRequire(import.meta.url);
 const dnsModule = require('node:dns') as typeof import('node:dns');
-const TEST_PUBLIC_IP = '203.0.113.10';
+const TEST_PUBLIC_IP = '93.184.216.34';
 
 // ─── local test-server helpers ───────────────────────────────────────────────
 
@@ -1321,6 +1321,7 @@ async function runTests() {
       'lan.example': [{ address: '192.168.1.20', family: 4 }],
       'rfc1918.example': [{ address: '172.16.0.9', family: 4 }],
       'metadata.example': [{ address: '169.254.169.254', family: 4 }],
+      'cgnat.example': [{ address: '100.64.0.1', family: 4 }],
     };
     const restoreDns = installDnsLookupMock(privateCases);
 
