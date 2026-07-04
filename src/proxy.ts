@@ -287,6 +287,33 @@ export function createDefaultAgent(): Agent | undefined {
 }
 
 /**
+ * Apply the shared SearXNG-instance request configuration — the SEARCH-group
+ * proxy dispatcher and the global `USER_AGENT` header — to an outgoing request.
+ *
+ * Centralizes the config used by every instance-side fetch (`searxng_web_search`,
+ * `/config`, autocompleter) so they route through the same proxy and present a
+ * consistent User-Agent identity, without duplicating the wiring per call site.
+ */
+export function applySearchRequestConfig(
+  requestOptions: RequestInit,
+  targetUrl: string,
+): void {
+  const proxyAgent = createProxyAgent(targetUrl, ProxyType.SEARCH);
+  const dispatcher = proxyAgent ?? createDefaultAgent();
+  if (dispatcher) {
+    (requestOptions as any).dispatcher = dispatcher;
+  }
+
+  const userAgent = process.env.USER_AGENT;
+  if (userAgent) {
+    requestOptions.headers = {
+      ...requestOptions.headers,
+      "User-Agent": userAgent,
+    };
+  }
+}
+
+/**
  * Returns a singleton undici Agent for direct `web_url_read` requests.
  *
  * Unlike the shared default agent, this is always created so the URL reader's
