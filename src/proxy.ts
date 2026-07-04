@@ -297,10 +297,10 @@ export function createDefaultAgent(): Agent | undefined {
  * still builds its own options in `search.ts` (Basic-Auth handling is interleaved
  * there); folding it in here is tracked under FEAT-050.
  *
- * Callers pass a freshly-built `RequestInit`; `headers`, when already present, is a
- * plain object (the convention across this codebase), so the spread-merge preserves
- * any existing entries — other `HeadersInit` shapes (a `Headers` instance or tuple
- * array) are never passed here and are intentionally not normalized.
+ * The User-Agent is merged through a `Headers` instance, so any already-set
+ * `headers` — whether a plain object, a `Headers` instance, or a tuple array —
+ * is preserved; the result is written back as a plain object. (In practice both
+ * callers pass a freshly-built `RequestInit` with no prior headers.)
  */
 export function applySearchRequestConfig(
   requestOptions: RequestInit,
@@ -314,10 +314,12 @@ export function applySearchRequestConfig(
 
   const userAgent = process.env.USER_AGENT;
   if (userAgent) {
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      "User-Agent": userAgent,
-    };
+    // Normalize via Headers so any HeadersInit shape (plain object, Headers
+    // instance, or tuple array) merges without dropping already-set entries,
+    // then hand back a plain object.
+    const headers = new Headers(requestOptions.headers);
+    headers.set("User-Agent", userAgent);
+    requestOptions.headers = Object.fromEntries(headers);
   }
 }
 

@@ -455,7 +455,7 @@ async function runTests() {
     await fetchInstanceInfo(mockServer as any);
 
     const headers = getCapturedOptions()?.headers as Record<string, string>;
-    assert.equal(headers?.['User-Agent'], 'MyBot/1.0');
+    assert.equal(headers?.['user-agent'], 'MyBot/1.0');
 
     fetchMocker.restore();
     envManager.restore();
@@ -475,7 +475,7 @@ async function runTests() {
     await fetchInstanceInfo(mockServer as any);
 
     const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
-    assert.ok(!headers['User-Agent'], `Expected no User-Agent header`);
+    assert.ok(!headers['user-agent'], `Expected no User-Agent header`);
 
     fetchMocker.restore();
     envManager.restore();
