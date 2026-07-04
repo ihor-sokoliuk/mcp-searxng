@@ -3,6 +3,16 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.10.1] - 2026-07-04
+
+### Fixed
+
+- **`USER_AGENT` now applied to the `/config` and suggestions requests:** The configured `USER_AGENT` header is now sent on the SearXNG `/config` instance-info fetch and on search-suggestion fetches. These two paths previously always used the default agent while the main search and `web_url_read` paths already honored `USER_AGENT`, so instances that filter or rate-limit by User-Agent behaved inconsistently. The header is now merged in one shared request-config helper covering every outbound instance request. (BUG-009, [#145](https://github.com/ihor-sokoliuk/mcp-searxng/pull/145))
+
+### Security
+
+- **SSRF guard now blocks CGNAT and the remaining IANA special-purpose IPv4 ranges:** The private-address guard that protects `web_url_read` — and the DNS-rebinding lookup hook that re-validates every resolved answer — previously only rejected RFC1918, loopback, link-local, and `0.0.0.0/8`. It now also blocks CGNAT (`100.64.0.0/10`, Tailscale's default range plus container overlays and ISP CGNAT), the TEST-NET ranges, benchmarking (`198.18.0.0/15`), IETF protocol assignments (`192.0.0.0/24`), 6to4 relay anycast, multicast (`224.0.0.0/4`), and reserved/broadcast (`240.0.0.0/4`). All blocked ranges are consolidated into a single auditable CIDR table (RFC 6890) enforced at both the literal-hostname and DNS-resolved paths; IPv4-mapped IPv6 delegates here and is covered too. (SEC-024, [#147](https://github.com/ihor-sokoliuk/mcp-searxng/pull/147))
+
 ## [1.10.0] - 2026-07-03
 
 ### Added
