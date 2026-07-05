@@ -203,13 +203,15 @@ async function runTests() {
       return createMockFetch({ json: ['type', ['typescript']] })(url, options);
     });
 
-    await performSearchSuggestions(mockServer as any, 'type');
+    try {
+      await performSearchSuggestions(mockServer as any, 'type');
 
-    const headers = getCapturedOptions()?.headers as Record<string, string>;
-    assert.equal(headers?.['user-agent'], 'SearchBot/2.0');
-
-    fetchMocker.restore();
-    envManager.restore();
+      const headers = getCapturedOptions()?.headers as Record<string, string>;
+      assert.equal(headers?.['user-agent'], 'SearchBot/2.0');
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('autocompleter request omits User-Agent header when USER_AGENT is unset', async () => {
