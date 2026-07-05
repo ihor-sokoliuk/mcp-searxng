@@ -70,8 +70,11 @@ Self-hosting SearXNG with JSON output enabled remains the recommended setup. The
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `USER_AGENT` | No | — | Global User-Agent header for all outgoing requests (e.g. `MyBot/1.0`) |
-| `URL_READER_USER_AGENT` | No | — | User-Agent for `web_url_read` only — overrides `USER_AGENT` for URL reads |
+| `USER_AGENT` | No | — | Global default User-Agent header for outgoing requests (e.g. `MyBot/1.0`) |
+| `SEARCH_USER_AGENT` | No | `USER_AGENT` | User-Agent for SearXNG instance requests: `searxng_web_search`, `/config` capability discovery, and search suggestions |
+| `URL_READER_USER_AGENT` | No | `USER_AGENT` | User-Agent for `web_url_read` only |
+
+`SEARCH_USER_AGENT` and `URL_READER_USER_AGENT` are per-group overrides. When unset, both fall back to `USER_AGENT`. If neither the group override nor `USER_AGENT` is set, no User-Agent header is added by `mcp-searxng`.
 
 ## Proxy
 
@@ -205,6 +208,7 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "AUTH_USERNAME": "your_username",
         "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
+        "SEARCH_USER_AGENT": "MySearchBot/1.0",
         "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
         "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
         "SEARCH_HTTPS_PROXY": "http://search-proxy.company.com:8080",

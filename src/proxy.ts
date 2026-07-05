@@ -287,15 +287,22 @@ export function createDefaultAgent(): Agent | undefined {
 }
 
 /**
+ * Resolve the User-Agent for SearXNG-instance requests.
+ */
+export function getSearchUserAgent(): string | undefined {
+  return process.env.SEARCH_USER_AGENT || process.env.USER_AGENT;
+}
+
+/**
  * Apply the shared SearXNG-instance request configuration — the SEARCH-group
- * proxy dispatcher and the global `USER_AGENT` header — to an outgoing request.
+ * proxy dispatcher and resolved SEARCH-group User-Agent header — to an outgoing request.
  *
- * Used by the two instance-side fetches that don't build their own auth headers:
+ * Used by the instance-side fetches that don't build their own auth headers:
  * the `/config` fetch (`instance-info.ts`) and the autocompleter fetch
  * (`suggestions.ts`), so both route through the same proxy and present a
  * consistent User-Agent identity without duplicating the wiring. `searxng_web_search`
- * still builds its own options in `search.ts` (Basic-Auth handling is interleaved
- * there); folding it in here is tracked under FEAT-050.
+ * builds its own options in `search.ts` because Basic Auth handling is interleaved
+ * there, but uses the same `getSearchUserAgent()` resolver.
  *
  * The User-Agent is merged through a `Headers` instance, so any already-set
  * `headers` — whether a plain object, a `Headers` instance, or a tuple array —
@@ -312,7 +319,7 @@ export function applySearchRequestConfig(
     (requestOptions as any).dispatcher = dispatcher;
   }
 
-  const userAgent = process.env.USER_AGENT;
+  const userAgent = getSearchUserAgent();
   if (userAgent) {
     // Normalize via Headers so any HeadersInit shape (plain object, Headers
     // instance, or tuple array) merges without dropping already-set entries,
