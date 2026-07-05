@@ -355,7 +355,7 @@ async function runTests() {
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, url);
       assert.ok(result.includes('Content too large'));
-      assert.ok(result.includes('0.0 MB'));
+      assert.ok(result.includes('0.00 MB'));
       assert.deepEqual(seenMethods, ['HEAD']);
     } finally {
       await close();

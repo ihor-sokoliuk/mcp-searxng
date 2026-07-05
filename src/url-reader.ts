@@ -263,11 +263,11 @@ function getMaxContentLengthBytes(mcpServer: McpServer): number {
 }
 
 function createContentTooLargeMessage(contentLength: number, maxBytes: number): string {
-  const sizeMB = (contentLength / (1024 * 1024)).toFixed(1);
-  const limitMB = (maxBytes / (1024 * 1024)).toFixed(1);
+  const fmtMB = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   return (
-    `Content too large: server reports Content-Length of ${sizeMB} MB (limit: ${limitMB} MB). ` +
-    `Try using readHeadings or section to fetch only the relevant parts.`
+    `Content too large: ${fmtMB(contentLength)} exceeds the ${fmtMB(maxBytes)} limit. ` +
+    `readHeadings and section only trim the returned output — they cannot fetch a page over the size cap. ` +
+    `To read larger pages, raise URL_READ_MAX_CONTENT_LENGTH_BYTES.`
   );
 }
 
