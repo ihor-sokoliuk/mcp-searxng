@@ -258,7 +258,7 @@ curl http://localhost:3000/health
 
 ## Configuration
 
-Set `SEARXNG_URL` to your SearXNG instance URL. For failover, set it to semicolon-separated interchangeable replica URLs. Set `SEARXNG_FANOUT=true` to query all healthy replicas in parallel and merge results. All other variables are optional.
+Set `SEARXNG_URL` to your SearXNG instance URL. For Basic Auth, embed credentials per instance, for example `https://user:password@search.example.com`. For failover, set it to semicolon-separated interchangeable replica URLs; each entry can carry its own credentials. Set `SEARXNG_FANOUT=true` to query all healthy replicas in parallel and merge results. All other variables are optional.
 
 Full environment variable reference: [CONFIGURATION.md](CONFIGURATION.md)
 

@@ -69,6 +69,31 @@ export function redactSearxngInstanceUrl(raw: string): string {
   }
 }
 
+export function stripSearxngInstanceUrlUserinfo(url: URL): URL {
+  const stripped = new URL(url.toString());
+  stripped.username = "";
+  stripped.password = "";
+  return stripped;
+}
+
+export function getSearxngBasicAuthHeader(url: URL): string | undefined {
+  if (url.username !== "" || url.password !== "") {
+    const username = decodeURIComponent(url.username);
+    const password = decodeURIComponent(url.password);
+    return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  }
+
+  const username = process.env.AUTH_USERNAME;
+  const password = process.env.AUTH_PASSWORD;
+
+  if (username && password) {
+    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
+    return `Basic ${base64Auth}`;
+  }
+
+  return undefined;
+}
+
 export function isSearxngFanoutEnabled(): boolean {
   return process.env.SEARXNG_FANOUT === "true";
 }

@@ -132,6 +132,58 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('autocompleter fetch strips URL credentials and uses primary URL auth header', async () => {
+    envManager.set('SEARXNG_URL', 'https://primary-user:p%40ss@primary.example.com/base;https://secondary.example.com');
+    envManager.set('AUTH_USERNAME', 'global-user');
+    envManager.set('AUTH_PASSWORD', 'global-pass');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    const suggestions = await performSearchSuggestions(mockServer as any, 'type');
+
+    const capturedUrl = getCapturedUrl();
+    const parsedUrl = new URL(capturedUrl);
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.deepEqual(suggestions, ['typescript']);
+    assert.equal(parsedUrl.username, '');
+    assert.equal(parsedUrl.password, '');
+    assert.equal(parsedUrl.hostname, 'primary.example.com');
+    assert.equal(parsedUrl.pathname, '/base/autocompleter');
+    assert.ok(!capturedUrl.includes('primary-user:p%40ss@'), capturedUrl);
+    assert.equal(headers['authorization'], `Basic ${Buffer.from('primary-user:p@ss').toString('base64')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('autocompleter uses global auth fallback when primary URL has no userinfo', async () => {
+    envManager.set('SEARXNG_URL', 'https://primary.example.com');
+    envManager.set('AUTH_USERNAME', 'global-user');
+    envManager.set('AUTH_PASSWORD', 'global-pass');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(headers['authorization'], `Basic ${Buffer.from('global-user:global-pass').toString('base64')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('language=all omits lang parameter', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     const mockServer = createMockServer();

@@ -377,6 +377,34 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('/config fetch strips URL credentials and uses per-instance auth header', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://config-user:p%40ss@config-auth.example.com');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl, getCapturedOptions } = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any, true));
+
+    const capturedUrl = getCapturedUrl();
+    const parsedUrl = new URL(capturedUrl);
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(payload.available, true);
+    assert.equal(parsedUrl.username, '');
+    assert.equal(parsedUrl.password, '');
+    assert.equal(parsedUrl.hostname, 'config-auth.example.com');
+    assert.equal(parsedUrl.pathname, '/config');
+    assert.ok(!capturedUrl.includes('config-user:p%40ss@'), capturedUrl);
+    assert.equal(headers['authorization'], `Basic ${Buffer.from('config-user:p@ss').toString('base64')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('credential-bearing instance URLs are redacted from unavailable payload', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://user:pass@down-one.example.com;https://user:pass@down-two.example.com');

@@ -93,10 +93,10 @@ Reads and converts web page content to Markdown format.
 ## Configuration
 
 ### Required Environment Variables
-- \`SEARXNG_URL\`: URL of your SearXNG instance (e.g., http://localhost:8080)
+- \`SEARXNG_URL\`: URL of your SearXNG instance (e.g., http://localhost:8080). For Basic Auth, embed credentials in the URL (e.g., https://user:password@search.example.com). Multi-instance lists can use different credentials per semicolon-separated URL.
 
 ### Optional Environment Variables
-- \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Basic authentication for SearXNG
+- \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Legacy global Basic Auth fallback when \`SEARXNG_URL\` has no userinfo
 - \`HTTP_PROXY\` / \`HTTPS_PROXY\`: Proxy server configuration
 - \`NO_PROXY\` / \`no_proxy\`: Comma-separated list of hosts to bypass proxy
 - \`MCP_HTTP_PORT\`: Enable HTTP transport on specified port

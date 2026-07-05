@@ -6,7 +6,7 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance, or a semicolon-separated list of interchangeable replica base URLs. Single URL behavior is unchanged. Format: `<protocol>://<hostname>[:<port>]` (e.g. `http://localhost:8080` or `https://one.example.com;https://two.example.com`) |
+| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance, or a semicolon-separated list of interchangeable replica base URLs. Single URL behavior is unchanged. Format: `<protocol>://[username[:password]@]<hostname>[:<port>]` (e.g. `http://localhost:8080`, `https://user:pass@search.example.com`, or `https://user:pass@one.example.com;https://two.example.com`) |
 | `SEARXNG_FANOUT` | No | `false` | Set to `true` to query all healthy configured SearXNG instances in parallel and merge results. Default failover mode tries instances in order until one returns results. |
 
 When `SEARXNG_URL` contains multiple semicolon-separated URLs, they are treated as interchangeable replicas. Default mode fails over in order when an instance hard-fails or returns no results. A reachable `200 OK` response with an empty `results` array is considered healthy and does not trigger cooldown. Instances with 3 consecutive hard failures are skipped for 60 seconds.
@@ -15,10 +15,24 @@ With `SEARXNG_FANOUT=true`, all healthy instances are queried in parallel. Resul
 
 ## Authentication
 
+For SearXNG instances protected with HTTP Basic Auth, embed credentials in each `SEARXNG_URL` entry:
+
+```bash
+SEARXNG_URL=https://username:password@search.example.com
+```
+
+For multiple interchangeable replicas, each semicolon-separated URL can carry its own credentials. This supports mixed deployments such as one private auth-gated instance and one public instance without sending the private credentials to the public host:
+
+```bash
+SEARXNG_URL=https://alice:secret@private-search.example.com;https://public-search.example.com
+```
+
+Percent-encode special characters in usernames or passwords before placing them in the URL. For example, password `p@ss` should be written as `p%40ss`.
+
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `AUTH_USERNAME` | No | — | HTTP Basic Auth username for password-protected SearXNG instances |
-| `AUTH_PASSWORD` | No | — | HTTP Basic Auth password for password-protected SearXNG instances |
+| `AUTH_USERNAME` | No | — | Legacy global HTTP Basic Auth username fallback used only when a `SEARXNG_URL` entry has no userinfo |
+| `AUTH_PASSWORD` | No | — | Legacy global HTTP Basic Auth password fallback used only when a `SEARXNG_URL` entry has no userinfo |
 
 ## Timeouts
 
@@ -191,7 +205,7 @@ Complete MCP client configuration with every variable. Mix and match as needed �
       "command": "npx",
       "args": ["-y", "mcp-searxng"],
       "env": {
-        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
+        "SEARXNG_URL": "https://your_username:your_password@searxng.example.com",
         "SEARXNG_FANOUT": "false",
         "SEARXNG_TIMEOUT_MS": "10000",
         "FETCH_TIMEOUT_MS": "10000",
@@ -205,8 +219,6 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
         "CACHE_TTL_MS": "86400000",
         "CACHE_MAX_ENTRIES": "500",
-        "AUTH_USERNAME": "your_username",
-        "AUTH_PASSWORD": "your_password",
         "USER_AGENT": "MyBot/1.0",
         "SEARCH_USER_AGENT": "MySearchBot/1.0",
         "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",

@@ -204,8 +204,76 @@ async function runTests() {
     const options = getCapturedOptions();
     assert.ok(options?.headers);
     const headers = options.headers as Record<string, string>;
-    assert.ok(headers['Authorization']);
-    assert.ok(headers['Authorization'].startsWith('Basic '));
+    assert.equal(headers['Authorization'], `Basic ${Buffer.from('testuser:testpass').toString('base64')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('embedded URL auth overrides global auth for search requests', async () => {
+    envManager.set('SEARXNG_URL', 'https://embedded:p%40ss@test-searx.example.com');
+    envManager.set('AUTH_USERNAME', 'global-user');
+    envManager.set('AUTH_PASSWORD', 'global-pass');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: { results: [] } })(url, options);
+    });
+
+    await performWebSearch(mockServer as any, 'test query');
+
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(headers['Authorization'], `Basic ${Buffer.from('embedded:p@ss').toString('base64')}`);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('search fetch URL strips embedded credentials before request', async () => {
+    envManager.set('SEARXNG_URL', 'https://user:pass@test-searx.example.com/subpath');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: { results: [] } })(url, options);
+    });
+
+    await performWebSearch(mockServer as any, 'test query');
+
+    const capturedUrl = getCapturedUrl();
+    const parsedUrl = new URL(capturedUrl);
+    assert.equal(parsedUrl.username, '');
+    assert.equal(parsedUrl.password, '');
+    assert.equal(parsedUrl.hostname, 'test-searx.example.com');
+    assert.equal(parsedUrl.pathname, '/subpath/search');
+    assert.ok(!capturedUrl.includes('user:pass@'), capturedUrl);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('search request omits Authorization when no credentials are configured', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: { results: [] } })(url, options);
+    });
+
+    await performWebSearch(mockServer as any, 'test query');
+
+    const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
+    assert.equal(headers['Authorization'], undefined);
 
     fetchMocker.restore();
     envManager.restore();
@@ -1918,6 +1986,53 @@ async function runTests() {
     assert.deepEqual(requestedHosts, ['https://first.example.com', 'https://second.example.com']);
     assert.deepEqual(payload.servedBy, ['https://second.example.com']);
     assert.equal(payload.results[0].title, 'Second Result');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('multi-instance search uses embedded auth first and global fallback second', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://embedded:p%40ss@first.example.com;https://second.example.com');
+    envManager.set('AUTH_USERNAME', 'global-user');
+    envManager.set('AUTH_PASSWORD', 'global-pass');
+    envManager.delete('SEARXNG_FANOUT');
+
+    const mockServer = createMockServer();
+    const requests: Array<{ url: string; authorization?: string }> = [];
+
+    fetchMocker.mock(async (url, options) => {
+      const headers = (options?.headers || {}) as Record<string, string>;
+      requests.push({
+        url: url.toString(),
+        authorization: headers['Authorization'],
+      });
+
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'first.example.com') {
+        throw new Error('first instance unavailable');
+      }
+
+      return createMockFetch({
+        json: {
+          query: 'multi auth',
+          results: [
+            { title: 'Second Result', content: 'Second', url: 'https://example.com/second', score: 1 },
+          ],
+        },
+      })(url, options);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'multi auth', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const payload = JSON.parse(result);
+
+    assert.equal(payload.results[0].title, 'Second Result');
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].authorization, `Basic ${Buffer.from('embedded:p@ss').toString('base64')}`);
+    assert.equal(requests[1].authorization, `Basic ${Buffer.from('global-user:global-pass').toString('base64')}`);
+    assert.ok(!requests[0].url.includes('embedded:p%40ss@'), requests[0].url);
+    assert.equal(new URL(requests[0].url).username, '');
+    assert.equal(new URL(requests[1].url).username, '');
 
     fetchMocker.restore();
     envManager.restore();

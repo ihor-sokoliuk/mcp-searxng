@@ -3,6 +3,7 @@ import { Agent, ProxyAgent } from "undici";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { getConnectOptions } from "./tls-config.js";
 import { createUrlSecurityPolicyDnsError, isPrivateAddress } from "./url-security.js";
+import { getSearxngBasicAuthHeader } from "./searxng-instances.js";
 
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
@@ -297,12 +298,10 @@ export function getSearchUserAgent(): string | undefined {
  * Apply the shared SearXNG-instance request configuration — the SEARCH-group
  * proxy dispatcher and resolved SEARCH-group User-Agent header — to an outgoing request.
  *
- * Used by the instance-side fetches that don't build their own auth headers:
- * the `/config` fetch (`instance-info.ts`) and the autocompleter fetch
- * (`suggestions.ts`), so both route through the same proxy and present a
- * consistent User-Agent identity without duplicating the wiring. `searxng_web_search`
- * builds its own options in `search.ts` because Basic Auth handling is interleaved
- * there, but uses the same `getSearchUserAgent()` resolver.
+ * Used by the `/config` fetch (`instance-info.ts`) and the autocompleter fetch
+ * (`suggestions.ts`), so both route through the same auth, proxy, and User-Agent
+ * wiring without duplicating it. `searxng_web_search` builds its own options in
+ * `search.ts`, but uses the same auth and User-Agent resolvers.
  *
  * The User-Agent is merged through a `Headers` instance, so any already-set
  * `headers` — whether a plain object, a `Headers` instance, or a tuple array —
@@ -319,13 +318,19 @@ export function applySearchRequestConfig(
     (requestOptions as any).dispatcher = dispatcher;
   }
 
+  const authHeader = getSearxngBasicAuthHeader(new URL(targetUrl));
   const userAgent = getSearchUserAgent();
-  if (userAgent) {
+  if (authHeader || userAgent) {
     // Normalize via Headers so any HeadersInit shape (plain object, Headers
     // instance, or tuple array) merges without dropping already-set entries,
     // then hand back a plain object.
     const headers = new Headers(requestOptions.headers);
-    headers.set("User-Agent", userAgent);
+    if (authHeader) {
+      headers.set("Authorization", authHeader);
+    }
+    if (userAgent) {
+      headers.set("User-Agent", userAgent);
+    }
     requestOptions.headers = Object.fromEntries(headers);
   }
 }

@@ -7,10 +7,12 @@ import { logMessage } from "./logging.js";
 import {
   getHealthySearxngInstances,
   getSearxngInstances,
+  getSearxngBasicAuthHeader,
   isSearxngFanoutEnabled,
   recordSearxngInstanceFailure,
   recordSearxngInstanceSuccess,
   redactSearxngInstanceUrl,
+  stripSearxngInstanceUrlUserinfo,
 } from "./searxng-instances.js";
 import {
   MCPSearXNGError,
@@ -161,7 +163,6 @@ async function fetchWithSearchTimeout(
       url: redactedUrl,
       searxngUrl: redactSearxngInstanceUrl(searxngUrl),
       proxyAgent: !!(requestOptions as any).dispatcher,
-      username: process.env.AUTH_USERNAME,
     };
     throw createNetworkError(safeError, context);
   } finally {
@@ -438,14 +439,11 @@ function buildSearchRequestOptions(url: URL): RequestInit {
     (requestOptions as any).dispatcher = dispatcher;
   }
 
-  const username = process.env.AUTH_USERNAME;
-  const password = process.env.AUTH_PASSWORD;
-
-  if (username && password) {
-    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
+  const authHeader = getSearxngBasicAuthHeader(url);
+  if (authHeader) {
     requestOptions.headers = {
       ...requestOptions.headers,
-      'Authorization': `Basic ${base64Auth}`
+      'Authorization': authHeader
     };
   }
 
@@ -467,13 +465,14 @@ async function fetchSearchFromInstance(
 ): Promise<InstanceSearchResult> {
   const url = buildSearchUrl(instanceUrl, request);
   const requestOptions = buildSearchRequestOptions(url);
-  const response = await fetchWithSearchTimeout(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
+  const requestUrl = stripSearxngInstanceUrlUserinfo(url);
+  const response = await fetchWithSearchTimeout(mcpServer, requestUrl, requestOptions, request.timeoutMs, request.query, instanceUrl);
 
   let data: SearXNGWeb;
 
   if (!response.ok) {
     if (isHtmlFallbackEnabled() && shouldFallbackForStatus(response.status)) {
-      data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
+      data = await fetchHtmlFallbackSearch(mcpServer, requestUrl, requestOptions, request.timeoutMs, request.query, instanceUrl);
     } else {
       let responseBody: string;
       try {
