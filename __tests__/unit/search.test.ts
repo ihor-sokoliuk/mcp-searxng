@@ -867,17 +867,19 @@ async function runTests() {
     });
 
     try {
-      await performWebSearch(mockServer as any, 'test query');
-    } catch {
-      // expected
+      try {
+        await performWebSearch(mockServer as any, 'test query');
+      } catch {
+        // expected
+      }
+
+      const options = getCapturedOptions();
+      const headers = options?.headers as Record<string, string>;
+      assert.equal(headers?.['User-Agent'], 'SearchBot/2.0');
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
     }
-
-    const options = getCapturedOptions();
-    const headers = options?.headers as Record<string, string>;
-    assert.equal(headers?.['User-Agent'], 'SearchBot/2.0');
-
-    fetchMocker.restore();
-    envManager.restore();
   }, results);
 
   await testFunction('User-Agent header absent when USER_AGENT env var not set', async () => {
