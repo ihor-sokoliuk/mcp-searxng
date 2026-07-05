@@ -266,6 +266,15 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
     const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
     };
+    const username = process.env.AUTH_USERNAME;
+    const password = process.env.AUTH_PASSWORD;
+    if (username && password) {
+      const base64Auth = Buffer.from(`${username}:${password}`).toString("base64");
+      requestOptions.headers = {
+        ...(requestOptions.headers as Record<string, string> | undefined),
+        Authorization: `Basic ${base64Auth}`,
+      };
+    }
     const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
     const dispatcher = proxyAgent ?? createDefaultAgent();
     if (dispatcher) {
