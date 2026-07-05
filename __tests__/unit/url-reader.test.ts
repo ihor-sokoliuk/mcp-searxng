@@ -355,7 +355,13 @@ async function runTests() {
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, url);
       assert.ok(result.includes('Content too large'));
-      assert.ok(result.includes('0.00 MB'));
+      // Small sizes render as exact bytes, not a misleading "0.00 MB".
+      assert.ok(result.includes('101 bytes'), `Expected exact byte count, got: ${result}`);
+      assert.ok(result.includes('100 bytes'), `Expected exact limit in bytes, got: ${result}`);
+      // Message must state readHeadings/section cannot bypass the cap...
+      assert.ok(result.includes('cannot fetch a page over the size cap'), `Expected disclaimer, got: ${result}`);
+      // ...and name the env var that actually raises the limit.
+      assert.ok(result.includes('URL_READ_MAX_CONTENT_LENGTH_BYTES'), `Expected env var hint, got: ${result}`);
       assert.deepEqual(seenMethods, ['HEAD']);
     } finally {
       await close();
