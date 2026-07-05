@@ -172,6 +172,7 @@ async function runTests() {
 
   await testFunction('autocompleter request includes User-Agent header when USER_AGENT is set', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARCH_USER_AGENT');
     envManager.set('USER_AGENT', 'MyBot/1.0');
     const mockServer = createMockServer();
     const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
@@ -190,8 +191,30 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('autocompleter request uses SEARCH_USER_AGENT over USER_AGENT', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARCH_USER_AGENT', 'SearchBot/2.0');
+    envManager.set('USER_AGENT', 'GlobalBot/1.0');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(headers?.['user-agent'], 'SearchBot/2.0');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('autocompleter request omits User-Agent header when USER_AGENT is unset', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARCH_USER_AGENT');
     envManager.delete('USER_AGENT');
     const mockServer = createMockServer();
     const { mockFetch, getCapturedOptions } = createCapturingMockFetch();

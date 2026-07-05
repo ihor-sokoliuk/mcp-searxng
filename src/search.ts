@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { parse } from "node-html-parser";
 import { SearXNGWeb } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
-import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
+import { createProxyAgent, createDefaultAgent, getSearchUserAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
   getHealthySearxngInstances,
@@ -449,7 +449,7 @@ function buildSearchRequestOptions(url: URL): RequestInit {
     };
   }
 
-  const userAgent = process.env.USER_AGENT;
+  const userAgent = getSearchUserAgent();
   if (userAgent) {
     requestOptions.headers = {
       ...requestOptions.headers,

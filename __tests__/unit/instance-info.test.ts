@@ -444,6 +444,7 @@ async function runTests() {
   await testFunction('config request includes User-Agent header when USER_AGENT is set', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARCH_USER_AGENT');
     envManager.set('USER_AGENT', 'MyBot/1.0');
     const mockServer = createMockServer();
     const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
@@ -461,9 +462,31 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('config request uses SEARCH_USER_AGENT over USER_AGENT', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARCH_USER_AGENT', 'SearchBot/2.0');
+    envManager.set('USER_AGENT', 'GlobalBot/1.0');
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    await fetchInstanceInfo(mockServer as any);
+
+    const headers = getCapturedOptions()?.headers as Record<string, string>;
+    assert.equal(headers?.['user-agent'], 'SearchBot/2.0');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('config request omits User-Agent header when USER_AGENT is unset', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARCH_USER_AGENT');
     envManager.delete('USER_AGENT');
     const mockServer = createMockServer();
     const { mockFetch, getCapturedOptions } = createCapturingMockFetch();

@@ -284,6 +284,52 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('SEARCH_USER_AGENT does not override USER_AGENT for URL reads', async () => {
+    envManager.set('SEARCH_USER_AGENT', 'SearchBot/2.0');
+    envManager.set('USER_AGENT', 'GlobalBot/1.0');
+    envManager.delete('URL_READER_USER_AGENT');
+    const mockServer = createMockServer();
+    const seenUserAgents: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenUserAgents.push(req.headers['user-agent'] ?? '');
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<html><body><h1>Readable</h1></body></html>');
+    });
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, url);
+
+      assert.ok(seenUserAgents.length > 0, 'Expected the URL reader to make a request');
+      assert.ok(seenUserAgents.every((userAgent) => userAgent === 'GlobalBot/1.0'));
+    } finally {
+      await close();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('URL_READER_USER_AGENT still overrides USER_AGENT when SEARCH_USER_AGENT is set', async () => {
+    envManager.set('SEARCH_USER_AGENT', 'SearchBot/2.0');
+    envManager.set('USER_AGENT', 'GlobalBot/1.0');
+    envManager.set('URL_READER_USER_AGENT', 'ReaderBot/3.0');
+    const mockServer = createMockServer();
+    const seenUserAgents: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenUserAgents.push(req.headers['user-agent'] ?? '');
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<html><body><h1>Readable</h1></body></html>');
+    });
+
+    try {
+      await fetchAndConvertToMarkdown(mockServer as any, url);
+
+      assert.ok(seenUserAgents.length > 0, 'Expected the URL reader to make a request');
+      assert.ok(seenUserAgents.every((userAgent) => userAgent === 'ReaderBot/3.0'));
+    } finally {
+      await close();
+      envManager.restore();
+    }
+  }, results);
+
   // ── HEAD content-length preflight ─────────────────────────────────────────
 
   await testFunction('HEAD preflight returns Content-Length when present', async () => {

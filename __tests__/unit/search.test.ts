@@ -828,6 +828,7 @@ async function runTests() {
 
   await testFunction('User-Agent header added when USER_AGENT env var is set', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARCH_USER_AGENT');
     envManager.set('USER_AGENT', 'MyCustomBot/1.0');
 
     const mockServer = createMockServer();
@@ -852,8 +853,36 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('SEARCH_USER_AGENT overrides USER_AGENT for search requests', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARCH_USER_AGENT', 'SearchBot/2.0');
+    envManager.set('USER_AGENT', 'GlobalBot/1.0');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'test query');
+    } catch {
+      // expected
+    }
+
+    const options = getCapturedOptions();
+    const headers = options?.headers as Record<string, string>;
+    assert.equal(headers?.['User-Agent'], 'SearchBot/2.0');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('User-Agent header absent when USER_AGENT env var not set', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARCH_USER_AGENT');
     envManager.delete('USER_AGENT');
 
     const mockServer = createMockServer();
