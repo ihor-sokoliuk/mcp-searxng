@@ -85,6 +85,7 @@ async function runTests() {
       fileExists: () => true,
       readFile: (p) => { reads.push(p); return PEM; },
       caPaths: ['/etc/ssl/first.crt', '/etc/ssl/second.crt'],
+      extraCaPath: null,
     });
     assert.equal(certs, PEM);
     assert.deepEqual(reads, ['/etc/ssl/first.crt'], 'stops at the first readable bundle');
@@ -101,6 +102,7 @@ async function runTests() {
         return PEM;
       },
       caPaths: ['/etc/ssl/locked.crt', '/etc/ssl/readable.crt'],
+      extraCaPath: null,
     });
     assert.equal(certs, PEM, 'falls through the unreadable path to the readable one');
   }, results);
@@ -131,6 +133,7 @@ async function runTests() {
       fileExists: () => true,
       readFile: () => PEM,
       caPaths: ['/etc/ssl/found.crt'],
+      extraCaPath: null,
     });
     assert.deepEqual(opts, { ca: PEM });
   }, results);
@@ -140,8 +143,36 @@ async function runTests() {
       platformName: 'linux',
       fileExists: () => false,
       caPaths: ['/nope.crt'],
+      extraCaPath: null,
     });
     assert.deepEqual(opts, {});
+  }, results);
+
+  await testFunction('getSystemCACerts merges extra CA bundle into system bundle', () => {
+    const certs = getSystemCACerts({
+      platformName: 'linux',
+      fileExists: () => true,
+      readFile: () => PEM,
+      caPaths: ['/etc/ssl/found.crt'],
+      extraCaPath: '/opt/extra.pem',
+    });
+    assert.equal(certs, PEM + '\n' + PEM, 'system bundle and extra bundle are joined with a newline');
+  }, results);
+
+  await testFunction('getSystemCACerts silently ignores an unreadable extra CA path', () => {
+    const certs = getSystemCACerts({
+      platformName: 'linux',
+      fileExists: () => true,
+      readFile: (p) => {
+        if (p === '/opt/locked-extra.pem') {
+          throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+        }
+        return PEM;
+      },
+      caPaths: ['/etc/ssl/found.crt'],
+      extraCaPath: '/opt/locked-extra.pem',
+    });
+    assert.equal(certs, PEM, 'unreadable extra path is silently dropped');
   }, results);
 
   printTestSummary(results, 'TLS Config Module');
