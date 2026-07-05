@@ -262,10 +262,21 @@ function getMaxContentLengthBytes(mcpServer: McpServer): number {
   return parsed;
 }
 
+function formatByteSize(bytes: number): string {
+  // Pick the unit by magnitude, and keep the exact byte count so sizes near
+  // the limit never read as a contradiction (e.g. "5.00 MB exceeds 5.00 MB").
+  if (bytes < 1024) {
+    return `${bytes} bytes`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB (${bytes} bytes)`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB (${bytes} bytes)`;
+}
+
 function createContentTooLargeMessage(contentLength: number, maxBytes: number): string {
-  const fmtMB = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   return (
-    `Content too large: ${fmtMB(contentLength)} exceeds the ${fmtMB(maxBytes)} limit. ` +
+    `Content too large: ${formatByteSize(contentLength)} exceeds the ${formatByteSize(maxBytes)} limit. ` +
     `readHeadings and section only trim the returned output — they cannot fetch a page over the size cap. ` +
     `To read larger pages, raise URL_READ_MAX_CONTENT_LENGTH_BYTES.`
   );
