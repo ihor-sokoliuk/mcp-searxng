@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { parse } from "node-html-parser";
 import { SearXNGWeb } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
-import { createProxyAgent, createDefaultAgent, getSearchUserAgent, ProxyType } from "./proxy.js";
+import { applySearchRequestConfig } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import {
   getHealthySearxngInstances,
@@ -432,30 +432,7 @@ function buildSearchRequestOptions(url: URL): RequestInit {
     method: "GET"
   };
 
-  const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
-  const dispatcher = proxyAgent ?? createDefaultAgent();
-  if (dispatcher) {
-    (requestOptions as any).dispatcher = dispatcher;
-  }
-
-  const username = process.env.AUTH_USERNAME;
-  const password = process.env.AUTH_PASSWORD;
-
-  if (username && password) {
-    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      'Authorization': `Basic ${base64Auth}`
-    };
-  }
-
-  const userAgent = getSearchUserAgent();
-  if (userAgent) {
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      'User-Agent': userAgent
-    };
-  }
+  applySearchRequestConfig(requestOptions, url.toString());
 
   return requestOptions;
 }

@@ -204,8 +204,8 @@ async function runTests() {
     const options = getCapturedOptions();
     assert.ok(options?.headers);
     const headers = options.headers as Record<string, string>;
-    assert.ok(headers['Authorization']);
-    assert.ok(headers['Authorization'].startsWith('Basic '));
+    assert.ok(headers['authorization']);
+    assert.ok(headers['authorization'].startsWith('Basic '));
 
     fetchMocker.restore();
     envManager.restore();
@@ -847,7 +847,7 @@ async function runTests() {
 
     const options = getCapturedOptions();
     const headers = options?.headers as Record<string, string>;
-    assert.ok(headers?.['User-Agent'] === 'MyCustomBot/1.0', `Expected User-Agent header, got: ${JSON.stringify(headers)}`);
+    assert.ok(headers?.['user-agent'] === 'MyCustomBot/1.0', `Expected User-Agent header, got: ${JSON.stringify(headers)}`);
 
     fetchMocker.restore();
     envManager.restore();
@@ -875,7 +875,7 @@ async function runTests() {
 
       const options = getCapturedOptions();
       const headers = options?.headers as Record<string, string>;
-      assert.equal(headers?.['User-Agent'], 'SearchBot/2.0');
+      assert.equal(headers?.['user-agent'], 'SearchBot/2.0');
     } finally {
       fetchMocker.restore();
       envManager.restore();
@@ -903,7 +903,7 @@ async function runTests() {
 
     const options = getCapturedOptions();
     const headers = (options?.headers || {}) as Record<string, string>;
-    assert.ok(!headers['User-Agent'], `Expected no User-Agent header`);
+    assert.ok(!headers['user-agent'], `Expected no User-Agent header`);
 
     fetchMocker.restore();
     envManager.restore();

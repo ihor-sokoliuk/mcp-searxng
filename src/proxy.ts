@@ -294,20 +294,21 @@ export function getSearchUserAgent(): string | undefined {
 }
 
 /**
- * Apply the shared SearXNG-instance request configuration — the SEARCH-group
- * proxy dispatcher and resolved SEARCH-group User-Agent header — to an outgoing request.
+ * Apply the shared SearXNG-instance request configuration — SEARCH-group
+ * proxy dispatcher, Basic Auth credentials, and resolved SEARCH-group
+ * User-Agent header — to an outgoing request.
  *
- * Used by the instance-side fetches that don't build their own auth headers:
- * the `/config` fetch (`instance-info.ts`) and the autocompleter fetch
- * (`suggestions.ts`), so both route through the same proxy and present a
- * consistent User-Agent identity without duplicating the wiring. `searxng_web_search`
- * builds its own options in `search.ts` because Basic Auth handling is interleaved
- * there, but uses the same `getSearchUserAgent()` resolver.
+ * Used by every SearXNG-instance fetch: `/search` (`search.ts`), `/config`
+ * (`instance-info.ts`), and `/autocompleter` (`suggestions.ts`). Auth-gated
+ * SearXNG instances return 401 on `/config` and `/autocompleter` unless the
+ * `Authorization` header is present, so the Basic Auth block must live here
+ * alongside the proxy/User-Agent wiring rather than only in `search.ts`.
+ * `web_url_read` deliberately does NOT use this — it fetches arbitrary URLs.
  *
- * The User-Agent is merged through a `Headers` instance, so any already-set
- * `headers` — whether a plain object, a `Headers` instance, or a tuple array —
- * is preserved; the result is written back as a plain object. (In practice both
- * callers pass a freshly-built `RequestInit` with no prior headers.)
+ * The User-Agent and Authorization are merged through a `Headers` instance,
+ * so any already-set `headers` — whether a plain object, a `Headers` instance,
+ * or a tuple array — is preserved; the result is written back as a plain
+ * object.
  */
 export function applySearchRequestConfig(
   requestOptions: RequestInit,
@@ -319,15 +320,23 @@ export function applySearchRequestConfig(
     (requestOptions as any).dispatcher = dispatcher;
   }
 
+  // Always normalize headers via Headers so all three mutations below merge
+  // cleanly regardless of the incoming HeadersInit shape.
+  const headers = new Headers(requestOptions.headers);
+
+  const username = process.env.AUTH_USERNAME;
+  const password = process.env.AUTH_PASSWORD;
+  if (username && password) {
+    const base64Auth = Buffer.from(`${username}:${password}`).toString("base64");
+    headers.set("Authorization", `Basic ${base64Auth}`);
+  }
+
   const userAgent = getSearchUserAgent();
   if (userAgent) {
-    // Normalize via Headers so any HeadersInit shape (plain object, Headers
-    // instance, or tuple array) merges without dropping already-set entries,
-    // then hand back a plain object.
-    const headers = new Headers(requestOptions.headers);
     headers.set("User-Agent", userAgent);
-    requestOptions.headers = Object.fromEntries(headers);
   }
+
+  requestOptions.headers = Object.fromEntries(headers);
 }
 
 /**
