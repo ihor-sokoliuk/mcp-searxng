@@ -123,10 +123,15 @@ async function runTests() {
 
     const config = JSON.parse(createConfigResource());
     assert.ok(config.environment.searxngUrl, 'expected searxngUrl to be exposed in non-hardened mode');
-    assert.ok(!config.environment.searxngUrl.includes('user:'), config.environment.searxngUrl);
+    // Parse each entry and assert on the exact host so a leaked credential can't
+    // hide in a substring, and no userinfo survives redaction.
+    const entries = config.environment.searxngUrl.split('; ').map((entry: string) => new URL(entry));
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].hostname, 'search.example.com');
+    assert.equal(entries[0].username, '');
+    assert.equal(entries[0].password, '');
+    assert.equal(entries[1].hostname, 'public.example.com');
     assert.ok(!config.environment.searxngUrl.includes('p%40ss'), config.environment.searxngUrl);
-    assert.ok(config.environment.searxngUrl.includes('search.example.com'), config.environment.searxngUrl);
-    assert.ok(config.environment.searxngUrl.includes('public.example.com'), config.environment.searxngUrl);
 
     envManager.restore();
   }, results);
