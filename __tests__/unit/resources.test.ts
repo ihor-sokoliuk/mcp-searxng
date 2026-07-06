@@ -98,9 +98,35 @@ async function runTests() {
   await testFunction('createConfigResource - hasAuth false when credentials absent', () => {
     envManager.delete('AUTH_USERNAME');
     envManager.delete('AUTH_PASSWORD');
+    envManager.set('SEARXNG_URL', 'https://search.example.com');
 
     const config = JSON.parse(createConfigResource());
     assert.equal(config.environment.hasAuth, false);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('createConfigResource - hasAuth true when SEARXNG_URL carries userinfo without global AUTH_*', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+    envManager.set('SEARXNG_URL', 'https://token@search.example.com');
+
+    const config = JSON.parse(createConfigResource());
+    assert.equal(config.environment.hasAuth, true);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('createConfigResource - redacts embedded userinfo from searxngUrl (non-hardened)', () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.set('SEARXNG_URL', 'https://user:p%40ss@search.example.com;https://public.example.com');
+
+    const config = JSON.parse(createConfigResource());
+    assert.ok(config.environment.searxngUrl, 'expected searxngUrl to be exposed in non-hardened mode');
+    assert.ok(!config.environment.searxngUrl.includes('user:'), config.environment.searxngUrl);
+    assert.ok(!config.environment.searxngUrl.includes('p%40ss'), config.environment.searxngUrl);
+    assert.ok(config.environment.searxngUrl.includes('search.example.com'), config.environment.searxngUrl);
+    assert.ok(config.environment.searxngUrl.includes('public.example.com'), config.environment.searxngUrl);
 
     envManager.restore();
   }, results);
