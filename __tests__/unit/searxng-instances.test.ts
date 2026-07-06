@@ -145,6 +145,14 @@ async function runTests() {
     assert.equal(header, `Basic ${Buffer.from('token:').toString('base64')}`);
   }, results);
 
+  await testFunction('getSearxngBasicAuthHeader tolerates malformed percent-encoding in userinfo', () => {
+    // A literal `%` the operator forgot to encode parses as a URL but makes
+    // decodeURIComponent throw — the header must fall back to the raw value, not crash.
+    const header = getSearxngBasicAuthHeader(new URL('https://user:100%@search.example.com'));
+
+    assert.equal(header, `Basic ${Buffer.from('user:100%').toString('base64')}`);
+  }, results);
+
   await testFunction('getSearxngBasicAuthHeader falls back to global auth only without URL userinfo', () => {
     envManager.set('AUTH_USERNAME', 'global-user');
     envManager.set('AUTH_PASSWORD', 'global-pass');

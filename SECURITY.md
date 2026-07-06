@@ -131,7 +131,7 @@ Enable `MCP_HTTP_TRUST_PROXY` only when the server is behind a trusted reverse p
 
 ### Secrets in Environment Variables
 
-SearXNG Basic Auth is supported by embedding credentials in `SEARXNG_URL` userinfo, such as `https://user:password@search.example.com`. This is the recommended path because each semicolon-separated instance URL can carry its own credentials. URL userinfo is stripped from outgoing fetch URLs and redacted from logs and errors.
+SearXNG Basic Auth is supported by embedding credentials in `SEARXNG_URL` userinfo, such as `https://user:pass@search.example.com`. This is the recommended path because each semicolon-separated instance URL can carry its own credentials. URL userinfo is stripped from outgoing fetch URLs and redacted from logs and errors.
 
 `AUTH_PASSWORD` remains available as a legacy global fallback when a `SEARXNG_URL` entry has no userinfo. `MCP_HTTP_AUTH_TOKEN`, proxy credentials, and any credentials embedded in `SEARXNG_URL` are secrets. Avoid committing them to source control. Use secret management (Docker secrets, environment injection at runtime, or a secrets manager) in production.
 

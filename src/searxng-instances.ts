@@ -76,10 +76,22 @@ export function stripSearxngInstanceUrlUserinfo(url: URL): URL {
   return stripped;
 }
 
+// `URL` stores userinfo percent-encoded, so decode before base64. A literal `%`
+// the operator forgot to encode (e.g. `100%` instead of `100%25`) parses fine as
+// a URL but makes decodeURIComponent throw URIError — fall back to the raw value
+// instead of crashing request setup rather than guess at re-encoding.
+function decodeUserinfoComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function getSearxngBasicAuthHeader(url: URL): string | undefined {
   if (url.username !== "" || url.password !== "") {
-    const username = decodeURIComponent(url.username);
-    const password = decodeURIComponent(url.password);
+    const username = decodeUserinfoComponent(url.username);
+    const password = decodeUserinfoComponent(url.password);
     return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
   }
 
