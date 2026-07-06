@@ -6,7 +6,7 @@ All environment variables for `mcp-searxng`, organized by concern. All variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance, or a semicolon-separated list of interchangeable replica base URLs. Single URL behavior is unchanged. Format: `<protocol>://[username[:password]@]<hostname>[:<port>]` (e.g. `http://localhost:8080`, `https://user:pass@search.example.com`, or `https://user:pass@one.example.com;https://two.example.com`) |
+| `SEARXNG_URL` | Yes | — | URL of your SearXNG instance, or a semicolon-separated list of interchangeable replica base URLs. Single URL behavior is unchanged. Format: `<protocol>://[username[:password]@]<hostname>[:<port>][/path]` (e.g. `http://localhost:8080`, `https://user:pass@search.example.com`, `https://searx.example.com/searxng`, or `https://user:pass@one.example.com;https://two.example.com`) |
 | `SEARXNG_FANOUT` | No | `false` | Set to `true` to query all healthy configured SearXNG instances in parallel and merge results. Default failover mode tries instances in order until one returns results. |
 
 When `SEARXNG_URL` contains multiple semicolon-separated URLs, they are treated as interchangeable replicas. Default mode fails over in order when an instance hard-fails or returns no results. A reachable `200 OK` response with an empty `results` array is considered healthy and does not trigger cooldown. Instances with 3 consecutive hard failures are skipped for 60 seconds.
