@@ -81,6 +81,7 @@ async function runTests() {
     const help = createHelpResource();
 
     assert.ok(help.includes('https://user:password@search.example.com'), 'missing URL userinfo auth example');
+    assert.ok(help.includes('percent-encode'), 'missing percent-encoding note');
     assert.ok(help.includes('Legacy global Basic Auth fallback'), 'missing legacy AUTH_* fallback note');
   }, results);
 
