@@ -1,6 +1,40 @@
 import { getCurrentLogLevel } from "./logging.js";
 import { packageVersion } from "./version.js";
 import { getHttpSecurityConfig } from "./http-security.js";
+import { parseSearxngUrls, redactSearxngInstanceUrl } from "./searxng-instances.js";
+
+// SEARXNG_URL may embed Basic Auth credentials in its userinfo (the recommended
+// auth path) and may be a semicolon-separated multi-instance list. Redact the
+// userinfo from each entry before exposing it in the config resource so the host
+// stays visible for debugging but embedded secrets are never returned to clients.
+function redactedConfiguredSearxngUrl(): string {
+  const raw = process.env.SEARXNG_URL;
+  if (!raw) {
+    return "(not configured)";
+  }
+  const redacted = raw
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .map(redactSearxngInstanceUrl)
+    .join("; ");
+  return redacted || raw;
+}
+
+// Auth is configured when the global AUTH_* fallback is set or any instance URL
+// carries userinfo (the recommended per-instance path).
+function hasConfiguredAuth(): boolean {
+  if (process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD) {
+    return true;
+  }
+  return parseSearxngUrls().some((instance) => {
+    try {
+      return new URL(instance).username !== "";
+    } catch {
+      return false;
+    }
+  });
+}
 
 export function createConfigResource() {
   const security = getHttpSecurityConfig();
@@ -14,9 +48,9 @@ export function createConfigResource() {
     },
     environment: {
       ...(showFullConfig
-        ? { searxngUrl: process.env.SEARXNG_URL || "(not configured)" }
+        ? { searxngUrl: redactedConfiguredSearxngUrl() }
         : { searxngUrlConfigured: !!process.env.SEARXNG_URL }),
-      hasAuth: !!(process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD),
+      hasAuth: hasConfiguredAuth(),
       hasProxy: !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy),
       hasNoProxy: !!(process.env.NO_PROXY || process.env.no_proxy),
       nodeVersion: process.version,
