@@ -93,7 +93,7 @@ Reads and converts web page content to Markdown format.
 ## Configuration
 
 ### Required Environment Variables
-- \`SEARXNG_URL\`: URL of your SearXNG instance (e.g., http://localhost:8080). For Basic Auth, embed credentials in the URL (e.g., https://user:password@search.example.com). Multi-instance lists can use different credentials per semicolon-separated URL.
+- \`SEARXNG_URL\`: URL of your SearXNG instance (e.g., http://localhost:8080). For Basic Auth, embed credentials in the URL (e.g., https://user:password@search.example.com); percent-encode special characters in the username or password (e.g. \`@\` as \`%40\`). Multi-instance lists can use different credentials per semicolon-separated URL.
 
 ### Optional Environment Variables
 - \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Legacy global Basic Auth fallback when \`SEARXNG_URL\` has no userinfo
