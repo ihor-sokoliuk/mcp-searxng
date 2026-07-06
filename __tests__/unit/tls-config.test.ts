@@ -29,14 +29,14 @@ async function runTests() {
     assert.ok(certs === null || typeof certs === 'string');
   }, results);
 
-  await testFunction('getSystemCACerts returns null on Windows unless NODE_EXTRA_CA_CERTS is set', () => {
+  await testFunction('getSystemCACerts returns null on Windows even when NODE_EXTRA_CA_CERTS is set', () => {
+    // On Windows, no system bundle is detected and we deliberately return
+    // null so Node's default trust store (Mozilla roots + NODE_EXTRA_CA_CERTS)
+    // handles TLS — passing the extra CA as an explicit `ca` would replace
+    // that store and drop the public roots.
     if (process.platform === 'win32') {
       const certs = getSystemCACerts();
-      if (process.env.NODE_EXTRA_CA_CERTS) {
-        assert.ok(typeof certs === 'string' && certs.length > 0, 'extra CA should be returned on Windows when NODE_EXTRA_CA_CERTS is set');
-      } else {
-        assert.equal(certs, null);
-      }
+      assert.equal(certs, null, 'win32 always returns null; extra CA flows through Node default path');
     } else {
       const certs = getSystemCACerts();
       assert.ok(certs === null || (typeof certs === 'string' && certs.length > 0));
@@ -84,17 +84,32 @@ async function runTests() {
     assert.equal(touched, false, 'win32 skips system bundle discovery and only reads the extra CA path');
   }, results);
 
-  await testFunction('getSystemCACerts honors NODE_EXTRA_CA_CERTS on win32 (skips system bundle loop)', () => {
-    const reads: string[] = [];
+  await testFunction('getSystemCACerts returns null on win32 even with NODE_EXTRA_CA_CERTS (no system bundle → defer to Node default)', () => {
+    let touched = false;
     const certs = getSystemCACerts({
       platformName: 'win32',
-      fileExists: () => { throw new Error('system bundle path should not be probed on win32'); },
-      readFile: (p) => { reads.push(p); return PEM; },
+      fileExists: () => { touched = true; return true; },
+      readFile: () => { touched = true; return PEM; },
       caPaths: ['/should/not/be/read'],
       extraCaPath: '/opt/extra.pem',
     });
-    assert.equal(certs, PEM, 'win32 returns the extra CA bundle');
-    assert.deepEqual(reads, ['/opt/extra.pem'], 'only the extra CA path is read on win32');
+    assert.equal(certs, null, 'win32 defers to Node default trust store; extra CA is honored via NODE_EXTRA_CA_CERTS at the Node level, not by overriding ca');
+    assert.equal(touched, false, 'no bundle paths are read on win32; NODE_EXTRA_CA_CERTS is handled by Node itself');
+  }, results);
+
+  await testFunction('getSystemCACerts returns null when no system bundle is found even if NODE_EXTRA_CA_CERTS is set', () => {
+    // Mirrors the win32 case on a minimal Linux container: no CA_BUNDLE_PATHS
+    // match, but NODE_EXTRA_CA_CERTS is set. Returning null lets Node's
+    // default trust store (Mozilla + extra) handle TLS, instead of replacing
+    // it with the extra CA alone and dropping public roots.
+    const certs = getSystemCACerts({
+      platformName: 'linux',
+      fileExists: () => false,
+      readFile: () => { throw new Error('should not be called'); },
+      caPaths: ['/nope/a.crt', '/nope/b.crt'],
+      extraCaPath: '/opt/extra.pem',
+    });
+    assert.equal(certs, null, 'no system bundle → defer to Node default; do not override ca with extra alone');
   }, results);
 
   await testFunction('getSystemCACerts returns the first readable bundle', () => {

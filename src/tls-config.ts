@@ -35,13 +35,17 @@ export interface CACertDeps {
  * Reads system CA certificates from well-known bundle paths, plus an optional
  * user-provided extra bundle pointed to by `NODE_EXTRA_CA_CERTS`.
  *
- * On Windows there is no universal CA bundle path, so only the extra bundle
- * (if any) is returned. On other platforms the first readable system bundle
- * wins and the extra bundle is appended.
+ * On Windows (and on any platform where no system bundle is found) this
+ * returns `null`, so callers pass no explicit `ca` to undici and Node's
+ * default trust store — Mozilla roots plus `NODE_EXTRA_CA_CERTS` — is used.
+ * This is intentional: passing an explicit `connect.ca` *replaces* the
+ * default trust store entirely, which would drop both the Mozilla roots and
+ * the extra CA unless we re-merged them ourselves.
  *
- * The extra bundle is folded in here because undici's `connect.ca` option,
- * when set, overrides Node's default CA handling and would otherwise ignore
- * `NODE_EXTRA_CA_CERTS` — which the built-in `https` module does honor.
+ * On Linux/macOS when a system bundle *is* found, the system bundle is
+ * returned with the extra bundle appended. Here an explicit `ca` is already
+ * being set (overriding the default path), so folding in the extra bundle is
+ * required to keep `NODE_EXTRA_CA_CERTS` honored in that case.
  */
 export function getSystemCACerts(deps: CACertDeps = {}): string | null {
   const {
@@ -55,8 +59,8 @@ export function getSystemCACerts(deps: CACertDeps = {}): string | null {
 
   const bundles: string[] = [];
 
-  // Windows has no universal CA bundle path; skip auto-detection but still
-  // honor NODE_EXTRA_CA_CERTS below (undici does not read it natively).
+  // Windows has no universal CA bundle path; skip auto-detection. Node's
+  // default trust store (Mozilla + NODE_EXTRA_CA_CERTS) handles Windows.
   if (platformName !== "win32") {
     for (const caPath of caPaths) {
       if (fileExists(caPath)) {
@@ -71,7 +75,11 @@ export function getSystemCACerts(deps: CACertDeps = {}): string | null {
     }
   }
 
-  if (extraCaPath) {
+  // Only fold in the extra CA when a system bundle already forces an explicit
+  // `ca` override. If no system bundle was found, returning `null` here lets
+  // Node's default trust store — which already includes NODE_EXTRA_CA_CERTS —
+  // handle validation, instead of replacing it with the extra CA alone.
+  if (extraCaPath && bundles.length > 0) {
     try {
       bundles.push(readFile(extraCaPath));
     } catch {
