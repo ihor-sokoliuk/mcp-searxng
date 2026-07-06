@@ -13,11 +13,13 @@ import {
   getHealthySearxngInstances,
   getPrimarySearxngInstance,
   getSearxngInstances,
+  getSearxngBasicAuthHeader,
   isSearxngFanoutEnabled,
   parseSearxngUrls,
   redactSearxngInstanceUrl,
   recordSearxngInstanceFailure,
   recordSearxngInstanceSuccess,
+  stripSearxngInstanceUrlUserinfo,
   validateSearxngInstanceUrl,
 } from '../../src/searxng-instances.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -121,6 +123,68 @@ async function runTests() {
     for (const url of urls) {
       assert.equal(redactSearxngInstanceUrl(url), url);
     }
+  }, results);
+
+  await testFunction('stripSearxngInstanceUrlUserinfo removes credentials and preserves request target', () => {
+    const stripped = stripSearxngInstanceUrlUserinfo(new URL('https://user:pass@search.example.com/base/search?q=test#top'));
+
+    assert.equal(stripped.toString(), 'https://search.example.com/base/search?q=test#top');
+    assert.equal(stripped.username, '');
+    assert.equal(stripped.password, '');
+  }, results);
+
+  await testFunction('getSearxngBasicAuthHeader decodes percent-encoded URL credentials', () => {
+    const header = getSearxngBasicAuthHeader(new URL('https://user:p%40ss@search.example.com'));
+
+    assert.equal(header, `Basic ${Buffer.from('user:p@ss').toString('base64')}`);
+  }, results);
+
+  await testFunction('getSearxngBasicAuthHeader supports username-only URL credentials', () => {
+    const header = getSearxngBasicAuthHeader(new URL('https://token@search.example.com'));
+
+    assert.equal(header, `Basic ${Buffer.from('token:').toString('base64')}`);
+  }, results);
+
+  await testFunction('getSearxngBasicAuthHeader tolerates malformed percent-encoding in userinfo', () => {
+    // A literal `%` the operator forgot to encode parses as a URL but makes
+    // decodeURIComponent throw — the header must fall back to the raw value, not crash.
+    const header = getSearxngBasicAuthHeader(new URL('https://user:100%@search.example.com'));
+
+    assert.equal(header, `Basic ${Buffer.from('user:100%').toString('base64')}`);
+  }, results);
+
+  await testFunction('getSearxngBasicAuthHeader ignores password-only URL userinfo (no username)', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+
+    // Password-only userinfo is treated as absent — no stray secret is sent.
+    const header = getSearxngBasicAuthHeader(new URL('https://:pass@search.example.com'));
+
+    assert.equal(header, undefined);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('getSearxngBasicAuthHeader falls back to global auth only without URL userinfo', () => {
+    envManager.set('AUTH_USERNAME', 'global-user');
+    envManager.set('AUTH_PASSWORD', 'global-pass');
+
+    const header = getSearxngBasicAuthHeader(new URL('https://search.example.com'));
+
+    assert.equal(header, `Basic ${Buffer.from('global-user:global-pass').toString('base64')}`);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('getSearxngBasicAuthHeader returns undefined when no credentials exist', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+
+    const header = getSearxngBasicAuthHeader(new URL('https://search.example.com'));
+
+    assert.equal(header, undefined);
+
+    envManager.restore();
   }, results);
 
   await testFunction('isSearxngFanoutEnabled is true only for literal true', () => {

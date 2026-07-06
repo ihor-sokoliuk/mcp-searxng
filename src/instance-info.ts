@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
 import { applySearchRequestConfig } from "./proxy.js";
-import { getSearxngInstances, redactSearxngInstanceUrl } from "./searxng-instances.js";
+import { getSearxngInstances, redactSearxngInstanceUrl, stripSearxngInstanceUrlUserinfo } from "./searxng-instances.js";
 
 type SearXNGConfig = Record<string, any>;
 type ConfigResult =
@@ -263,12 +263,13 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
     const url = new URL("config", parsedBase);
+    const requestUrl = stripSearxngInstanceUrlUserinfo(url);
     const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
     };
     applySearchRequestConfig(requestOptions, url.toString());
 
-    const response = await fetch(url.toString(), requestOptions);
+    const response = await fetch(requestUrl.toString(), requestOptions);
     if (!response.ok) {
       const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
       return {
