@@ -131,7 +131,7 @@ Enable `MCP_HTTP_TRUST_PROXY` only when the server is behind a trusted reverse p
 
 ### Secrets in Environment Variables
 
-SearXNG Basic Auth is supported by embedding credentials in the `SEARXNG_URL` userinfo — see the [Authentication section of CONFIGURATION.md](CONFIGURATION.md#authentication) for the exact format. This is the recommended path because each semicolon-separated instance URL can carry its own credentials. URL userinfo is stripped from outgoing fetch URLs and redacted from logs and errors, and it is redacted from the `config://server-config` resource as well (the host is shown, credentials are not). The `/health` endpoint never exposes `SEARXNG_URL`.
+SearXNG Basic Auth is supported by embedding credentials in the `SEARXNG_URL` userinfo — see the [Authentication section of CONFIGURATION.md](CONFIGURATION.md#authentication) for the exact format. This is the recommended path because each semicolon-separated instance URL can carry its own credentials. URL userinfo is stripped from outgoing fetch URLs and redacted from logs and errors, and it is redacted from the `config://server-config` resource as well (the host is shown, credentials are not). The `/health` endpoint does not expose `SEARXNG_URL`.
 
 Because credentials may be embedded in it, treat the whole `SEARXNG_URL` as a secret: `AUTH_PASSWORD` remains available as a legacy global fallback when a `SEARXNG_URL` entry has no userinfo, and `MCP_HTTP_AUTH_TOKEN`, proxy credentials, and any credentials embedded in `SEARXNG_URL` are secrets. Avoid committing them to source control. Use secret management (Docker secrets, environment injection at runtime, or a secrets manager) in production.
 
