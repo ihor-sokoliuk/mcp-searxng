@@ -310,9 +310,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 <a href="https://www.star-history.com/?repos=ihor-sokoliuk%2Fmcp-searxng&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ihor-sokoliuk/mcp-searxng&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ihor-sokoliuk/mcp-searxng&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ihor-sokoliuk/mcp-searxng&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ihor-sokoliuk/mcp-searxng&type=date&theme=dark&legend=top-left&sealed_token=3PM12jxtCH_kuy0dBqtrsBjLGrqf7OTAhSgMHJirQw6hLbxosGxQ5hmJYmUVepCP7Z6KkDwwhn6M6Eokf6MwWlfoSvA7cRjGy4WF__yy0T5cDTWCJ3f4IPtYwcKuwWX3dhc_kTdIyqbv18F9byr3lW-EHAAr5v0nD1iKspFfEnpMnkfvMzTBhLu5XLJG" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ihor-sokoliuk/mcp-searxng&type=date&legend=top-left&sealed_token=3PM12jxtCH_kuy0dBqtrsBjLGrqf7OTAhSgMHJirQw6hLbxosGxQ5hmJYmUVepCP7Z6KkDwwhn6M6Eokf6MwWlfoSvA7cRjGy4WF__yy0T5cDTWCJ3f4IPtYwcKuwWX3dhc_kTdIyqbv18F9byr3lW-EHAAr5v0nD1iKspFfEnpMnkfvMzTBhLu5XLJG" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ihor-sokoliuk/mcp-searxng&type=date&legend=top-left&sealed_token=3PM12jxtCH_kuy0dBqtrsBjLGrqf7OTAhSgMHJirQw6hLbxosGxQ5hmJYmUVepCP7Z6KkDwwhn6M6Eokf6MwWlfoSvA7cRjGy4WF__yy0T5cDTWCJ3f4IPtYwcKuwWX3dhc_kTdIyqbv18F9byr3lW-EHAAr5v0nD1iKspFfEnpMnkfvMzTBhLu5XLJG" />
  </picture>
 </a>
 
