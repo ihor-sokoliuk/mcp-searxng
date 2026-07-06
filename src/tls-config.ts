@@ -35,7 +35,9 @@ export interface CACertDeps {
  * Reads system CA certificates from well-known bundle paths, plus an optional
  * user-provided extra bundle pointed to by `NODE_EXTRA_CA_CERTS`.
  *
- * Returns null on Windows (no universal file path) or if no bundle is found.
+ * On Windows there is no universal CA bundle path, so only the extra bundle
+ * (if any) is returned. On other platforms the first readable system bundle
+ * wins and the extra bundle is appended.
  *
  * The extra bundle is folded in here because undici's `connect.ca` option,
  * when set, overrides Node's default CA handling and would otherwise ignore
@@ -51,21 +53,20 @@ export function getSystemCACerts(deps: CACertDeps = {}): string | null {
     extraCaPath = process.env.NODE_EXTRA_CA_CERTS,
   } = deps;
 
-  // Windows has no universal CA bundle path; skip auto-detection
-  if (platformName === "win32") {
-    return null;
-  }
-
   const bundles: string[] = [];
 
-  for (const caPath of caPaths) {
-    if (fileExists(caPath)) {
-      try {
-        bundles.push(readFile(caPath));
-        break; // first readable bundle wins, matching prior behavior
-      } catch {
-        // File exists but is unreadable (permissions); try next
-        continue;
+  // Windows has no universal CA bundle path; skip auto-detection but still
+  // honor NODE_EXTRA_CA_CERTS below (undici does not read it natively).
+  if (platformName !== "win32") {
+    for (const caPath of caPaths) {
+      if (fileExists(caPath)) {
+        try {
+          bundles.push(readFile(caPath));
+          break; // first readable bundle wins, matching prior behavior
+        } catch {
+          // File exists but is unreadable (permissions); try next
+          continue;
+        }
       }
     }
   }

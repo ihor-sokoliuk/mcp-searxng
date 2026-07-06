@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { parse } from "node-html-parser";
 import { SearXNGWeb } from "./types.js";
+import { buildSearxngAuthHeaders } from "./auth.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { createProxyAgent, createDefaultAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
@@ -438,16 +439,10 @@ function buildSearchRequestOptions(url: URL): RequestInit {
     (requestOptions as any).dispatcher = dispatcher;
   }
 
-  const username = process.env.AUTH_USERNAME;
-  const password = process.env.AUTH_PASSWORD;
-
-  if (username && password) {
-    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      'Authorization': `Basic ${base64Auth}`
-    };
-  }
+  requestOptions.headers = {
+    ...requestOptions.headers,
+    ...buildSearxngAuthHeaders(),
+  };
 
   const userAgent = process.env.USER_AGENT;
   if (userAgent) {

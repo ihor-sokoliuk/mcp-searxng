@@ -441,6 +441,55 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('/config request includes Basic Auth header when credentials are set', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('AUTH_USERNAME', 'testuser');
+    envManager.set('AUTH_PASSWORD', 'testpass');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    await fetchInstanceInfo(mockServer as any);
+
+    const options = getCapturedOptions();
+    const headers = (options?.headers ?? {}) as Record<string, string>;
+    assert.ok(headers['Authorization'], 'expected Authorization header on /config request');
+    assert.ok(headers['Authorization'].startsWith('Basic '), 'expected Basic auth scheme');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('/config request omits Authorization header when credentials are not set', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    await fetchInstanceInfo(mockServer as any);
+
+    const options = getCapturedOptions();
+    const headers = (options?.headers ?? {}) as Record<string, string>;
+    assert.equal(headers['Authorization'], undefined, 'Authorization header should be absent without credentials');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Instance Info Module');
   return results;
 }

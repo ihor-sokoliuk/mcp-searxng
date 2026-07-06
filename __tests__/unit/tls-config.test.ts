@@ -29,9 +29,14 @@ async function runTests() {
     assert.ok(certs === null || typeof certs === 'string');
   }, results);
 
-  await testFunction('getSystemCACerts returns null on Windows, string-or-null elsewhere', () => {
+  await testFunction('getSystemCACerts returns null on Windows unless NODE_EXTRA_CA_CERTS is set', () => {
     if (process.platform === 'win32') {
-      assert.equal(getSystemCACerts(), null);
+      const certs = getSystemCACerts();
+      if (process.env.NODE_EXTRA_CA_CERTS) {
+        assert.ok(typeof certs === 'string' && certs.length > 0, 'extra CA should be returned on Windows when NODE_EXTRA_CA_CERTS is set');
+      } else {
+        assert.equal(certs, null);
+      }
     } else {
       const certs = getSystemCACerts();
       assert.ok(certs === null || (typeof certs === 'string' && certs.length > 0));
@@ -66,16 +71,30 @@ async function runTests() {
 
   // --- Injected dependencies: deterministic branch coverage ---
 
-  await testFunction('getSystemCACerts returns null on win32 without touching the filesystem', () => {
+  await testFunction('getSystemCACerts returns null on win32 when no extra CA is configured', () => {
     let touched = false;
     const certs = getSystemCACerts({
       platformName: 'win32',
       fileExists: () => { touched = true; return true; },
       readFile: () => { touched = true; return PEM; },
       caPaths: ['/should/not/be/read'],
+      extraCaPath: null,
     });
     assert.equal(certs, null);
-    assert.equal(touched, false, 'win32 short-circuits before any fs access');
+    assert.equal(touched, false, 'win32 skips system bundle discovery and only reads the extra CA path');
+  }, results);
+
+  await testFunction('getSystemCACerts honors NODE_EXTRA_CA_CERTS on win32 (skips system bundle loop)', () => {
+    const reads: string[] = [];
+    const certs = getSystemCACerts({
+      platformName: 'win32',
+      fileExists: () => { throw new Error('system bundle path should not be probed on win32'); },
+      readFile: (p) => { reads.push(p); return PEM; },
+      caPaths: ['/should/not/be/read'],
+      extraCaPath: '/opt/extra.pem',
+    });
+    assert.equal(certs, PEM, 'win32 returns the extra CA bundle');
+    assert.deepEqual(reads, ['/opt/extra.pem'], 'only the extra CA path is read on win32');
   }, results);
 
   await testFunction('getSystemCACerts returns the first readable bundle', () => {

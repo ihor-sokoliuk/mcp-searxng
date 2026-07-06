@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { buildSearxngAuthHeaders } from "./auth.js";
 import { logMessage } from "./logging.js";
 import { createDefaultAgent, createProxyAgent, ProxyType } from "./proxy.js";
 import { getPrimarySearxngInstance } from "./searxng-instances.js";
@@ -23,16 +24,8 @@ export async function performSearchSuggestions(
   try {
     const requestOptions: RequestInit = {
       signal: AbortSignal.timeout(5000),
+      headers: buildSearxngAuthHeaders(),
     };
-    const username = process.env.AUTH_USERNAME;
-    const password = process.env.AUTH_PASSWORD;
-    if (username && password) {
-      const base64Auth = Buffer.from(`${username}:${password}`).toString("base64");
-      requestOptions.headers = {
-        ...(requestOptions.headers as Record<string, string> | undefined),
-        Authorization: `Basic ${base64Auth}`,
-      };
-    }
     const proxyAgent = createProxyAgent(url.toString(), ProxyType.SEARCH);
     const dispatcher = proxyAgent ?? createDefaultAgent();
     if (dispatcher) {
