@@ -24,13 +24,24 @@ export interface CACertDeps {
   fileExists?: (path: string) => boolean;
   readFile?: (path: string) => string;
   caPaths?: readonly string[];
+  /**
+   * Path to an extra PEM bundle to merge into the CA list. Defaults to
+   * `process.env.NODE_EXTRA_CA_CERTS`. Pass `null` in tests to opt out.
+   */
+  extraCaPath?: string | null;
 }
 
 /**
- * Reads system CA certificates from well-known bundle paths.
- * Returns null on Windows (no universal file path) or if no bundle is found.
+ * Reads system CA certificates from well-known bundle paths, plus an optional
+ * user-provided extra bundle pointed to by `NODE_EXTRA_CA_CERTS`.
  *
- * On Windows, users should set NODE_EXTRA_CA_CERTS pointing to a PEM file.
+ * On Windows there is no universal CA bundle path, so only the extra bundle
+ * (if any) is returned. On other platforms the first readable system bundle
+ * wins and the extra bundle is appended.
+ *
+ * The extra bundle is folded in here because undici's `connect.ca` option,
+ * when set, overrides Node's default CA handling and would otherwise ignore
+ * `NODE_EXTRA_CA_CERTS` — which the built-in `https` module does honor.
  */
 export function getSystemCACerts(deps: CACertDeps = {}): string | null {
   const {
@@ -39,25 +50,36 @@ export function getSystemCACerts(deps: CACertDeps = {}): string | null {
     // eslint-disable-next-line security/detect-non-literal-fs-filename
     readFile = (path: string) => readFileSync(path, "utf8"),
     caPaths = CA_BUNDLE_PATHS,
+    extraCaPath = process.env.NODE_EXTRA_CA_CERTS,
   } = deps;
 
-  // Windows has no universal CA bundle path; skip auto-detection
-  if (platformName === "win32") {
-    return null;
-  }
+  const bundles: string[] = [];
 
-  for (const caPath of caPaths) {
-    if (fileExists(caPath)) {
-      try {
-        return readFile(caPath);
-      } catch {
-        // File exists but is unreadable (permissions); try next
-        continue;
+  // Windows has no universal CA bundle path; skip auto-detection but still
+  // honor NODE_EXTRA_CA_CERTS below (undici does not read it natively).
+  if (platformName !== "win32") {
+    for (const caPath of caPaths) {
+      if (fileExists(caPath)) {
+        try {
+          bundles.push(readFile(caPath));
+          break; // first readable bundle wins, matching prior behavior
+        } catch {
+          // File exists but is unreadable (permissions); try next
+          continue;
+        }
       }
     }
   }
 
-  return null;
+  if (extraCaPath) {
+    try {
+      bundles.push(readFile(extraCaPath));
+    } catch {
+      // Unreadable extra path is silently ignored — same as Node's behavior.
+    }
+  }
+
+  return bundles.length > 0 ? bundles.join("\n") : null;
 }
 
 /**
