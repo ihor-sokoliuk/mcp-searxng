@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { createProxyAgent, createDefaultAgent, ProxyType } from '../../src/proxy.js';
+import { createProxyAgent, createDefaultAgent, applySearchRequestConfig, ProxyType } from '../../src/proxy.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -448,6 +448,58 @@ async function runTests() {
     const agent = createProxyAgent('https://target.example.com');
     assert.ok(agent, 'proxy agent should be created when HTTPS_PROXY is set and target is https');
     assert.equal(agent!.constructor.name, 'ProxyAgent');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('applySearchRequestConfig sets Basic Auth header when credentials are present', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+    envManager.delete('SEARCH_USER_AGENT');
+    envManager.delete('USER_AGENT');
+    envManager.set('AUTH_USERNAME', 'testuser');
+    envManager.set('AUTH_PASSWORD', 'testpass');
+
+    const requestOptions: RequestInit = {};
+    applySearchRequestConfig(requestOptions, 'https://searx.example.com/config');
+
+    const headers = (requestOptions.headers ?? {}) as Record<string, string>;
+    assert.ok(headers['authorization'], 'expected Authorization header');
+    assert.ok(headers['authorization'].startsWith('Basic '), 'expected Basic auth scheme');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('applySearchRequestConfig omits Authorization when credentials are absent', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+    envManager.delete('SEARCH_USER_AGENT');
+    envManager.delete('USER_AGENT');
+
+    const requestOptions: RequestInit = {};
+    applySearchRequestConfig(requestOptions, 'https://searx.example.com/config');
+
+    const headers = (requestOptions.headers ?? {}) as Record<string, string>;
+    assert.equal(headers['authorization'], undefined, 'Authorization should be absent without credentials');
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('applySearchRequestConfig merges Authorization and User-Agent together', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+    envManager.delete('SEARCH_USER_AGENT');
+    envManager.delete('USER_AGENT');
+    envManager.set('AUTH_USERNAME', 'u');
+    envManager.set('AUTH_PASSWORD', 'p');
+    envManager.set('USER_AGENT', 'MyBot/1.0');
+
+    const requestOptions: RequestInit = {};
+    applySearchRequestConfig(requestOptions, 'https://searx.example.com/config');
+
+    const headers = (requestOptions.headers ?? {}) as Record<string, string>;
+    assert.ok(headers['authorization']?.startsWith('Basic '), 'Authorization should be set');
+    assert.equal(headers['user-agent'], 'MyBot/1.0', 'User-Agent should be set');
 
     envManager.restore();
   }, results);

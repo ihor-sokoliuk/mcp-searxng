@@ -287,6 +287,55 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('/autocompleter request includes Basic Auth header when credentials are set', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('AUTH_USERNAME', 'testuser');
+    envManager.set('AUTH_PASSWORD', 'testpass');
+    envManager.delete('SEARCH_USER_AGENT');
+    envManager.delete('USER_AGENT');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
+    assert.ok(headers['authorization'], 'expected Authorization header on /autocompleter request');
+    assert.ok(headers['authorization'].startsWith('Basic '), 'expected Basic auth scheme');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('/autocompleter request omits Authorization header when credentials are not set', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+    envManager.delete('SEARCH_USER_AGENT');
+    envManager.delete('USER_AGENT');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedOptions } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      return createMockFetch({ json: ['type', ['typescript']] })(url, options);
+    });
+
+    await performSearchSuggestions(mockServer as any, 'type');
+
+    const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
+    assert.equal(headers['authorization'], undefined, 'Authorization header should be absent without credentials');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Suggestions Module');
   return results;
 }

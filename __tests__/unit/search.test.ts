@@ -204,7 +204,7 @@ async function runTests() {
     const options = getCapturedOptions();
     assert.ok(options?.headers);
     const headers = options.headers as Record<string, string>;
-    assert.equal(headers['Authorization'], `Basic ${Buffer.from('testuser:testpass').toString('base64')}`);
+    assert.equal(headers['authorization'], `Basic ${Buffer.from('testuser:testpass').toString('base64')}`);
 
     fetchMocker.restore();
     envManager.restore();
@@ -226,7 +226,7 @@ async function runTests() {
     await performWebSearch(mockServer as any, 'test query');
 
     const headers = getCapturedOptions()?.headers as Record<string, string>;
-    assert.equal(headers['Authorization'], `Basic ${Buffer.from('embedded:p@ss').toString('base64')}`);
+    assert.equal(headers['authorization'], `Basic ${Buffer.from('embedded:p@ss').toString('base64')}`);
 
     fetchMocker.restore();
     envManager.restore();
@@ -273,7 +273,7 @@ async function runTests() {
     await performWebSearch(mockServer as any, 'test query');
 
     const headers = (getCapturedOptions()?.headers || {}) as Record<string, string>;
-    assert.equal(headers['Authorization'], undefined);
+    assert.equal(headers['authorization'], undefined);
 
     fetchMocker.restore();
     envManager.restore();
@@ -955,7 +955,7 @@ async function runTests() {
 
     const options = getCapturedOptions();
     const headers = options?.headers as Record<string, string>;
-    assert.ok(headers?.['User-Agent'] === 'MyCustomBot/1.0', `Expected User-Agent header, got: ${JSON.stringify(headers)}`);
+    assert.ok(headers?.['user-agent'] === 'MyCustomBot/1.0', `Expected User-Agent header, got: ${JSON.stringify(headers)}`);
 
     fetchMocker.restore();
     envManager.restore();
@@ -983,7 +983,7 @@ async function runTests() {
 
       const options = getCapturedOptions();
       const headers = options?.headers as Record<string, string>;
-      assert.equal(headers?.['User-Agent'], 'SearchBot/2.0');
+      assert.equal(headers?.['user-agent'], 'SearchBot/2.0');
     } finally {
       fetchMocker.restore();
       envManager.restore();
@@ -1011,7 +1011,7 @@ async function runTests() {
 
     const options = getCapturedOptions();
     const headers = (options?.headers || {}) as Record<string, string>;
-    assert.ok(!headers['User-Agent'], `Expected no User-Agent header`);
+    assert.ok(!headers['user-agent'], `Expected no User-Agent header`);
 
     fetchMocker.restore();
     envManager.restore();
@@ -2045,7 +2045,7 @@ async function runTests() {
       const headers = (options?.headers || {}) as Record<string, string>;
       requests.push({
         url: url.toString(),
-        authorization: headers['Authorization'],
+        authorization: headers['authorization'],
       });
 
       const parsedUrl = new URL(url.toString());
