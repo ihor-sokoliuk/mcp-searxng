@@ -9,7 +9,6 @@ export interface ErrorContext {
   url?: string;
   searxngUrl?: string;
   proxyAgent?: boolean;
-  username?: string;
   timeout?: number;
   query?: string;
 }

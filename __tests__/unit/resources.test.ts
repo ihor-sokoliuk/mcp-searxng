@@ -77,6 +77,13 @@ async function runTests() {
     assert.ok(help.includes('### 4. web_url_read'), 'missing URL reader tool section');
   }, results);
 
+  await testFunction('help resource recommends URL userinfo for SearXNG Basic Auth', () => {
+    const help = createHelpResource();
+
+    assert.ok(help.includes('https://user:password@search.example.com'), 'missing URL userinfo auth example');
+    assert.ok(help.includes('Legacy global Basic Auth fallback'), 'missing legacy AUTH_* fallback note');
+  }, results);
+
   await testFunction('createConfigResource - hasAuth true when both credentials set', () => {
     envManager.set('AUTH_USERNAME', 'testuser');
     envManager.set('AUTH_PASSWORD', 'testpass');

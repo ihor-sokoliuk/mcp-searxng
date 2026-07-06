@@ -69,6 +69,47 @@ export function redactSearxngInstanceUrl(raw: string): string {
   }
 }
 
+export function stripSearxngInstanceUrlUserinfo(url: URL): URL {
+  const stripped = new URL(url.toString());
+  stripped.username = "";
+  stripped.password = "";
+  return stripped;
+}
+
+// `URL` stores userinfo percent-encoded, so decode before base64. A literal `%`
+// the operator forgot to encode (e.g. `100%` instead of `100%25`) parses fine as
+// a URL but makes decodeURIComponent throw URIError — fall back to the raw value
+// instead of crashing request setup rather than guess at re-encoding.
+function decodeUserinfoComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function getSearxngBasicAuthHeader(url: URL): string | undefined {
+  // URL auth requires a username (username-only token or username+password).
+  // Password-only userinfo (`https://:pass@host`) is treated as absent so a
+  // mistyped URL falls back to global AUTH_* / no header instead of sending a
+  // stray secret; the password is still stripped from the outgoing URL.
+  if (url.username !== "") {
+    const username = decodeUserinfoComponent(url.username);
+    const password = decodeUserinfoComponent(url.password);
+    return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  }
+
+  const username = process.env.AUTH_USERNAME;
+  const password = process.env.AUTH_PASSWORD;
+
+  if (username && password) {
+    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
+    return `Basic ${base64Auth}`;
+  }
+
+  return undefined;
+}
+
 export function isSearxngFanoutEnabled(): boolean {
   return process.env.SEARXNG_FANOUT === "true";
 }

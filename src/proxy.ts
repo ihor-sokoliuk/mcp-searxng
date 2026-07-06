@@ -3,6 +3,7 @@ import { Agent, ProxyAgent } from "undici";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { getConnectOptions } from "./tls-config.js";
 import { createUrlSecurityPolicyDnsError, isPrivateAddress } from "./url-security.js";
+import { getSearxngBasicAuthHeader } from "./searxng-instances.js";
 
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
@@ -303,6 +304,8 @@ export function getSearchUserAgent(): string | undefined {
  * SearXNG instances return 401 on `/config` and `/autocompleter` unless the
  * `Authorization` header is present, so the Basic Auth block must live here
  * alongside the proxy/User-Agent wiring rather than only in `search.ts`.
+ * Credentials come from the instance URL userinfo first (per-instance), then
+ * fall back to the global `AUTH_*` env vars — see `getSearxngBasicAuthHeader`.
  * `web_url_read` deliberately does NOT use this — it fetches arbitrary URLs.
  *
  * The User-Agent and Authorization are merged through a `Headers` instance,
@@ -320,15 +323,13 @@ export function applySearchRequestConfig(
     (requestOptions as any).dispatcher = dispatcher;
   }
 
-  // Always normalize headers via Headers so all three mutations below merge
+  // Always normalize headers via Headers so all mutations below merge
   // cleanly regardless of the incoming HeadersInit shape.
   const headers = new Headers(requestOptions.headers);
 
-  const username = process.env.AUTH_USERNAME;
-  const password = process.env.AUTH_PASSWORD;
-  if (username && password) {
-    const base64Auth = Buffer.from(`${username}:${password}`).toString("base64");
-    headers.set("Authorization", `Basic ${base64Auth}`);
+  const authHeader = getSearxngBasicAuthHeader(new URL(targetUrl));
+  if (authHeader) {
+    headers.set("Authorization", authHeader);
   }
 
   const userAgent = getSearchUserAgent();
