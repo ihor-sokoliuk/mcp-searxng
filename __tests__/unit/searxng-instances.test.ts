@@ -153,6 +153,18 @@ async function runTests() {
     assert.equal(header, `Basic ${Buffer.from('user:100%').toString('base64')}`);
   }, results);
 
+  await testFunction('getSearxngBasicAuthHeader ignores password-only URL userinfo (no username)', () => {
+    envManager.delete('AUTH_USERNAME');
+    envManager.delete('AUTH_PASSWORD');
+
+    // Password-only userinfo is treated as absent — no stray secret is sent.
+    const header = getSearxngBasicAuthHeader(new URL('https://:pass@search.example.com'));
+
+    assert.equal(header, undefined);
+
+    envManager.restore();
+  }, results);
+
   await testFunction('getSearxngBasicAuthHeader falls back to global auth only without URL userinfo', () => {
     envManager.set('AUTH_USERNAME', 'global-user');
     envManager.set('AUTH_PASSWORD', 'global-pass');

@@ -89,7 +89,11 @@ function decodeUserinfoComponent(value: string): string {
 }
 
 export function getSearxngBasicAuthHeader(url: URL): string | undefined {
-  if (url.username !== "" || url.password !== "") {
+  // URL auth requires a username (username-only token or username+password).
+  // Password-only userinfo (`https://:pass@host`) is treated as absent so a
+  // mistyped URL falls back to global AUTH_* / no header instead of sending a
+  // stray secret; the password is still stripped from the outgoing URL.
+  if (url.username !== "") {
     const username = decodeUserinfoComponent(url.username);
     const password = decodeUserinfoComponent(url.password);
     return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;

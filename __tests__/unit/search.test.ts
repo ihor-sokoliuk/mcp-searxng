@@ -505,6 +505,46 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('HTML fallback on 200 non-JSON body strips embedded credentials from the refetch URL', async () => {
+    envManager.set('SEARXNG_URL', 'https://user:p%40ss@test-searx.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+
+    const mockServer = createMockServer();
+    const fetchedUrls: string[] = [];
+    fetchMocker.mock(async (url) => {
+      fetchedUrls.push(url.toString());
+      if (fetchedUrls.length === 1) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => { throw new Error('Unexpected token < in JSON'); },
+          text: async () => '<!doctype html><html><body>JSON disabled</body></html>',
+        } as any;
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => searxngHtmlFixture,
+      } as Response;
+    });
+
+    await performWebSearch(mockServer as any, 'non json creds', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+
+    assert.equal(fetchedUrls.length, 2);
+    // Neither the initial fetch nor the HTML-fallback refetch may carry userinfo —
+    // Node's fetch rejects credential-bearing URLs outright.
+    for (const fetched of fetchedUrls) {
+      assert.equal(new URL(fetched).username, '');
+      assert.ok(!fetched.includes('user:p%40ss@'), fetched);
+    }
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('403 without HTML fallback enabled returns original error and does not refetch', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.delete('SEARXNG_HTML_FALLBACK');

@@ -502,7 +502,7 @@ async function fetchSearchFromInstance(
       data = JSON.parse(responseText) as SearXNGWeb;
     } catch {
       if (isHtmlFallbackEnabled()) {
-        data = await fetchHtmlFallbackSearch(mcpServer, url, requestOptions, request.timeoutMs, request.query, instanceUrl);
+        data = await fetchHtmlFallbackSearch(mcpServer, requestUrl, requestOptions, request.timeoutMs, request.query, instanceUrl);
       } else {
         throw createJSONError(responseText);
       }
