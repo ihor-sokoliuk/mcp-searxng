@@ -61,8 +61,8 @@
     "devDependencies": {
         "@types/node": "22.20.0",
         "@types/supertest": "^7.2.0",
-        "@typescript-eslint/eslint-plugin": "8.62.0",
-        "@typescript-eslint/parser": "8.62.0",
+        "@typescript-eslint/eslint-plugin": "8.63.0",
+        "@typescript-eslint/parser": "8.63.0",
         "c8": "^11.0.0",
         "cross-env": "^10.1.0",
         "eslint": "10.6.0",
@@ -70,7 +70,7 @@
         "fast-check": "^4.8.0",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
-        "tsx": "4.22.4",
+        "tsx": "4.23.0",
         "typescript": "^5.8.3"
     },
     "overrides": {
