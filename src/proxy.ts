@@ -296,17 +296,19 @@ export function getSearchUserAgent(): string | undefined {
 
 /**
  * Apply the shared SearXNG-instance request configuration — the SEARCH-group
- * proxy dispatcher and resolved SEARCH-group User-Agent header — to an outgoing request.
+ * proxy dispatcher, Basic Auth header, and resolved SEARCH-group User-Agent
+ * header — to an outgoing request.
  *
  * Used by the `/config` fetch (`instance-info.ts`) and the autocompleter fetch
  * (`suggestions.ts`), so both route through the same auth, proxy, and User-Agent
  * wiring without duplicating it. `searxng_web_search` builds its own options in
  * `search.ts`, but uses the same auth and User-Agent resolvers.
  *
- * The User-Agent is merged through a `Headers` instance, so any already-set
- * `headers` — whether a plain object, a `Headers` instance, or a tuple array —
- * is preserved; the result is written back as a plain object. (In practice both
- * callers pass a freshly-built `RequestInit` with no prior headers.)
+ * The Authorization and User-Agent headers are merged through a `Headers`
+ * instance, so any already-set `headers` — whether a plain object, a `Headers`
+ * instance, or a tuple array — is preserved; the result is written back as a
+ * plain object. (In practice both callers pass a freshly-built `RequestInit`
+ * with no prior headers.)
  */
 export function applySearchRequestConfig(
   requestOptions: RequestInit,

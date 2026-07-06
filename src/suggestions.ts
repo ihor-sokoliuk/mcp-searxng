@@ -15,12 +15,11 @@ export async function performSearchSuggestions(
 
   const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
   const url = new URL("autocompleter", parsedBase);
-  const requestUrl = stripSearxngInstanceUrlUserinfo(url);
   url.searchParams.set("q", query);
   if (language !== "all") {
     url.searchParams.set("lang", language);
   }
-  requestUrl.search = url.search;
+  const requestUrl = stripSearxngInstanceUrlUserinfo(url);
 
   try {
     const requestOptions: RequestInit = {
