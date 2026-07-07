@@ -27,8 +27,8 @@ npm run build   # One-off build
 - Write concise, informative error messages
 - Include unit tests for new functionality
 - Keep coverage above the enforced gate — **90% lines, 85% branches** (CI runs `npm run test:coverage` and fails below it)
-- Test with MCP inspector before submitting
-- Run evals to verify functionality
+- Run `npm run lint` (or `npm run security` for lint + dependency audit) before submitting
+- Test with the MCP inspector (`npm run inspector`) before submitting
 
 ## Testing
 

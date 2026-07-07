@@ -42,19 +42,18 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 
 ## Features
 
-- **Web Search**: General queries, news, articles, with pagination.
-- **Instance Failover**: Configure multiple interchangeable SearXNG replicas in `SEARXNG_URL`; searches fail over by default and can optionally fan out in parallel.
-- **Structured Search Output**: Choose formatted text or raw SearXNG-shaped JSON with `response_format`.
-- **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before result lists.
+- **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output (`response_format`).
+- **Instance Failover & Fan-out**: Configure interchangeable SearXNG replicas in `SEARXNG_URL`; searches fail over in order by default, or query all healthy replicas in parallel and merge results with `SEARXNG_FANOUT`.
+- **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before the result list.
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
 - **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
-- **URL Content Reading**: Advanced content extraction with pagination, section filtering, and heading extraction.
-- **Intelligent Caching**: URL content is cached with TTL (Time-To-Live) to improve performance and reduce redundant requests.
-- **Pagination**: Control which page of results to retrieve.
-- **Time Filtering**: Filter results by time range (day, week, month, year).
-- **Language Selection**: Filter results by preferred language.
-- **Safe Search**: Control content filtering level for search results.
-- **Relevance Filtering**: Filter out low-scoring search results with `min_score`.
+- **URL Content Reading**: Content-type-aware Markdown conversion with pagination, section filtering, paragraph ranges, and heading extraction.
+- **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and LRU eviction, reducing redundant requests.
+- **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
+- **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
+- **HTML Fallback**: Optionally parse results from the HTML page for public instances that reject `format=json`.
+- **Lite Tools Mode**: Minimal tool schemas for local models with small context windows.
+- **Proxy Support**: Global or per-tool HTTP/HTTPS proxies for search and URL-reader traffic.
 
 ## Why mcp-searxng?
 
@@ -227,17 +226,31 @@ MCP client config:
 <details>
 <summary>HTTP Transport</summary>
 
-By default the server uses STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode:
+By default the server uses STDIO, launched by your MCP client. To use HTTP instead, run `mcp-searxng` as a **standalone process** with `MCP_HTTP_PORT` set. In this mode it serves the MCP protocol over HTTP and does not speak STDIO, so your client connects to it by URL rather than spawning it.
+
+**Start the server:**
+
+```bash
+MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
+```
+
+Or with Docker (bind to all interfaces so the port is reachable from the host):
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e MCP_HTTP_PORT=3000 -e MCP_HTTP_HOST=0.0.0.0 \
+  -e SEARXNG_URL=http://host.docker.internal:8080 \
+  isokoliuk/mcp-searxng:latest
+```
+
+**Connect an HTTP-capable MCP client** to the `/mcp` endpoint by URL:
 
 ```json
 {
   "mcpServers": {
     "searxng-http": {
-      "command": "mcp-searxng",
-      "env": {
-        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL",
-        "MCP_HTTP_PORT": "3000"
-      }
+      "type": "streamable-http",
+      "url": "http://localhost:3000/mcp"
     }
   }
 }
@@ -245,22 +258,21 @@ By default the server uses STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode:
 
 **Endpoints:** `POST/GET/DELETE /mcp` (MCP protocol), `GET /health` (health check)
 
-For reverse-proxy deployments, see [CONFIGURATION.md](CONFIGURATION.md) for `MCP_HTTP_TRUST_PROXY` so rate limiting and logs use the correct client IP.
-
 **Test it:**
 
 ```bash
-MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
 curl http://localhost:3000/health
 ```
+
+The server binds to `127.0.0.1` by default; set `MCP_HTTP_HOST=0.0.0.0` for remote or containerized deployments. Before exposing it on a network, enable hardened mode (`MCP_HTTP_HARDEN`) and see [CONFIGURATION.md](CONFIGURATION.md) for `MCP_HTTP_TRUST_PROXY` so rate limiting and logs use the correct client IP.
 
 </details>
 
 ## Configuration
 
-Set `SEARXNG_URL` to your SearXNG instance URL. For Basic Auth, embed credentials per instance, for example `https://user:password@search.example.com`. For failover, set it to semicolon-separated interchangeable replica URLs; each entry can carry its own credentials. Set `SEARXNG_FANOUT=true` to query all healthy replicas in parallel and merge results. All other variables are optional.
+`SEARXNG_URL` is the only required variable — set it to your SearXNG instance URL (or a semicolon-separated list of interchangeable replicas). Everything else is optional.
 
-Full environment variable reference: [CONFIGURATION.md](CONFIGURATION.md)
+See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable reference, including authentication, failover/fan-out, caching, timeouts, proxies, TLS, HTTP transport, and hardening.
 
 ## Troubleshooting
 
