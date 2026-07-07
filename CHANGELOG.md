@@ -3,6 +3,30 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.11.0] - 2026-07-06
+
+### Added
+
+- **In-memory search result cache:** Repeated `searxng_web_search` calls with identical arguments are now served from a per-process cache instead of re-querying the instance, mirroring the existing URL-reader cache. The cache key is a SHA-256 of the tool name plus the search arguments canonicalized with sorted object keys, so semantically identical requests hit the same entry regardless of argument order, while any change to the query or parameters caches separately. Two new variables tune it: `SEARCH_CACHE_TTL_MS` (default `86400000`, 24 hours) sets the entry lifetime, and `SEARCH_CACHE_MAX_ENTRIES` (default `200`) caps the cache, evicting the least-frequently-used entry first with the oldest entry as the tie-breaker. Invalid or non-positive values fall back to the defaults. (FEAT-008, [#164](https://github.com/ihor-sokoliuk/mcp-searxng/pull/164))
+
+- **Per-instance HTTP Basic Auth from `SEARXNG_URL` userinfo:** Credentials can now be embedded directly in each `SEARXNG_URL` entry (`https://user:pass@host`), and each semicolon-separated replica carries its own credentials — so a mixed deployment of one auth-gated private instance and one public instance no longer sends the private credentials to the public host. The legacy global `AUTH_USERNAME` / `AUTH_PASSWORD` variables are now a fallback used only for entries that have no userinfo, preserving existing single-instance setups. Percent-encode special characters in the username or password (for example, write `p@ss` as `p%40ss`). (FEAT-049, [#160](https://github.com/ihor-sokoliuk/mcp-searxng/pull/160))
+
+- **`SEARCH_USER_AGENT` override for SearXNG-instance requests:** A new per-group `SEARCH_USER_AGENT` variable sets the `User-Agent` for all SearXNG-instance traffic — `searxng_web_search`, `/config` capability discovery, and search suggestions — independently of the `web_url_read` group's `URL_READER_USER_AGENT`. Both groups fall back to `USER_AGENT` when unset, and if neither the group override nor `USER_AGENT` is set, no `User-Agent` header is added. (FEAT-050, [#150](https://github.com/ihor-sokoliuk/mcp-searxng/pull/150))
+
+### Fixed
+
+- **Basic Auth and custom CA certs now applied on every SearXNG endpoint:** `SEARXNG_URL` Basic Auth credentials and the `NODE_EXTRA_CA_CERTS` custom CA bundle were previously honored on the main search request but not on the `/config` capability-discovery and `/autocompleter` suggestion fetches, so those two paths failed against auth-gated or custom-CA instances. All three now go through the same authenticated, TLS-aware request path. A follow-up also fixes Windows, where setting `NODE_EXTRA_CA_CERTS` had dropped the bundled Mozilla root store instead of adding to it. (`d33f7e9`, `2a037f5`, [#152](https://github.com/ihor-sokoliuk/mcp-searxng/pull/152))
+
+- **Clearer "content too large" message from `web_url_read`:** When a page exceeds the size limit, the error now reports the size with an explicit, unambiguous unit and gives accurate advice for narrowing the request, replacing the earlier misleading wording. ([#148](https://github.com/ihor-sokoliuk/mcp-searxng/pull/148))
+
+### Security
+
+- **`SEARXNG_URL` userinfo redacted in the config resource:** Now that credentials can be embedded per instance, the `config` MCP resource redacts any `user:pass@` userinfo from the reported instance URLs, and the `hasAuth` indicator is userinfo-aware so it reflects embedded credentials as well as the legacy `AUTH_USERNAME` / `AUTH_PASSWORD` variables — keeping embedded secrets out of client-visible configuration output. (`2026bf9`)
+
+### Contributors
+
+- @wchy1128 - [#152](https://github.com/ihor-sokoliuk/mcp-searxng/pull/152) fix(auth+tls): Basic Auth on /config and /autocompleter; honor NODE_EXTRA_CA_CERTS everywhere
+
 ## [1.10.1] - 2026-07-04
 
 ### Fixed
