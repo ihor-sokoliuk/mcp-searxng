@@ -1,3 +1,5 @@
+import { parsePositiveInteger, normalizePositiveInteger } from "./env-int.js";
+
 interface CacheEntry {
   htmlContent: string;
   markdownContent: string;
@@ -8,19 +10,6 @@ interface CacheEntry {
 const DEFAULT_CACHE_TTL_MS = 86400000;
 const DEFAULT_CACHE_MAX_ENTRIES = 500;
 const DEFAULT_CLEANUP_INTERVAL_MS = 60000;
-
-function parsePositiveInteger(value: string | undefined, fallback: number): number {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-
-  const parsed = parseInt(value, 10);
-  return Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed;
-}
-
-function normalizePositiveInteger(value: number, fallback: number): number {
-  return !Number.isFinite(value) || !Number.isInteger(value) || value <= 0 ? fallback : value;
-}
 
 class SimpleCache {
   private cache = new Map<string, CacheEntry>();

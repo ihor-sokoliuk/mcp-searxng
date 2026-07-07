@@ -12,6 +12,7 @@ import { TestResult } from './helpers/test-utils.js';
 import { runTests as runLoggingTests } from './unit/logging.test.js';
 import { runTests as runTypesTests } from './unit/types.test.js';
 import { runTests as runCacheTests } from './unit/cache.test.js';
+import { runTests as runSearchCacheTests } from './unit/search-cache.test.js';
 import { runTests as runProxyTests } from './unit/proxy.test.js';
 import { runTests as runErrorHandlerTests } from './unit/error-handler.test.js';
 import { runTests as runSearxngInstancesTests } from './unit/searxng-instances.test.js';
@@ -42,6 +43,7 @@ const testSuites: TestSuite[] = [
   { name: 'Logging', category: 'unit', run: runLoggingTests },
   { name: 'Types', category: 'unit', run: runTypesTests },
   { name: 'Cache', category: 'unit', run: runCacheTests },
+  { name: 'Search Cache', category: 'unit', run: runSearchCacheTests },
   { name: 'Proxy', category: 'unit', run: runProxyTests },
   { name: 'Error Handler', category: 'unit', run: runErrorHandlerTests },
   { name: 'SearXNG Instances', category: 'unit', run: runSearxngInstancesTests },

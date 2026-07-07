@@ -4,6 +4,8 @@
  * Utilities for mocking fetch API in tests
  */
 
+import { searchCache } from '../../src/search-cache.js';
+
 export type FetchMockOptions = {
   status?: number;
   statusText?: string;
@@ -126,5 +128,6 @@ export class FetchMocker {
 
   restore(): void {
     global.fetch = this.originalFetch;
+    searchCache.clear();
   }
 }
