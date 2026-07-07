@@ -238,10 +238,13 @@ Or with Docker (bind to all interfaces so the port is reachable from the host):
 
 ```bash
 docker run --rm -p 3000:3000 \
+  --add-host=host.docker.internal:host-gateway \
   -e MCP_HTTP_PORT=3000 -e MCP_HTTP_HOST=0.0.0.0 \
   -e SEARXNG_URL=http://host.docker.internal:8080 \
   isokoliuk/mcp-searxng:latest
 ```
+
+The `--add-host` mapping lets the container reach a SearXNG instance on the host via `host.docker.internal`; it resolves automatically on Docker Desktop but needs this flag on native Linux. Point `SEARXNG_URL` at your actual instance if it runs elsewhere.
 
 **Connect an HTTP-capable MCP client** to the `/mcp` endpoint by URL:
 
