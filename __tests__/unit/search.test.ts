@@ -9,7 +9,8 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { performWebSearch } from '../../src/search.js';
+import { performWebSearch, formatCachedSearchResult } from '../../src/search.js';
+import { searchCache } from '../../src/search-cache.js';
 import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import {
   clearSearxngInstanceStateForTests,
@@ -24,6 +25,19 @@ const results = createTestResults();
 const fetchMocker = new FetchMocker();
 const envManager = new EnvManager();
 const searxngHtmlFixture = readFileSync('__tests__/fixtures/searxng-results.html', 'utf8');
+
+async function withControlledClock(
+  fn: (advance: (ms: number) => void) => void | Promise<void>,
+): Promise<void> {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    await fn((ms) => { now += ms; });
+  } finally {
+    Date.now = realNow;
+  }
+}
 
 function makeMockSearchResults(count: number) {
   return Array.from({ length: count }, (_, index) => ({
@@ -706,6 +720,203 @@ async function runTests() {
 
     fetchMocker.restore();
     envManager.restore();
+  }, results);
+
+  await testFunction('formatCachedSearchResult annotates text and JSON, and never throws on bad JSON', () => {
+    // Text: appends the marker.
+    assert.equal(formatCachedSearchResult('plain body', 'text'), 'plain body\n\n_Cached result_');
+
+    // Valid JSON: stays parseable and gains cached: true.
+    const annotated = JSON.parse(formatCachedSearchResult('{"results":[]}', 'json'));
+    assert.deepEqual(annotated.results, []);
+    assert.equal(annotated.cached, true);
+
+    // Malformed JSON under a JSON key must not throw — serve it unannotated so a
+    // cache hit can never turn a previously successful call into a failure.
+    assert.equal(formatCachedSearchResult('not json{', 'json'), 'not json{');
+  }, results);
+
+  await testFunction('Second identical search returns cached result without calling fetch', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://cache.example.com');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({
+        json: {
+          results: [
+            { title: 'Cached Result', content: 'Cached content', url: 'https://example.com/cached', score: 1 },
+          ],
+        },
+      })(url, options);
+    });
+
+    const firstResult = await performWebSearch(mockServer as any, 'cache query');
+    const secondResult = await performWebSearch(mockServer as any, 'cache query');
+
+    assert.equal(fetchCount, 1);
+    assert.ok(firstResult.includes('Cached Result'));
+    assert.ok(secondResult.includes('Cached Result'));
+    assert.ok(secondResult.endsWith('\n\n_Cached result_'), secondResult);
+
+    fetchMocker.restore();
+    envManager.restore();
+    searchCache.clear();
+  }, results);
+
+  await testFunction('Cached text search includes _Cached result_ suffix', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://cache-marker.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        results: [
+          { title: 'Marker Result', content: 'Marker content', url: 'https://example.com/marker', score: 0.9 },
+        ],
+      },
+    }));
+
+    const firstResult = await performWebSearch(mockServer as any, 'marker query');
+    const secondResult = await performWebSearch(mockServer as any, 'marker query');
+    const thirdResult = await performWebSearch(mockServer as any, 'marker query');
+
+    const markerCount = (text: string) => text.split('_Cached result_').length - 1;
+    assert.ok(!firstResult.includes('_Cached result_'), firstResult);
+    assert.equal(markerCount(secondResult), 1);
+    assert.equal(markerCount(thirdResult), 1);
+
+    fetchMocker.restore();
+    envManager.restore();
+    searchCache.clear();
+  }, results);
+
+  await testFunction('Cached JSON search remains parseable and includes cached field', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://cache-json.example.com');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({
+        json: {
+          query: 'json cache',
+          results: [
+            { title: 'JSON Result', content: 'JSON content', url: 'https://example.com/json', score: 0.8 },
+          ],
+        },
+      })(url, options);
+    });
+
+    const firstPayload = JSON.parse(await performWebSearch(mockServer as any, 'json cache', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json'));
+    const secondResult = await performWebSearch(mockServer as any, 'json cache', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+    const secondPayload = JSON.parse(secondResult);
+
+    assert.equal(fetchCount, 1);
+    assert.equal(firstPayload.cached, undefined);
+    assert.equal(secondPayload.cached, true);
+    assert.ok(!secondResult.includes('_Cached result_'), secondResult);
+
+    fetchMocker.restore();
+    envManager.restore();
+    searchCache.clear();
+  }, results);
+
+  await testFunction('Expired cached search hits fetch again', async () => withControlledClock((advance) => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://cache-expiry.example.com');
+
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({
+        json: {
+          results: [
+            {
+              title: `Fresh Result ${fetchCount}`,
+              content: 'Fresh content',
+              url: `https://example.com/fresh-${fetchCount}`,
+              score: 1,
+            },
+          ],
+        },
+      })(url, options);
+    });
+
+    return (async () => {
+      searchCache.set('searxng_web_search', {
+        query: 'unused warmup',
+      }, 'unused');
+
+      await performWebSearch(mockServer as any, 'expiry query');
+      advance(86400001);
+      const result = await performWebSearch(mockServer as any, 'expiry query');
+
+      assert.equal(fetchCount, 2);
+      assert.ok(result.includes('Fresh Result 2'), result);
+      assert.ok(!result.includes('_Cached result_'), result);
+
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    })();
+  }), results);
+
+  await testFunction('Different effective args do not share cached results', async () => {
+    searchCache.clear();
+    clearInstanceInfoCacheForTests();
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://cache-a.example.com;https://cache-b.example.com');
+    envManager.set('SEARXNG_FANOUT', 'false');
+    envManager.set('SEARXNG_DEFAULT_LANGUAGE', 'en');
+    envManager.set('SEARXNG_DEFAULT_SAFESEARCH', '1');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '30');
+
+    const mockServer = createMockServer();
+    let searchFetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) {
+        return createMockFetch({ json: makeConfigWithEngines() })(url, options);
+      }
+
+      searchFetchCount++;
+      return createMockFetch({
+        json: {
+          query: parsedUrl.searchParams.get('q'),
+          results: [
+            {
+              title: `Variant ${searchFetchCount}`,
+              content: `Variant content ${searchFetchCount}`,
+              url: `https://example.com/variant-${searchFetchCount}`,
+              score: 1,
+            },
+          ],
+        },
+      })(url, options);
+    });
+
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, undefined, undefined, undefined, 1, 'News', undefined, 'text');
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, undefined, undefined, undefined, 2, 'News', undefined, 'text');
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, undefined, undefined, undefined, 2, 'News', undefined, 'json');
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, 'fr', undefined, undefined, 2, 'News', undefined, 'json');
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, 'fr', 2, undefined, 2, 'News', 'Google', 'json');
+    envManager.set('SEARXNG_FANOUT', 'true');
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, 'fr', 2, undefined, 2, 'News', 'Google', 'json');
+    envManager.set('SEARXNG_URL', 'https://cache-c.example.com;https://cache-d.example.com');
+    await performWebSearch(mockServer as any, 'variant query', 1, undefined, 'fr', 2, undefined, 2, 'News', 'Google', 'json');
+
+    assert.equal(searchFetchCount, 9);
+
+    fetchMocker.restore();
+    envManager.restore();
+    searchCache.clear();
+    clearInstanceInfoCacheForTests();
+    clearSearxngInstanceStateForTests();
   }, results);
 
   await testFunction('min_score filters out lower relevance results', async () => {

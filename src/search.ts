@@ -4,6 +4,7 @@ import { SearXNGWeb } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { applySearchRequestConfig } from "./proxy.js";
 import { logMessage } from "./logging.js";
+import { searchCache } from "./search-cache.js";
 import {
   getHealthySearxngInstances,
   getSearxngInstances,
@@ -437,6 +438,25 @@ function buildSearchRequestOptions(url: URL): RequestInit {
   return requestOptions;
 }
 
+export function formatCachedSearchResult(result: string, responseFormat: "text" | "json"): string {
+  if (responseFormat === "json") {
+    try {
+      return JSON.stringify({
+        ...JSON.parse(result),
+        cached: true,
+      }, null, 2);
+    } catch {
+      // A cache hit must never turn a previously successful call into a hard
+      // failure. Stored JSON is always valid in practice (only successful JSON
+      // responses are cached under a JSON key), but set() is public, so if the
+      // stored value somehow isn't valid JSON, serve it unannotated.
+      return result;
+    }
+  }
+
+  return `${result}\n\n_Cached result_`;
+}
+
 async function fetchSearchFromInstance(
   mcpServer: McpServer,
   instanceUrl: string,
@@ -690,6 +710,7 @@ export async function performWebSearch(
 
   const SEARCH_TIMEOUT_MS = parseInt(process.env.SEARXNG_TIMEOUT_MS ?? "10000", 10);
   const instances = getSearxngInstances();
+  const fanoutEnabled = isSearxngFanoutEnabled();
   const includeProvenance = instances.length > 1;
   const request: SearchRequest = {
     query,
@@ -700,6 +721,24 @@ export async function performWebSearch(
     filters,
     timeoutMs: SEARCH_TIMEOUT_MS,
   };
+  const cacheArgs: Record<string, unknown> = {
+    query,
+    pageno,
+    time_range,
+    effectiveLanguage,
+    effectiveSafesearch,
+    filters,
+    min_score,
+    effectiveMax,
+    maxResultChars,
+    response_format,
+    instances,
+    searxngFanout: fanoutEnabled,
+  };
+  const cachedResult = searchCache.get("searxng_web_search", cacheArgs);
+  if (cachedResult !== null) {
+    return formatCachedSearchResult(cachedResult, response_format);
+  }
 
   let data: SearXNGWeb;
   let servedBy: string[] = [];
@@ -708,7 +747,7 @@ export async function performWebSearch(
     const result = await fetchSearchFromInstance(mcpServer, instances[0], request);
     data = result.data;
   } else {
-    const multiResult = isSearxngFanoutEnabled()
+    const multiResult = fanoutEnabled
       ? await performFanoutSearch(mcpServer, instances, request)
       : await performFailoverSearch(mcpServer, instances, request);
     data = multiResult.data;
@@ -723,12 +762,14 @@ export async function performWebSearch(
     : results;
 
   if (response_format === "json") {
-    return JSON.stringify({
+    const result = JSON.stringify({
       ...data,
       results: slicedResults,
       ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
       ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
     }, null, 2);
+    searchCache.set("searxng_web_search", cacheArgs, result);
+    return result;
   }
 
   const metadata = formatSearchMetadata(data);
@@ -749,7 +790,9 @@ export async function performWebSearch(
     const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
-    return leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
+    const result = leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
+    searchCache.set("searxng_web_search", cacheArgs, result);
+    return result;
   }
 
   const duration = Date.now() - startTime;
@@ -771,5 +814,7 @@ export async function performWebSearch(
     })
     .join("\n\n");
 
-  return leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults;
+  const result = leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults;
+  searchCache.set("searxng_web_search", cacheArgs, result);
+  return result;
 }

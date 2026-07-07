@@ -62,6 +62,10 @@ Operator-level defaults applied when the caller omits the corresponding per-call
 |---|---|---|---|
 | `SEARXNG_MAX_RESULTS` | No | — | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
 | `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet. Longer snippets are truncated and marked with `…`. Invalid values are ignored. Recommended: `500` for smaller context windows. |
+| `SEARCH_CACHE_TTL_MS` | No | `86400000` | Search result cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
+| `SEARCH_CACHE_MAX_ENTRIES` | No | `200` | Maximum number of cached search queries. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
+
+Search results are cached in memory per process only; cache contents are not persisted across restarts. Cached text responses are marked with `_Cached result_`. Cached JSON responses remain parseable and include a top-level `"cached": true` field.
 
 ## Search Compatibility
 
@@ -214,6 +218,8 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "SEARXNG_DEFAULT_SAFESEARCH": "0",
         "SEARXNG_MAX_RESULTS": "10",
         "SEARXNG_MAX_RESULT_CHARS": "500",
+        "SEARCH_CACHE_TTL_MS": "86400000",
+        "SEARCH_CACHE_MAX_ENTRIES": "200",
         "SEARXNG_HTML_FALLBACK": "false",
         "URL_READ_MAX_CHARS": "2000",
         "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
