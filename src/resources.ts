@@ -130,6 +130,7 @@ Reads and converts web page content to Markdown format.
 - \`SEARXNG_URL\`: URL of your SearXNG instance (e.g., http://localhost:8080). For Basic Auth, embed credentials in the URL (e.g., https://user:password@search.example.com); percent-encode special characters in the username or password (e.g. \`@\` as \`%40\`). Multi-instance lists can use different credentials per semicolon-separated URL.
 
 ### Optional Environment Variables
+Common ones are listed below. This is not exhaustive — see CONFIGURATION.md in the project repository for the full reference (failover/fan-out, caching, timeouts, result limits, per-tool proxies, TLS, HTTP transport, and hardening).
 - \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Legacy global Basic Auth fallback when \`SEARXNG_URL\` has no userinfo
 - \`HTTP_PROXY\` / \`HTTPS_PROXY\`: Proxy server configuration
 - \`NO_PROXY\` / \`no_proxy\`: Comma-separated list of hosts to bypass proxy
@@ -185,7 +186,7 @@ Args: {"includeEngines": true}
 1. **"SEARXNG_URL not set"**: Configure the SEARXNG_URL environment variable
 2. **Network errors**: Check if SearXNG is running and accessible
 3. **Empty results**: Try different search terms or check SearXNG instance
-4. **Timeout errors**: The server has a 10-second timeout for URL fetching
+4. **Timeout errors**: Search and URL fetches time out after 10 seconds by default; tune with \`SEARXNG_TIMEOUT_MS\` and \`FETCH_TIMEOUT_MS\`
 
 Use logging level "debug" for detailed request information.
 
