@@ -1178,6 +1178,14 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('getSearchTimeoutMs falls back to default above the setTimeout ceiling', () => {
+    // > 2^31-1 ms: Node clamps setTimeout to 1 ms, so treat it as invalid.
+    envManager.set('SEARXNG_TIMEOUT_MS', '99999999999');
+    const mockServer = createMockServer();
+    assert.equal(getSearchTimeoutMs(mockServer as any), 10000);
+    envManager.restore();
+  }, results);
+
   await testFunction('getSearchTimeoutMs honors a valid value', () => {
     envManager.set('SEARXNG_TIMEOUT_MS', '5000');
     const mockServer = createMockServer();
