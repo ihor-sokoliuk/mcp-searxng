@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { resolveBindHost } from '../../src/http-server.js';
+import { resolveBindHost, parseRateLimitEnv } from '../../src/http-server.js';
 import { testFunction, createTestResults, printTestSummary, TestResult } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -64,6 +64,81 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('Surrounding whitespace is trimmed from valid value', () => {
     assert.equal(resolveBindHost('  127.0.0.1  '), '127.0.0.1');
+  }, results);
+
+  // --- parseRateLimitEnv() ---
+
+  await testFunction('parseRateLimitEnv: unset env var → fallback, no warning', () => {
+    delete process.env.MCP_RATE_TEST;
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(' ')); };
+    try {
+      assert.equal(parseRateLimitEnv('MCP_RATE_TEST', 20), 20);
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warnings.length, 0, 'absent value must not warn');
+  }, results);
+
+  await testFunction('parseRateLimitEnv: whitespace-only → fallback, no warning', () => {
+    process.env.MCP_RATE_TEST = '   ';
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(' ')); };
+    try {
+      assert.equal(parseRateLimitEnv('MCP_RATE_TEST', 20), 20);
+    } finally {
+      console.warn = original;
+      delete process.env.MCP_RATE_TEST;
+    }
+    assert.equal(warnings.length, 0, 'blank value must not warn');
+  }, results);
+
+  await testFunction('parseRateLimitEnv: non-numeric → fallback AND warns', () => {
+    process.env.MCP_RATE_TEST = 'abc'; // no leading digit → parseInt yields NaN (the fail-open case)
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(' ')); };
+    try {
+      assert.equal(parseRateLimitEnv('MCP_RATE_TEST', 20), 20);
+    } finally {
+      console.warn = original;
+      delete process.env.MCP_RATE_TEST;
+    }
+    assert.equal(warnings.length, 1, 'invalid value must warn once');
+    assert.ok(warnings[0].includes('MCP_RATE_TEST'), 'warning names the variable');
+    assert.ok(warnings[0].includes('20'), 'warning names the default used');
+  }, results);
+
+  await testFunction('parseRateLimitEnv: zero and negative → fallback AND warns', () => {
+    const original = console.warn;
+    for (const bad of ['0', '-5']) {
+      process.env.MCP_RATE_TEST = bad;
+      const warnings: string[] = [];
+      console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(' ')); };
+      try {
+        assert.equal(parseRateLimitEnv('MCP_RATE_TEST', 300), 300, `${bad} → fallback`);
+      } finally {
+        console.warn = original;
+        delete process.env.MCP_RATE_TEST;
+      }
+      assert.equal(warnings.length, 1, `${bad} must warn`);
+    }
+  }, results);
+
+  await testFunction('parseRateLimitEnv: valid positive integer is honored, no warning', () => {
+    process.env.MCP_RATE_TEST = '50';
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(' ')); };
+    try {
+      assert.equal(parseRateLimitEnv('MCP_RATE_TEST', 20), 50);
+    } finally {
+      console.warn = original;
+      delete process.env.MCP_RATE_TEST;
+    }
+    assert.equal(warnings.length, 0, 'valid value must not warn');
   }, results);
 
   printTestSummary(results, 'HTTP Server');

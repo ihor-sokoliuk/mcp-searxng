@@ -156,7 +156,7 @@ HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-
 
 ## Rate Limiting (HTTP mode)
 
-Rate limiting is always active in HTTP mode to prevent resource exhaustion. Two separate limits protect different request types.
+Rate limiting is always active in HTTP mode to prevent resource exhaustion. Two separate limits protect different request types. Invalid or non-positive values for any `MCP_RATE_*` variable are ignored with a startup warning and the documented default is used, so a typo cannot silently disable rate limiting.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
