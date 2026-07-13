@@ -59,18 +59,18 @@
         "undici": "7.28.0"
     },
     "devDependencies": {
-        "@types/node": "22.20.0",
+        "@types/node": "22.20.1",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.63.0",
         "@typescript-eslint/parser": "8.63.0",
         "c8": "^11.0.0",
         "cross-env": "^10.1.0",
-        "eslint": "10.6.0",
+        "eslint": "10.7.0",
         "eslint-plugin-security": "^4.0.0",
         "fast-check": "^4.8.0",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
-        "tsx": "4.23.0",
+        "tsx": "4.23.1",
         "typescript": "^5.8.3"
     },
     "overrides": {
