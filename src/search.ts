@@ -71,13 +71,15 @@ export function getSearchTimeoutMs(mcpServer: McpServer): number {
 
   // Number() (not parseInt) so unit/decimal strings like "10s" or "1.5" fall
   // back instead of silently truncating to a tiny timeout — "10s" is the exact
-  // misconfiguration BUG-013 was reported against.
+  // misconfiguration BUG-013 was reported against. Upper bound is the 32-bit
+  // setTimeout ceiling: Node clamps a larger delay to 1 ms, which would again
+  // abort almost immediately.
   const parsed = Number(rawValue.trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 2_147_483_647) {
     logMessage(
       mcpServer,
       "warning",
-      `Ignoring invalid SEARXNG_TIMEOUT_MS="${rawValue}". Expected a positive integer. Using default 10000.`,
+      `Ignoring invalid SEARXNG_TIMEOUT_MS="${rawValue}". Expected a positive integer up to 2147483647. Using default 10000.`,
     );
     return 10000;
   }
