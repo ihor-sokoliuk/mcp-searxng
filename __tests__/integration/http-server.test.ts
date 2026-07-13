@@ -431,6 +431,26 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('Rate limiting: invalid MCP_RATE_INIT_MAX falls back to default (does not fail open)', async () => {
+    // 'abc' has no leading digit → raw parseInt yields NaN → pre-fix the limiter
+    // was disabled (fail-open). With validation it falls back to the default of 20.
+    envManager.set('MCP_RATE_INIT_MAX', 'abc');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    let lastStatus = 0;
+    for (let i = 0; i < 21; i++) {
+      const res = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: i });
+      lastStatus = res.status;
+    }
+    assert.equal(lastStatus, 429, 'limiter must stay active (default 20) on invalid input, not fail open');
+
+    envManager.restore();
+  }, results);
+
   await testFunction('Rate limiting: GET /mcp returns 429 after exceeding sessionLimiter limit', async () => {
     envManager.set('MCP_RATE_SESSION_MAX', '3');
     envManager.set('MCP_RATE_WINDOW_MS', '60000');

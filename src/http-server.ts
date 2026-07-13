@@ -32,12 +32,34 @@ export function resolveBindHost(envValue: string | undefined): string {
   return trimmed;
 }
 
+/**
+ * Parses a positive-integer rate-limit setting from the environment.
+ * Absent/blank → fallback silently. Present-but-invalid (NaN or <= 0) →
+ * fallback plus a one-line console.warn so an operator typo cannot silently
+ * disable rate limiting (a fail-open control). Uses console.warn, not the MCP
+ * logMessage path, because makeRateLimiters runs without an McpServer in scope.
+ */
+export function parseRateLimitEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    console.warn(
+      `⚠️  Ignoring invalid ${name}="${raw}". Expected a positive integer. Using default ${fallback}.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
 function makeRateLimiters() {
-  const windowMs = parseInt(process.env.MCP_RATE_WINDOW_MS ?? "60000", 10);
+  const windowMs = parseRateLimitEnv("MCP_RATE_WINDOW_MS", 60000);
 
   const initLimiter = rateLimit({
     windowMs,
-    max: parseInt(process.env.MCP_RATE_INIT_MAX ?? "20", 10),
+    max: parseRateLimitEnv("MCP_RATE_INIT_MAX", 20),
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -49,7 +71,7 @@ function makeRateLimiters() {
 
   const sessionLimiter = rateLimit({
     windowMs,
-    max: parseInt(process.env.MCP_RATE_SESSION_MAX ?? "300", 10),
+    max: parseRateLimitEnv("MCP_RATE_SESSION_MAX", 300),
     standardHeaders: true,
     legacyHeaders: false,
     message: {
