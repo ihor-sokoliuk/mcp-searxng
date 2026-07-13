@@ -69,8 +69,11 @@ export function getSearchTimeoutMs(mcpServer: McpServer): number {
     return 10000;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
+  // Number() (not parseInt) so unit/decimal strings like "10s" or "1.5" fall
+  // back instead of silently truncating to a tiny timeout — "10s" is the exact
+  // misconfiguration BUG-013 was reported against.
+  const parsed = Number(rawValue.trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) {
     logMessage(
       mcpServer,
       "warning",

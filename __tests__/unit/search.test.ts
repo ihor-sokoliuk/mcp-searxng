@@ -1163,6 +1163,21 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('getSearchTimeoutMs falls back to default for a unit-suffixed value', () => {
+    // parseInt("10s") would be 10 (a 10ms timeout) — Number() rejects it.
+    envManager.set('SEARXNG_TIMEOUT_MS', '10s');
+    const mockServer = createMockServer();
+    assert.equal(getSearchTimeoutMs(mockServer as any), 10000);
+    envManager.restore();
+  }, results);
+
+  await testFunction('getSearchTimeoutMs falls back to default for a decimal value', () => {
+    envManager.set('SEARXNG_TIMEOUT_MS', '1.5');
+    const mockServer = createMockServer();
+    assert.equal(getSearchTimeoutMs(mockServer as any), 10000);
+    envManager.restore();
+  }, results);
+
   await testFunction('getSearchTimeoutMs honors a valid value', () => {
     envManager.set('SEARXNG_TIMEOUT_MS', '5000');
     const mockServer = createMockServer();
