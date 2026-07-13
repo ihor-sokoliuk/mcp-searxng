@@ -63,6 +63,25 @@ function getMaxResultChars(mcpServer: McpServer): number | undefined {
   return parsed;
 }
 
+export function getSearchTimeoutMs(mcpServer: McpServer): number {
+  const rawValue = process.env.SEARXNG_TIMEOUT_MS;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return 10000;
+  }
+
+  const parsed = parseInt(rawValue, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    logMessage(
+      mcpServer,
+      "warning",
+      `Ignoring invalid SEARXNG_TIMEOUT_MS="${rawValue}". Expected a positive integer. Using default 10000.`,
+    );
+    return 10000;
+  }
+
+  return parsed;
+}
+
 function truncateResultContent(content: string, maxResultChars?: number): string {
   if (maxResultChars === undefined || content.length <= maxResultChars) {
     return content;
@@ -708,7 +727,7 @@ export async function performWebSearch(
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
 
-  const SEARCH_TIMEOUT_MS = parseInt(process.env.SEARXNG_TIMEOUT_MS ?? "10000", 10);
+  const SEARCH_TIMEOUT_MS = getSearchTimeoutMs(mcpServer);
   const instances = getSearxngInstances();
   const fanoutEnabled = isSearxngFanoutEnabled();
   const includeProvenance = instances.length > 1;

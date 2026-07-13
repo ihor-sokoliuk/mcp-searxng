@@ -9,7 +9,7 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { performWebSearch, formatCachedSearchResult } from '../../src/search.js';
+import { performWebSearch, formatCachedSearchResult, getSearchTimeoutMs } from '../../src/search.js';
 import { searchCache } from '../../src/search-cache.js';
 import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import {
@@ -1142,6 +1142,44 @@ async function runTests() {
     assert.ok(result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
 
     fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  // A NaN/non-positive timeout makes setTimeout(abort, ms) fire on the next tick,
+  // aborting every search. These assert the parser guards it. Tested directly
+  // because the mock fetch resolves on a microtask and ignores the abort signal,
+  // so an end-to-end search can't distinguish the bug from the fix (BUG-013).
+  await testFunction('getSearchTimeoutMs falls back to default for non-numeric value', () => {
+    envManager.set('SEARXNG_TIMEOUT_MS', 'abc');
+    const mockServer = createMockServer();
+    assert.equal(getSearchTimeoutMs(mockServer as any), 10000);
+    envManager.restore();
+  }, results);
+
+  await testFunction('getSearchTimeoutMs falls back to default for non-positive value', () => {
+    envManager.set('SEARXNG_TIMEOUT_MS', '-5');
+    const mockServer = createMockServer();
+    assert.equal(getSearchTimeoutMs(mockServer as any), 10000);
+    envManager.restore();
+  }, results);
+
+  await testFunction('getSearchTimeoutMs honors a valid value', () => {
+    envManager.set('SEARXNG_TIMEOUT_MS', '5000');
+    const mockServer = createMockServer();
+    assert.equal(getSearchTimeoutMs(mockServer as any), 5000);
+    envManager.restore();
+  }, results);
+
+  await testFunction('getSearchTimeoutMs warns on invalid value', () => {
+    envManager.set('SEARXNG_TIMEOUT_MS', 'abc');
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    getSearchTimeoutMs(server as any);
+    const warning = getLoggingCalls().find(
+      (call) => call.level === 'warning'
+        && typeof call.data?.message === 'string'
+        && call.data.message.includes('Ignoring invalid SEARXNG_TIMEOUT_MS="abc"'),
+    );
+    assert.ok(warning, 'Expected a warning for invalid SEARXNG_TIMEOUT_MS');
     envManager.restore();
   }, results);
 

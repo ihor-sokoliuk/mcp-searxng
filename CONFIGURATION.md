@@ -38,7 +38,7 @@ Percent-encode special characters in usernames or passwords before placing them 
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a SearXNG search response. The request is aborted and a network error is returned if the server does not respond within this window. |
+| `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a SearXNG search response. The request is aborted and a network error is returned if the server does not respond within this window. Invalid or non-positive values fall back to the default. |
 | `FETCH_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a `web_url_read` fetch. The request is aborted and an error is returned if the server does not respond within this window. |
 
 ## Tool Schema
