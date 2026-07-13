@@ -446,9 +446,9 @@ async function runTests() {
         .send({ jsonrpc: '2.0', method: 'tools/list', id: i });
       lastStatus = res.status;
     }
-    assert.equal(lastStatus, 429, 'limiter must stay active (default 20) on invalid input, not fail open');
-
+    // Restore env before asserting so a failed assertion can't leak MCP_RATE_* into later tests.
     envManager.restore();
+    assert.equal(lastStatus, 429, 'limiter must stay active (default 20) on invalid input, not fail open');
   }, results);
 
   await testFunction('Rate limiting: GET /mcp returns 429 after exceeding sessionLimiter limit', async () => {
