@@ -70,7 +70,7 @@ Hardened mode enforces:
 
 - **Bearer token authentication** on every request (`Authorization: Bearer <token>`)
 - **CORS origin allowlist** — requests from unlisted origins are rejected
-- **DNS rebinding protection** — `Host` header is validated against `MCP_HTTP_ALLOWED_HOSTS` (defaults to `127.0.0.1,localhost`)
+- **DNS rebinding protection** — the `Host` header is validated against `MCP_HTTP_ALLOWED_HOSTS`. The default allows loopback access on the configured port (`127.0.0.1`, `localhost`, `[::1]` and their `:PORT` forms). A custom list is matched exactly against `Host`, so each entry must include the port if the client or proxy sends one (e.g. `app.example.com:8443`).
 
 `MCP_HTTP_HARDEN=true` will fail to start if `MCP_HTTP_AUTH_TOKEN` or `MCP_HTTP_ALLOWED_ORIGINS` are missing.
 
@@ -121,7 +121,7 @@ MCP_HTTP_HOST=127.0.0.1             # put a reverse proxy in front
 MCP_HTTP_TRUST_PROXY=1              # trust one reverse-proxy hop
 MCP_HTTP_AUTH_TOKEN=<random-256bit>
 MCP_HTTP_ALLOWED_ORIGINS=https://your-app.example.com
-MCP_HTTP_ALLOWED_HOSTS=your-app.example.com
+MCP_HTTP_ALLOWED_HOSTS=your-app.example.com   # exact Host match; add ":port" if the proxy forwards one
 MCP_HTTP_ALLOW_PRIVATE_URLS=false   # default, keep this off
 ```
 
