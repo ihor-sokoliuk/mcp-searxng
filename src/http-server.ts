@@ -92,10 +92,11 @@ function makeRateLimiters() {
 }
 
 export async function createHttpServer(
-  createMcpServer: () => McpServer
+  createMcpServer: () => McpServer,
+  port?: number
 ): Promise<express.Application> {
   const app = express();
-  const security = getHttpSecurityConfig();
+  const security = getHttpSecurityConfig(port);
   validateHttpSecurityConfig(security);
   if (security.trustProxy !== false) {
     app.set('trust proxy', security.trustProxy);
