@@ -361,11 +361,12 @@ async function runTests() {
     envManager.set('MCP_HTTP_HARDEN', 'true');
     envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
     envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
-    envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'allowed.example.com'); // supertest sends 127.0.0.1:<ephemeral>, which will not match
+    envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'allowed.example.com');
 
     const app = await createHttpServer(() => createTestMcpServer(), 3000);
     const res = await request(app)
       .post('/mcp')
+      .set('Host', 'evil.example.com') // explicit disallowed Host so the 403 is deterministic across supertest/node versions
       .set('Origin', 'https://app.example.com')
       .set('Authorization', 'Bearer secret-token')
       .set('Content-Type', 'application/json')

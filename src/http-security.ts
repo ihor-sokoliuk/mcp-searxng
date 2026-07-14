@@ -41,8 +41,9 @@ function parseTrustProxy(value: string | undefined): boolean | number | string {
 // Default DNS-rebinding allowlist when MCP_HTTP_ALLOWED_HOSTS is unset. The SDK
 // transport matches the raw Host header (port included) with exact Array.includes,
 // so the bind port must be baked into the loopback defaults or hardened mode 403s
-// every request on any non-80 port (BUG-012). Bare hostnames are kept for the
-// port-80/default-port case; [::1] mirrors the SDK's own localhost default.
+// every request on any non-80 port (BUG-012). The bare hostnames are always kept
+// too: they match a portless Host — a client or reverse proxy that omits the port
+// (as on default ports 80/443). [::1] mirrors the SDK's own localhost default.
 function defaultAllowedHosts(port?: number): string[] {
   const hosts = ["127.0.0.1", "localhost", "[::1]"];
   if (port !== undefined) {
