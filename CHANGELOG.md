@@ -3,6 +3,20 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.11.1] - 2026-07-14
+
+### Fixed
+
+- **Hardened HTTP mode no longer rejects every request on non-default ports:** With `MCP_HTTP_HARDEN` enabled and `MCP_HTTP_ALLOWED_HOSTS` left unset, the default DNS-rebinding Host allowlist contained only the bare hostnames `127.0.0.1` and `localhost`. Because the transport matches the raw `Host` header — port included — with an exact list-membership check, any bind to a port other than 80 caused every request (including the initial `initialize`) to fail with `403`. The bind port is now threaded into the defaults, so the allowlist also accepts `127.0.0.1:PORT`, `localhost:PORT`, and `[::1]:PORT` (plus `[::1]` to mirror the SDK's own localhost default). An explicit `MCP_HTTP_ALLOWED_HOSTS` still overrides these defaults unchanged. (BUG-012, [#172](https://github.com/ihor-sokoliuk/mcp-searxng/pull/172))
+
+- **`SEARXNG_TIMEOUT_MS` is now validated and clamped:** Non-integer, unit-suffixed (e.g. `5000ms`), decimal, non-positive, or otherwise malformed values are now rejected with a warning and fall back to the default `10000`. The value is also capped at the 32-bit `setTimeout` ceiling (`2147483647`); a larger delay was previously clamped by Node to 1 ms, so an over-large timeout fired almost immediately instead of waiting. (BUG-013, [#171](https://github.com/ihor-sokoliuk/mcp-searxng/pull/171))
+
+- **Corrected the HTTP transport example and refreshed the docs:** README and `CONFIGURATION.md` were synced with the current feature set and a misleading Streamable HTTP transport example was fixed. ([#165](https://github.com/ihor-sokoliuk/mcp-searxng/pull/165))
+
+### Security
+
+- **`MCP_RATE_*` environment variables are now validated:** Malformed values for the HTTP rate-limit settings — `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` — are rejected with a warning and fall back to safe defaults instead of being applied verbatim, so a typo can no longer silently disable or misconfigure rate limiting. (SEC-025, [#170](https://github.com/ihor-sokoliuk/mcp-searxng/pull/170))
+
 ## [1.11.0] - 2026-07-06
 
 ### Added
