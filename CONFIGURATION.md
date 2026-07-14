@@ -179,9 +179,11 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 | `MCP_HTTP_HARDEN` | No | `false` | Set to `true` to enable all hardening features |
 | `MCP_HTTP_AUTH_TOKEN` | No | — | Required bearer token for all HTTP requests in hardened mode |
 | `MCP_HTTP_ALLOWED_ORIGINS` | No | — | Comma-separated CORS origin allowlist (e.g. `https://app.example.com`) |
-| `MCP_HTTP_ALLOWED_HOSTS` | No | — | Comma-separated DNS rebinding protection allowlist override |
+| `MCP_HTTP_ALLOWED_HOSTS` | No | `127.0.0.1`, `localhost`, `[::1]` (+ their `:PORT` forms) | Comma-separated DNS-rebinding allowlist. Entries are matched **exactly** against the request `Host` header, **including the port** (e.g. `app.example.com:8443`). Setting this replaces the default entirely. |
 | `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs, including hostnames that DNS-resolve to private/internal addresses. Private URL reads are blocked by default in all modes. |
 | `MCP_HTTP_EXPOSE_FULL_CONFIG` | No | `false` | Expose full config details in `/health` response (for debugging) |
+
+`MCP_HTTP_ALLOWED_HOSTS` is compared against the raw `Host` header, which includes the port. The default already covers loopback access on the configured `MCP_HTTP_PORT` (`127.0.0.1:PORT`, `localhost:PORT`, `[::1]:PORT`) plus the bare hostnames for the port-80/443 case. When you set it explicitly, list the exact `Host` the client (or your reverse proxy) sends — e.g. `app.example.com` if the proxy forwards `Host: app.example.com` on 443, or `app.example.com:8443` if it forwards a port.
 
 ## URL Reader Security
 
