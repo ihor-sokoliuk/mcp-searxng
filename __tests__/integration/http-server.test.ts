@@ -326,6 +326,66 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('hardened mode + valid bearer + default hosts + matching Host:port initializes (BUG-012 regression)', async () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+    envManager.delete('MCP_HTTP_ALLOWED_HOSTS'); // use the port-aware default
+
+    const app = await createHttpServer(() => createTestMcpServer(), 3000);
+    const res = await request(app)
+      .post('/mcp')
+      .set('Host', '127.0.0.1:3000')
+      .set('Origin', 'https://app.example.com')
+      .set('Authorization', 'Bearer secret-token')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      });
+
+    // Restore before asserting so a failure cannot leak MCP_HTTP_* into later tests.
+    envManager.restore();
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['mcp-session-id'], 'Expected mcp-session-id header on a successful hardened init');
+  }, results);
+
+  await testFunction('hardened mode rejects a Host not in MCP_HTTP_ALLOWED_HOSTS with 403', async () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+    envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'allowed.example.com'); // supertest sends 127.0.0.1:<ephemeral>, which will not match
+
+    const app = await createHttpServer(() => createTestMcpServer(), 3000);
+    const res = await request(app)
+      .post('/mcp')
+      .set('Origin', 'https://app.example.com')
+      .set('Authorization', 'Bearer secret-token')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      });
+
+    envManager.restore();
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error.code, -32000);
+  }, results);
+
   await testFunction('multiple sessions can initialize without "Already connected" error', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
     const initBody = (clientName: string) => ({

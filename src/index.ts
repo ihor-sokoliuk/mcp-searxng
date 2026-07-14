@@ -346,7 +346,7 @@ export async function main() {
 
     const host = resolveBindHost(process.env.MCP_HTTP_HOST);
     console.log(`Starting HTTP transport on ${host}:${port}`);
-    const app = await createHttpServer(createMcpServer);
+    const app = await createHttpServer(createMcpServer, port);
     
     const httpServer = app.listen(port, host, () => {
       console.log(`HTTP server listening on ${host}:${port}`);
