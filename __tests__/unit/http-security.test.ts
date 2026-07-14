@@ -102,6 +102,40 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('default allowed-hosts includes loopback hosts and their port variants', () => {
+    envManager.delete('MCP_HTTP_ALLOWED_HOSTS');
+
+    const config = getHttpSecurityConfig(3000);
+    assert.deepEqual(config.allowedHosts, [
+      '127.0.0.1',
+      'localhost',
+      '[::1]',
+      '127.0.0.1:3000',
+      'localhost:3000',
+      '[::1]:3000',
+    ]);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('default allowed-hosts without a port omits the port variants', () => {
+    envManager.delete('MCP_HTTP_ALLOWED_HOSTS');
+
+    const config = getHttpSecurityConfig();
+    assert.deepEqual(config.allowedHosts, ['127.0.0.1', 'localhost', '[::1]']);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('explicit MCP_HTTP_ALLOWED_HOSTS overrides the port-aware default exactly', () => {
+    envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'app.example.com:8443, other.example.com');
+
+    const config = getHttpSecurityConfig(3000);
+    assert.deepEqual(config.allowedHosts, ['app.example.com:8443', 'other.example.com']);
+
+    envManager.restore();
+  }, results);
+
   await testFunction('authorization passes in compatibility mode', () => {
     const config = { harden: false, requireAuth: false } as any;
     assert.equal(isRequestAuthorized(undefined, config), true);

@@ -38,7 +38,20 @@ function parseTrustProxy(value: string | undefined): boolean | number | string {
   return trimmed;
 }
 
-export function getHttpSecurityConfig(): HttpSecurityConfig {
+// Default DNS-rebinding allowlist when MCP_HTTP_ALLOWED_HOSTS is unset. The SDK
+// transport matches the raw Host header (port included) with exact Array.includes,
+// so the bind port must be baked into the loopback defaults or hardened mode 403s
+// every request on any non-80 port (BUG-012). Bare hostnames are kept for the
+// port-80/default-port case; [::1] mirrors the SDK's own localhost default.
+function defaultAllowedHosts(port?: number): string[] {
+  const hosts = ["127.0.0.1", "localhost", "[::1]"];
+  if (port !== undefined) {
+    hosts.push(`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`);
+  }
+  return hosts;
+}
+
+export function getHttpSecurityConfig(port?: number): HttpSecurityConfig {
   const harden = isEnabled(process.env.MCP_HTTP_HARDEN);
   const authToken = process.env.MCP_HTTP_AUTH_TOKEN;
   const allowedOrigins = parseCsv(process.env.MCP_HTTP_ALLOWED_ORIGINS);
@@ -51,7 +64,7 @@ export function getHttpSecurityConfig(): HttpSecurityConfig {
     restrictOrigins: harden,
     allowedOrigins,
     enableDnsRebindingProtection: harden,
-    allowedHosts: allowedHosts.length > 0 ? allowedHosts : ["127.0.0.1", "localhost"],
+    allowedHosts: allowedHosts.length > 0 ? allowedHosts : defaultAllowedHosts(port),
     trustProxy: parseTrustProxy(process.env.MCP_HTTP_TRUST_PROXY),
     exposeFullConfig: isEnabled(process.env.MCP_HTTP_EXPOSE_FULL_CONFIG),
     allowPrivateUrls: isEnabled(process.env.MCP_HTTP_ALLOW_PRIVATE_URLS),
