@@ -141,6 +141,33 @@ async function runTests() {
     assert.equal(isRequestAuthorized(undefined, config), true);
   }, results);
 
+  await testFunction('authorization accepts the exact Bearer token in hardened mode', () => {
+    const config = { harden: true, requireAuth: true, authToken: 'secret-token' } as any;
+    assert.equal(isRequestAuthorized('Bearer secret-token', config), true);
+  }, results);
+
+  await testFunction('authorization rejects non-exact Bearer scheme casing and spacing', () => {
+    const config = { harden: true, requireAuth: true, authToken: 'secret-token' } as any;
+    assert.equal(isRequestAuthorized('bearer secret-token', config), false);
+    assert.equal(isRequestAuthorized('Bearer  secret-token', config), false);
+  }, results);
+
+  await testFunction('authorization rejects the undocumented raw token form', () => {
+    const config = { harden: true, requireAuth: true, authToken: 'secret-token' } as any;
+    assert.equal(isRequestAuthorized('secret-token', config), false);
+  }, results);
+
+  await testFunction('authorization rejects a wrong-length Bearer token', () => {
+    const config = { harden: true, requireAuth: true, authToken: 'secret-token' } as any;
+    assert.equal(isRequestAuthorized('Bearer wrong', config), false);
+  }, results);
+
+  await testFunction('authorization fails closed when the configured token is absent', () => {
+    const config = { harden: true, requireAuth: true, authToken: undefined } as any;
+    assert.equal(isRequestAuthorized(undefined, config), false);
+    assert.equal(isRequestAuthorized('Bearer undefined', config), false);
+  }, results);
+
   await testFunction('authorization rejects missing token in hardened mode', () => {
     const config = { harden: true, requireAuth: true, authToken: 'secret-token' } as any;
     assert.equal(isRequestAuthorized(undefined, config), false);
