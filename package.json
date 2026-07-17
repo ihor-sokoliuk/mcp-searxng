@@ -39,7 +39,7 @@
         "watch": "tsc --watch",
         "test": "cross-env SEARXNG_URL=https://test-searx.example.com tsx __tests__/run-all.ts",
         "test:coverage": "cross-env SEARXNG_URL=https://test-searx.example.com c8 --reporter=text --include 'src/**' --check-coverage --lines 90 --branches 85 tsx __tests__/run-all.ts",
-        "test:e2e": "node --env-file-if-exists=.env.e2e node_modules/.bin/tsx __tests__/e2e/run-e2e.ts",
+        "test:e2e": "node --env-file-if-exists=.env.e2e --import tsx __tests__/e2e/run-e2e.ts",
         "bootstrap": "npm install && npm run build",
         "inspector": "DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector node dist/cli.js",
         "lint": "eslint src __tests__",

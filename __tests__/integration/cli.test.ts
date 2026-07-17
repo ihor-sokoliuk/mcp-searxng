@@ -14,11 +14,9 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
 const results = createTestResults();
-const tsxBin = path.join(process.cwd(), 'node_modules', '.bin', 'tsx');
 
 async function runTests() {
   console.log('🧪 Integration Testing: cli.ts\n');
@@ -27,8 +25,8 @@ async function runTests() {
     // MCP_HTTP_HARDEN=true without MCP_HTTP_AUTH_TOKEN causes validateHttpSecurityConfig
     // to throw inside createHttpServer, which propagates through main() to the .catch handler.
     const result = spawnSync(
-      tsxBin,
-      ['src/cli.ts'],
+      process.execPath,
+      ['--import', 'tsx', 'src/cli.ts'],
       {
         cwd: process.cwd(),
         env: {
