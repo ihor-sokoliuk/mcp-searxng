@@ -9,7 +9,6 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import { packageVersion } from '../../src/version.js';
 import {
   isWebUrlReadArgs,
@@ -241,10 +240,9 @@ async function runTests() {
       params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0.1.0' } },
     }) + '\n';
 
-    const tsxBin = path.join(process.cwd(), 'node_modules', '.bin', 'tsx');
     const result = spawnSync(
-      tsxBin,
-      ['src/cli.ts'],
+      process.execPath,
+      ['--import', 'tsx', 'src/cli.ts'],
       {
         cwd: process.cwd(),
         env: { ...process.env, MCP_HTTP_PORT: '', SEARXNG_URL: 'https://test-searx.example.com' },
