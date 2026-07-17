@@ -52,6 +52,19 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('RFC 5424 thresholds filter lower-severity messages', () => {
+    setLogLevel('notice');
+    assert.equal(shouldLog('info'), false);
+    assert.equal(shouldLog('notice'), true);
+    assert.equal(shouldLog('warning'), true);
+
+    setLogLevel('emergency');
+    assert.equal(shouldLog('error'), false);
+    assert.equal(shouldLog('emergency'), true);
+
+    setLogLevel('info');
+  }, results);
+
   await testFunction('logMessage with different levels and mock server', () => {
     const { server, getLoggingCalls } = createMockServerWithTracking();
 

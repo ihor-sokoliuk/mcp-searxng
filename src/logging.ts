@@ -30,7 +30,16 @@ export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: s
 }
 
 export function shouldLog(level: LoggingLevel): boolean {
-  const levels: LoggingLevel[] = ["debug", "info", "warning", "error"];
+  const levels: LoggingLevel[] = [
+    "debug",
+    "info",
+    "notice",
+    "warning",
+    "error",
+    "critical",
+    "alert",
+    "emergency",
+  ];
   return levels.indexOf(level) >= levels.indexOf(currentLogLevel);
 }
 
