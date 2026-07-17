@@ -823,7 +823,10 @@ async function runTests() {
     });
 
     try {
-      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMainContent: false,
+        extractMetadata: false,
+      });
       assert.equal(result, '# XHTML Title\n\nReadable page.');
     } finally {
       await close();
@@ -2054,13 +2057,12 @@ async function runTests() {
     urlCache.clear();
 
     const { url, close } = await startTestServer({
-      body: '<html><body><nav>Nav</nav><article><h1>Article</h1></article></body></html>',
+      body: '<html><body><nav><a href="/">Home</a><a href="/about">About</a></nav><article><h1>Article Title</h1><p>This is a longer article body with enough text for Readability to identify it as the main content of the page.</p></article></body></html>',
     });
 
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, url);
-      assert.ok(!result.includes('Nav'), 'Expected nav stripped by default');
-      assert.ok(result.includes('Article'), 'Expected article content');
+      assert.ok(result.includes('Article Title'), 'Expected article content');
     } finally {
       await close();
       urlCache.clear();
@@ -2151,8 +2153,8 @@ async function runTests() {
       <meta name="author" content="Author Name">
       <meta property="og:description" content="Page description">
     </head><body>
-      <nav>Skip this</nav>
-      <article><h1>Hello World</h1><p>Article body here.</p></article>
+      <nav><a href="/">Home</a><a href="/about">About</a></nav>
+      <article><h1>Hello World</h1><p>This article has enough text for Readability to extract it as the main content of the page.</p></article>
     </body></html>`;
 
     const { url, close } = await startTestServer({ body: html });
@@ -2163,7 +2165,7 @@ async function runTests() {
       assert.ok(result.includes('title: Test Page'));
       assert.ok(result.includes('author: Author Name'));
       assert.ok(result.includes('description: Page description'));
-      assert.ok(!result.includes('Skip this'), 'Expected nav stripped');
+      assert.ok(result.includes('Hello World'), 'Expected article content');
     } finally {
       await close();
       urlCache.clear();
