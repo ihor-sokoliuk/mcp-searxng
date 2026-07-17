@@ -4,6 +4,17 @@ import { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
 // Logging state
 let currentLogLevel: LoggingLevel = "info";
 
+const LOG_LEVELS: LoggingLevel[] = [
+  "debug",
+  "info",
+  "notice",
+  "warning",
+  "error",
+  "critical",
+  "alert",
+  "emergency",
+];
+
 // Shared handler for sendLoggingMessage errors
 function handleSendError(error: unknown): void {
   if (error instanceof Error && error.message !== "Not connected") {
@@ -30,17 +41,7 @@ export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: s
 }
 
 export function shouldLog(level: LoggingLevel): boolean {
-  const levels: LoggingLevel[] = [
-    "debug",
-    "info",
-    "notice",
-    "warning",
-    "error",
-    "critical",
-    "alert",
-    "emergency",
-  ];
-  return levels.indexOf(level) >= levels.indexOf(currentLogLevel);
+  return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(currentLogLevel);
 }
 
 export function setLogLevel(level: LoggingLevel): void {

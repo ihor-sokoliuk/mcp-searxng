@@ -41,12 +41,21 @@ async function runTests() {
   }, results);
 
   await testFunction('All log levels work correctly', () => {
-    const levels = ['error', 'warning', 'info', 'debug'];
+    const levels = [
+      'debug',
+      'info',
+      'notice',
+      'warning',
+      'error',
+      'critical',
+      'alert',
+      'emergency',
+    ] as const;
     
     for (const level of levels) {
-      setLogLevel(level as any);
+      setLogLevel(level);
       for (const testLevel of levels) {
-        const result = shouldLog(testLevel as any);
+        const result = shouldLog(testLevel);
         assert.equal(typeof result, 'boolean');
       }
     }
