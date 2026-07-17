@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 export interface HttpSecurityConfig {
   harden: boolean;
   requireAuth: boolean;
@@ -91,7 +93,13 @@ export function isRequestAuthorized(headerValue: string | undefined, config: Htt
     return true;
   }
 
-  return headerValue === `Bearer ${config.authToken}` || headerValue === config.authToken;
+  if (typeof headerValue !== "string" || !config.authToken) {
+    return false;
+  }
+
+  const providedDigest = createHash("sha256").update(headerValue).digest();
+  const expectedDigest = createHash("sha256").update(`Bearer ${config.authToken}`).digest();
+  return timingSafeEqual(providedDigest, expectedDigest);
 }
 
 export function isOriginAllowed(origin: string | undefined, config: HttpSecurityConfig): boolean {

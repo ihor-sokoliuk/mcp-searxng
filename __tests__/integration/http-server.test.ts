@@ -326,6 +326,34 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('hardened mode rejects the undocumented raw authorization token', async () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+
+    const app = await createHttpServer(() => createTestMcpServer());
+    const res = await request(app)
+      .post('/mcp')
+      .set('Origin', 'https://app.example.com')
+      .set('Authorization', 'secret-token')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      });
+
+    envManager.restore();
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error.code, -32001);
+  }, results);
+
   await testFunction('hardened mode + valid bearer + default hosts + matching Host:port initializes (BUG-012 regression)', async () => {
     envManager.set('MCP_HTTP_HARDEN', 'true');
     envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
