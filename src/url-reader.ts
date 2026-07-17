@@ -207,13 +207,16 @@ function firstMeta(doc: Document, names: string[]): string | undefined {
   return undefined;
 }
 
+function getPageTitle(doc: Document): string | undefined {
+  return firstMeta(doc, ["og:title", "twitter:title"])
+    || doc.querySelector("title")?.textContent?.trim();
+}
+
 export function extractMetadata(html: string, url: string): PageMetadata {
   const { document } = parseHTML(html);
   const result: PageMetadata = {};
 
-  const title = firstMeta(document, ["og:title", "twitter:title"])
-    || document.querySelector("title")?.textContent?.trim()
-    || undefined;
+  const title = getPageTitle(document);
   if (title) result.title = title;
 
   const author = firstMeta(document, ["author", "article:author", "og:article:author"]);
@@ -225,7 +228,7 @@ export function extractMetadata(html: string, url: string): PageMetadata {
   const description = firstMeta(document, ["description", "og:description", "twitter:description"]);
   if (description) result.description = description;
 
-  const siteName = getMeta(document, "og:site_name") || undefined;
+  const siteName = firstMeta(document, ["og:site_name"]);
   if (siteName) result.siteName = siteName;
 
   return result;
