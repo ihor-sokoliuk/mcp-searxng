@@ -49,19 +49,19 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
-        "@mozilla/readability": "^0.6.0",
+        "@mozilla/readability": "0.6.0",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
         "cors": "^2.8.6",
         "express": "^5.2.1",
         "express-rate-limit": "^8.5.2",
-        "linkedom": "^0.18.13",
+        "linkedom": "0.18.13",
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "^6.1.13",
         "undici": "7.28.0"
     },
     "devDependencies": {
-        "@types/mozilla__readability": "^0.4.2",
+        "@types/mozilla__readability": "0.4.2",
         "@types/node": "22.20.1",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.63.0",

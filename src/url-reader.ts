@@ -199,33 +199,30 @@ function getMeta(doc: Document, name: string): string | undefined {
   return el?.getAttribute("content")?.trim() || undefined;
 }
 
+function firstMeta(doc: Document, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = getMeta(doc, name);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export function extractMetadata(html: string, url: string): PageMetadata {
   const { document } = parseHTML(html);
   const result: PageMetadata = {};
 
-  const title = getMeta(document, "og:title")
-    || getMeta(document, "twitter:title")
+  const title = firstMeta(document, ["og:title", "twitter:title"])
     || document.querySelector("title")?.textContent?.trim()
     || undefined;
   if (title) result.title = title;
 
-  const author = getMeta(document, "author")
-    || getMeta(document, "article:author")
-    || getMeta(document, "og:article:author")
-    || undefined;
+  const author = firstMeta(document, ["author", "article:author", "og:article:author"]);
   if (author) result.author = author;
 
-  const publishedDate = getMeta(document, "article:published_time")
-    || getMeta(document, "og:article:published_time")
-    || getMeta(document, "date")
-    || getMeta(document, "pubdate")
-    || undefined;
+  const publishedDate = firstMeta(document, ["article:published_time", "og:article:published_time", "date", "pubdate"]);
   if (publishedDate) result.publishedDate = publishedDate;
 
-  const description = getMeta(document, "description")
-    || getMeta(document, "og:description")
-    || getMeta(document, "twitter:description")
-    || undefined;
+  const description = firstMeta(document, ["description", "og:description", "twitter:description"]);
   if (description) result.description = description;
 
   const siteName = getMeta(document, "og:site_name") || undefined;
