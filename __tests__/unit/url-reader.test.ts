@@ -16,7 +16,7 @@ import * as net from 'node:net';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
-import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
+import { checkContentLength, extractMainContent, extractMetadata, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
 import { createUrlReaderLookup } from '../../src/proxy.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -1991,6 +1991,224 @@ async function runTests() {
       );
     } finally {
       await close();
+    }
+  }, results);
+
+  // ── Readability content extraction ────────────────────────────────────────
+
+  await testFunction('extractMainContent strips nav, sidebar, and footer', async () => {
+    const html = `<html><body>
+      <nav>Navigation</nav>
+      <article><h1>Main Article</h1><p>This is the article body.</p></article>
+      <aside>Sidebar</aside>
+      <footer>Footer</footer>
+    </body></html>`;
+
+    const result = extractMainContent(html, 'http://test.local');
+    assert.ok(result);
+    assert.ok(result.includes('Main Article'), 'Expected article heading');
+    assert.ok(!result.includes('Navigation'), 'Expected nav to be stripped');
+    assert.ok(!result.includes('Sidebar'), 'Expected aside to be stripped');
+    assert.ok(!result.includes('Footer'), 'Expected footer to be stripped');
+  }, results);
+
+  await testFunction('extractMainContent returns null for empty body', async () => {
+    const html = '<html><body></body></html>';
+    const result = extractMainContent(html, 'http://test.local');
+    assert.equal(result, null);
+  }, results);
+
+  await testFunction('extractMainContent preserves heading hierarchy', async () => {
+    const html = `<html><body>
+      <article><h1>Title</h1><h2>Subtitle</h2><p>Body text.</p></article>
+    </body></html>`;
+
+    const result = extractMainContent(html, 'http://test.local');
+    assert.ok(result);
+    assert.ok(result.includes('Title'));
+    assert.ok(result.includes('Subtitle'));
+  }, results);
+
+  await testFunction('extractMainContent is not called when extractMainContent is false', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      body: '<html><body><nav>Nav</nav><article><h1>Article</h1></article></body></html>',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMainContent: false,
+      });
+      assert.ok(result.includes('Nav'), 'Expected full HTML when extractMainContent is false');
+      assert.ok(result.includes('Article'), 'Expected article content');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMainContent defaults to on via fetchAndConvertToMarkdown', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      body: '<html><body><nav>Nav</nav><article><h1>Article</h1></article></body></html>',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(!result.includes('Nav'), 'Expected nav stripped by default');
+      assert.ok(result.includes('Article'), 'Expected article content');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMainContent handles malformed HTML gracefully', async () => {
+    const result = extractMainContent('<html><body><p>Hello', 'http://test.local');
+    assert.ok(result === null || result.includes('Hello'));
+  }, results);
+
+  // ── metadata extraction ────────────────────────────────────────────────────
+
+  await testFunction('extractMetadata pulls title from og:title', async () => {
+    const html = `<html><head>
+      <title>Fallback Title</title>
+      <meta property="og:title" content="OG Title">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.title, 'OG Title');
+  }, results);
+
+  await testFunction('extractMetadata falls back to title tag', async () => {
+    const html = `<html><head>
+      <title>Document Title</title>
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.title, 'Document Title');
+  }, results);
+
+  await testFunction('extractMetadata extracts author', async () => {
+    const html = `<html><head>
+      <meta name="author" content="Test Author">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.author, 'Test Author');
+  }, results);
+
+  await testFunction('extractMetadata extracts publish date', async () => {
+    const html = `<html><head>
+      <meta property="article:published_time" content="2024-01-15">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.publishedDate, '2024-01-15');
+  }, results);
+
+  await testFunction('extractMetadata extracts description', async () => {
+    const html = `<html><head>
+      <meta property="og:description" content="Test description">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.description, 'Test description');
+  }, results);
+
+  await testFunction('extractMetadata extracts site name', async () => {
+    const html = `<html><head>
+      <meta property="og:site_name" content="Test Site">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.siteName, 'Test Site');
+  }, results);
+
+  await testFunction('extractMetadata returns empty object for no metadata', async () => {
+    const html = '<html><head></head><body><p>No metadata here.</p></body></html>';
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.deepEqual(meta, {});
+  }, results);
+
+  await testFunction('extractMetadata handles malformed HTML gracefully', async () => {
+    const meta = extractMetadata('<html><head><meta', 'http://test.local');
+    assert.ok(typeof meta === 'object');
+  }, results);
+
+  // ── metadata block integration ─────────────────────────────────────────────
+
+  await testFunction('metadata is prepended as YAML block with Readability body', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = `<html><head>
+      <title>Test Page</title>
+      <meta name="author" content="Author Name">
+      <meta property="og:description" content="Page description">
+    </head><body>
+      <nav>Skip this</nav>
+      <article><h1>Hello World</h1><p>Article body here.</p></article>
+    </body></html>`;
+
+    const { url, close } = await startTestServer({ body: html });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.startsWith('---'), 'Expected YAML frontmatter');
+      assert.ok(result.includes('title: Test Page'));
+      assert.ok(result.includes('author: Author Name'));
+      assert.ok(result.includes('description: Page description'));
+      assert.ok(!result.includes('Skip this'), 'Expected nav stripped');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMetadata false skips metadata block', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = `<html><head>
+      <meta property="og:title" content="Title">
+    </head><body><h1>Hello</h1></body></html>`;
+
+    const { url, close } = await startTestServer({ body: html });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMetadata: false,
+      });
+      assert.ok(!result.startsWith('---'), 'Expected no YAML frontmatter');
+      assert.ok(result.includes('Hello'));
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMainContent false preserves full HTML when metadata is also off', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = '<html><body><nav>Nav</nav><p>Just text.</p></body></html>';
+    const { url, close } = await startTestServer({ body: html });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMainContent: false,
+        extractMetadata: false,
+      });
+      assert.ok(result.includes('Nav'), 'Expected Nav to be present');
+      assert.ok(result.includes('Just text'));
+    } finally {
+      await close();
+      urlCache.clear();
     }
   }, results);
 
