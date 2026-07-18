@@ -156,13 +156,13 @@ HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-
 
 ## Rate Limiting (HTTP mode)
 
-Rate limiting is always active in HTTP mode to prevent resource exhaustion. Two separate limits protect different request types. A non-numeric or non-positive value for any `MCP_RATE_*` variable is ignored with a startup warning and the documented default is used, so a typo cannot silently disable rate limiting. (A blank or unset variable uses the default silently.)
+Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit: POST requests without a currently live session use the initialization limit, while requests associated with an established session use the session limit. A non-numeric or non-positive value for any `MCP_RATE_*` variable is ignored with a startup warning and the documented default is used, so a typo cannot silently disable rate limiting. (A blank or unset variable uses the default silently.)
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MCP_RATE_WINDOW_MS` | No | `60000` | Sliding window duration in milliseconds for all rate limits |
-| `MCP_RATE_INIT_MAX` | No | `20` | Max POST `/mcp` requests per window (applied to all POSTs, guards against session-init flooding) |
-| `MCP_RATE_SESSION_MAX` | No | `300` | Max GET/DELETE `/mcp` requests per window (per-session calls; intentionally generous for AI agents) |
+| `MCP_RATE_INIT_MAX` | No | `20` | Max POST `/mcp` requests per window when `mcp-session-id` is missing or does not identify a currently live session. Guards initialization, invalid, unknown-session, and stale-session flooding. |
+| `MCP_RATE_SESSION_MAX` | No | `300` | Max POST/GET/DELETE `/mcp` requests per window for established-session traffic. Intentionally generous for AI agents. |
 
 Requests exceeding a limit receive HTTP 429 with a JSON-RPC error body (`code: -32029`). `/health` has a fixed limit of 60 requests per minute. Standard `RateLimit-*` headers are included on all responses.
 

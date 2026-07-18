@@ -496,6 +496,133 @@ async function runTests() {
 
   // --- Rate Limiting ---
 
+  await testFunction('Rate limiting: established-session POSTs use only the session limiter', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_SESSION_MAX', '3');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {},
+          clientInfo: { name: 'rate-limit-client', version: '1.0.0' } }
+      });
+    assert.equal(initRes.status, 200);
+    assert.equal(initRes.headers['ratelimit-limit'], '2');
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.ok(sessionId, 'initialize should return a session id');
+
+    for (let id = 2; id <= 4; id++) {
+      const res = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .set('mcp-session-id', sessionId)
+        .send({ jsonrpc: '2.0', id, method: 'tools/list', params: {} });
+      assert.equal(res.status, 200, `Established-session request ${id - 1} should succeed`);
+      assert.equal(res.headers['ratelimit-limit'], '3');
+    }
+
+    const blocked = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', sessionId)
+      .send({ jsonrpc: '2.0', id: 5, method: 'tools/list', params: {} });
+    envManager.restore();
+
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-limit'], '3');
+    assert.equal(blocked.body.error.code, -32029);
+  }, results);
+
+  await testFunction('Rate limiting: non-live session identifiers use the init limiter', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '7');
+    envManager.set('MCP_RATE_SESSION_MAX', '11');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+    const headers: Array<string | undefined> = [undefined, '', 'first, second'];
+
+    for (const sessionId of headers) {
+      let pending = request(app).post('/mcp').set('Content-Type', 'application/json');
+      if (sessionId !== undefined) pending = pending.set('mcp-session-id', sessionId);
+      const res = await pending.send({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
+      assert.equal(res.headers['ratelimit-limit'], '7');
+    }
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('Rate limiting: unknown-session POSTs exhaust the init limiter', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_SESSION_MAX', '10');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+
+    for (let id = 1; id <= 2; id++) {
+      const res = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('mcp-session-id', 'plausible-unknown-session')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id });
+      assert.equal(res.status, 404);
+      assert.equal(res.headers['ratelimit-limit'], '2');
+    }
+
+    const blocked = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('mcp-session-id', 'plausible-unknown-session')
+      .send({ jsonrpc: '2.0', method: 'tools/list', id: 3 });
+    envManager.restore();
+
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-limit'], '2');
+    assert.equal(blocked.body.error.code, -32029);
+  }, results);
+
+  await testFunction('Rate limiting: stale-header initialize stays on the init limiter', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_SESSION_MAX', '10');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer(() => createTestMcpServer());
+    const staleId = 'stale-session-id';
+    const initializeBody = (id: number) => ({
+      jsonrpc: '2.0', id, method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {},
+        clientInfo: { name: 'stale-client', version: '1.0.0' } }
+    });
+
+    for (let id = 1; id <= 2; id++) {
+      const res = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .set('mcp-session-id', staleId)
+        .send(initializeBody(id));
+      assert.equal(res.status, 200);
+      assert.equal(res.headers['ratelimit-limit'], '2');
+      assert.ok(res.headers['mcp-session-id']);
+      assert.notEqual(res.headers['mcp-session-id'], staleId);
+    }
+
+    const blocked = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', staleId)
+      .send(initializeBody(3));
+    envManager.restore();
+
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-limit'], '2');
+    assert.equal(blocked.body.error.code, -32029);
+  }, results);
+
   await testFunction('Rate limiting: POST /mcp returns 429 after exceeding initLimiter limit', async () => {
     envManager.set('MCP_RATE_INIT_MAX', '3');
     envManager.set('MCP_RATE_WINDOW_MS', '60000');
