@@ -141,12 +141,12 @@ export async function createHttpServer(
       contentType: req.headers['content-type'],
       accept: req.headers['accept']
     });
-    const sessionNotFound = Boolean(sessionId);
-    res.status(sessionNotFound ? 404 : 400).json({
+    const hasSessionId = Boolean(sessionId);
+    res.status(hasSessionId ? 404 : 400).json({
       jsonrpc: '2.0',
       error: {
-        code: sessionNotFound ? -32001 : -32000,
-        message: sessionNotFound ? 'Session not found' : 'Bad Request: No valid session ID provided',
+        code: hasSessionId ? -32001 : -32000,
+        message: hasSessionId ? 'Session not found' : 'Bad Request: No valid session ID provided',
       },
       id: null,
     });
