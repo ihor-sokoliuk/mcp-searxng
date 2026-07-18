@@ -128,6 +128,51 @@ export async function createHttpServer(
     });
   }
 
+  function rejectInvalidPost(
+    req: express.Request,
+    res: express.Response,
+    sessionId: string | undefined,
+  ) {
+    console.warn(`⚠️  POST request rejected - invalid request:`, {
+      clientIP: req.ip || req.socket.remoteAddress,
+      sessionId: sessionId || 'undefined',
+      hasInitializeRequest: isInitializeRequest(req.body),
+      userAgent: req.headers['user-agent'],
+      contentType: req.headers['content-type'],
+      accept: req.headers['accept']
+    });
+    const sessionNotFound = Boolean(sessionId);
+    res.status(sessionNotFound ? 404 : 400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: sessionNotFound ? -32001 : -32000,
+        message: sessionNotFound ? 'Session not found' : 'Bad Request: No valid session ID provided',
+      },
+      id: null,
+    });
+  }
+
+  async function handleTransportRequest(
+    transport: StreamableHTTPServerTransport,
+    req: express.Request,
+    res: express.Response,
+  ) {
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('accept')) {
+        console.warn(`⚠️  Connection rejected due to missing headers:`, {
+          clientIP: req.ip || req.socket.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          contentType: req.headers['content-type'],
+          accept: req.headers['accept'],
+          error: error.message
+        });
+      }
+      throw error;
+    }
+  }
+
   const { initLimiter, sessionLimiter, healthLimiter } = makeRateLimiters();
 
   // Map to store sessions by session ID
@@ -185,43 +230,11 @@ export async function createHttpServer(
       // Connect this session's McpServer to its transport
       await mcpServer.connect(transport);
     } else {
-      // Invalid request
-      console.warn(`⚠️  POST request rejected - invalid request:`, {
-        clientIP: req.ip || req.socket.remoteAddress,
-        sessionId: sessionId || 'undefined',
-        hasInitializeRequest: isInitializeRequest(req.body),
-        userAgent: req.headers['user-agent'],
-        contentType: req.headers['content-type'],
-        accept: req.headers['accept']
-      });
-      const sessionNotFound = Boolean(sessionId);
-      res.status(sessionNotFound ? 404 : 400).json({
-        jsonrpc: '2.0',
-        error: {
-          code: sessionNotFound ? -32001 : -32000,
-          message: sessionNotFound ? 'Session not found' : 'Bad Request: No valid session ID provided',
-        },
-        id: null,
-      });
+      rejectInvalidPost(req, res, sessionId);
       return;
     }
 
-    // Handle the request
-    try {
-      await transport.handleRequest(req, res, req.body);
-    } catch (error) {
-      // Log header-related rejections for debugging
-      if (error instanceof Error && error.message.includes('accept')) {
-        console.warn(`⚠️  Connection rejected due to missing headers:`, {
-          clientIP: req.ip || req.socket.remoteAddress,
-          userAgent: req.headers['user-agent'],
-          contentType: req.headers['content-type'],
-          accept: req.headers['accept'],
-          error: error.message
-        });
-      }
-      throw error;
-    }
+    await handleTransportRequest(transport, req, res);
   });
 
   // Handle GET requests for server-to-client notifications via SSE
