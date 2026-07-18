@@ -133,8 +133,18 @@ export async function createHttpServer(
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
 
+  const postRateLimiter: express.RequestHandler = (req, res, next) => {
+    const sessionId = req.headers['mcp-session-id'];
+    // Node comma-joins duplicate custom headers. Only one exact live session ID
+    // selects the generous bucket; every other value stays initialization-limited.
+    const selectedLimiter = typeof sessionId === 'string' && sessions.has(sessionId)
+      ? sessionLimiter
+      : initLimiter;
+    selectedLimiter(req, res, next);
+  };
+
   // Handle POST requests for client-to-server communication
-  app.post('/mcp', initLimiter, sessionLimiter, async (req, res) => {
+  app.post('/mcp', postRateLimiter, async (req, res) => {
     if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
       rejectUnauthorized(res);
       return;
