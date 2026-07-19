@@ -234,23 +234,15 @@ export function extractMetadata(html: string, url: string): PageMetadata {
   return result;
 }
 
-function yamlEscape(value: string): string {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
-  return `"${escaped}"`;
-}
-
 export function formatMetadataBlock(metadata: PageMetadata): string {
+  // JSON.stringify produces valid YAML double-quoted scalars: it escapes \, ", \n, \r, \t
+  // and wraps the result in double quotes, matching YAML's double-quoted scalar rules.
   const lines: string[] = [];
-  if (metadata.title) lines.push(`title: ${yamlEscape(metadata.title)}`);
-  if (metadata.author) lines.push(`author: ${yamlEscape(metadata.author)}`);
-  if (metadata.publishedDate) lines.push(`published: ${yamlEscape(metadata.publishedDate)}`);
-  if (metadata.description) lines.push(`description: ${yamlEscape(metadata.description)}`);
-  if (metadata.siteName) lines.push(`site: ${yamlEscape(metadata.siteName)}`);
+  if (metadata.title) lines.push(`title: ${JSON.stringify(metadata.title)}`);
+  if (metadata.author) lines.push(`author: ${JSON.stringify(metadata.author)}`);
+  if (metadata.publishedDate) lines.push(`published: ${JSON.stringify(metadata.publishedDate)}`);
+  if (metadata.description) lines.push(`description: ${JSON.stringify(metadata.description)}`);
+  if (metadata.siteName) lines.push(`site: ${JSON.stringify(metadata.siteName)}`);
   return lines.length > 0 ? `---\n${lines.join("\n")}\n---\n\n` : "";
 }
 
