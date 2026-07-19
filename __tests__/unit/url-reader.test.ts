@@ -16,7 +16,7 @@ import * as net from 'node:net';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
-import { checkContentLength, extractMainContent, extractMetadata, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
+import { checkContentLength, extractMainContent, extractMetadata, fetchAndConvertToMarkdown, formatMetadataBlock, applyPaginationOptions } from '../../src/url-reader.js';
 import { createUrlReaderLookup } from '../../src/proxy.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -2162,9 +2162,9 @@ async function runTests() {
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, url);
       assert.ok(result.startsWith('---'), 'Expected YAML frontmatter');
-      assert.ok(result.includes('title: Test Page'));
-      assert.ok(result.includes('author: Author Name'));
-      assert.ok(result.includes('description: Page description'));
+      assert.ok(result.includes('title: "Test Page"'));
+      assert.ok(result.includes('author: "Author Name"'));
+      assert.ok(result.includes('description: "Page description"'));
       assert.ok(result.includes('Hello World'), 'Expected article content');
     } finally {
       await close();
@@ -2212,6 +2212,104 @@ async function runTests() {
       await close();
       urlCache.clear();
     }
+  }, results);
+
+  // ── YAML escaping ────────────────────────────────────────────────────────
+
+  await testFunction('formatMetadataBlock escapes colons in values', async () => {
+    const block = formatMetadataBlock({ title: 'Foo: Bar' });
+    assert.ok(block.includes('"Foo: Bar"'), 'Expected colon value to be quoted');
+  }, results);
+
+  await testFunction('formatMetadataBlock escapes double-quotes in values', async () => {
+    const block = formatMetadataBlock({ title: 'Page "title"' });
+    assert.ok(block.includes('\\"'), 'Expected double-quotes to be escaped');
+    assert.ok(block.includes('"Page \\"title\\""'), 'Expected quoted + escaped value');
+  }, results);
+
+  await testFunction('formatMetadataBlock escapes newlines in values', async () => {
+    const block = formatMetadataBlock({ description: 'line1\nline2' });
+    assert.ok(block.includes('\\n'), 'Expected newline to be escaped');
+  }, results);
+
+  await testFunction('formatMetadataBlock escapes multiple special characters', async () => {
+    const block = formatMetadataBlock({
+      title: 'Complex: "Title"',
+      author: 'Author\nName',
+      description: 'Tab\there',
+    });
+    assert.ok(block.includes('title: "Complex: \\"Title\\""'));
+    assert.ok(block.includes('description: "Tab\\there"'));
+    assert.ok(block.includes('author: "Author\\nName"'));
+  }, results);
+
+  await testFunction('formatMetadataBlock produces valid YAML with plain text', async () => {
+    const block = formatMetadataBlock({ title: 'Simple Title', author: 'Jane' });
+    assert.ok(block.startsWith('---\n'));
+    assert.ok(block.includes('title: "Simple Title"'));
+    assert.ok(block.includes('author: "Jane"'));
+    assert.ok(block.endsWith('---\n\n'));
+  }, results);
+
+  // ── cache metadata consistency ────────────────────────────────────────────
+
+  await testFunction('cache hit preserves metadata block', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = `<html><head>
+      <title>Cached Meta</title>
+      <meta name="author" content="Cache Author">
+    </head><body>
+      <article><p>Enough text for Readability extraction to work properly and produce content.</p></article>
+    </body></html>`;
+
+    let requestCount = 0;
+    const server = http.createServer((_req, res) => {
+      requestCount++;
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(html);
+    });
+    await new Promise<void>((res) => server.listen(0, '127.0.0.1', res));
+    const serverUrl = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+
+    try {
+      const result1 = await fetchAndConvertToMarkdown(mockServer as any, serverUrl);
+      assert.ok(result1.includes('title: "Cached Meta"'), 'First call should include metadata');
+      assert.ok(result1.includes('author: "Cache Author"'));
+      assert.equal(requestCount, 2);
+
+      const result2 = await fetchAndConvertToMarkdown(mockServer as any, serverUrl);
+      assert.equal(requestCount, 2, 'Second call should use cache');
+      assert.equal(result2, result1, 'Cache hit should return identical result including metadata');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((res) => server.close(() => res()));
+      urlCache.clear();
+    }
+  }, results);
+
+  // ── 8000-char default cap ────────────────────────────────────────────────
+
+  await testFunction('default 8000-char cap truncates long content', async () => {
+    urlCache.clear();
+    const body = 'A'.repeat(10000);
+    const result = applyPaginationOptions(body, {});
+    assert.equal(result.length, 8000);
+  }, results);
+
+  await testFunction('any pagination param bypasses default 8000-char cap', async () => {
+    urlCache.clear();
+    const body = 'A'.repeat(10000);
+    const result = applyPaginationOptions(body, { maxLength: 9000 });
+    assert.equal(result.length, 9000);
+  }, results);
+
+  await testFunction('explicit maxLength overrides default cap', async () => {
+    urlCache.clear();
+    const body = 'A'.repeat(10000);
+    const result = applyPaginationOptions(body, { maxLength: 500 });
+    assert.equal(result.length, 500);
   }, results);
 
   if (originalAllowPrivateUrls === undefined) {

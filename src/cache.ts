@@ -3,6 +3,7 @@ import { parsePositiveInteger, normalizePositiveInteger } from "./env-int.js";
 interface CacheEntry {
   htmlContent: string;
   markdownContent: string;
+  metadataBlock: string;
   timestamp: number;
   hitCount: number;
 }
@@ -86,10 +87,11 @@ class SimpleCache {
     return entry;
   }
 
-  set(url: string, htmlContent: string, markdownContent: string): void {
+  set(url: string, htmlContent: string, markdownContent: string, metadataBlock: string = ""): void {
     this.cache.set(url, {
       htmlContent,
       markdownContent,
+      metadataBlock,
       timestamp: Date.now(),
       hitCount: 0
     });

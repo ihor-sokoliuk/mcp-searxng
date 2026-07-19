@@ -234,13 +234,23 @@ export function extractMetadata(html: string, url: string): PageMetadata {
   return result;
 }
 
-function formatMetadataBlock(metadata: PageMetadata): string {
+function yamlEscape(value: string): string {
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+  return `"${escaped}"`;
+}
+
+export function formatMetadataBlock(metadata: PageMetadata): string {
   const lines: string[] = [];
-  if (metadata.title) lines.push(`title: ${metadata.title}`);
-  if (metadata.author) lines.push(`author: ${metadata.author}`);
-  if (metadata.publishedDate) lines.push(`published: ${metadata.publishedDate}`);
-  if (metadata.description) lines.push(`description: ${metadata.description}`);
-  if (metadata.siteName) lines.push(`site: ${metadata.siteName}`);
+  if (metadata.title) lines.push(`title: ${yamlEscape(metadata.title)}`);
+  if (metadata.author) lines.push(`author: ${yamlEscape(metadata.author)}`);
+  if (metadata.publishedDate) lines.push(`published: ${yamlEscape(metadata.publishedDate)}`);
+  if (metadata.description) lines.push(`description: ${yamlEscape(metadata.description)}`);
+  if (metadata.siteName) lines.push(`site: ${yamlEscape(metadata.siteName)}`);
   return lines.length > 0 ? `---\n${lines.join("\n")}\n---\n\n` : "";
 }
 
@@ -250,7 +260,7 @@ function isTargetedFetch(options: PaginationOptions): boolean {
     || options.paragraphRange !== undefined;
 }
 
-function applyPaginationOptions(markdownContent: string, options: PaginationOptions): string {
+export function applyPaginationOptions(markdownContent: string, options: PaginationOptions): string {
   let result = markdownContent;
 
   // Apply heading extraction first if requested
@@ -572,9 +582,10 @@ export async function fetchAndConvertToMarkdown(
   if (cachedEntry) {
     logMessage(mcpServer, "info", `Using cached content for URL: ${url}`);
     const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
+    const finalResult = cachedEntry.metadataBlock + result;
     const duration = Date.now() - startTime;
-    logMessage(mcpServer, "info", `Processed cached URL: ${url} (${result.length} chars in ${duration}ms)`);
-    return result;
+    logMessage(mcpServer, "info", `Processed cached URL: ${url} (${finalResult.length} chars in ${duration}ms)`);
+    return finalResult;
   }
   
   // Validate URL format
@@ -768,7 +779,7 @@ export async function fetchAndConvertToMarkdown(
     }
 
     // Only cache successful markdown conversion
-    urlCache.set(url, rawContent, markdownContent);
+    urlCache.set(url, rawContent, markdownContent, metadataBlock);
 
     // Apply pagination options
     const result = applyPaginationOptions(markdownContent, paginationOptions);

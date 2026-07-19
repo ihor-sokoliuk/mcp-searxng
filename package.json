@@ -32,7 +32,7 @@
         "dist"
     ],
     "engines": {
-        "node": ">=20"
+        "node": ">=20.19.0"
     },
     "scripts": {
         "build": "tsc && shx chmod +x dist/*.js",
