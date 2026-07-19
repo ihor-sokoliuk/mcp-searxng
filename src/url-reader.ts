@@ -252,38 +252,34 @@ function isTargetedFetch(options: PaginationOptions): boolean {
     || options.paragraphRange !== undefined;
 }
 
+function applyDefaultCap(content: string, options: PaginationOptions): string {
+  if (options.startChar !== undefined || options.maxLength !== undefined) {
+    return applyCharacterPagination(content, options.startChar, options.maxLength);
+  }
+  if (!isTargetedFetch(options) && content.length > DEFAULT_MAX_LENGTH) {
+    return applyCharacterPagination(content, 0, DEFAULT_MAX_LENGTH);
+  }
+  return content;
+}
+
 export function applyPaginationOptions(markdownContent: string, options: PaginationOptions): string {
+  if (options.readHeadings) {
+    return extractHeadings(markdownContent);
+  }
+
   let result = markdownContent;
 
-  // Apply heading extraction first if requested
-  if (options.readHeadings) {
-    return extractHeadings(result);
-  }
-
-  // Apply section extraction
   if (options.section) {
     result = extractSection(result, options.section);
-    if (result === "") {
-      return `Section "${options.section}" not found in the content.`;
-    }
+    if (!result) return `Section "${options.section}" not found in the content.`;
   }
 
-  // Apply paragraph range filtering
   if (options.paragraphRange) {
     result = extractParagraphRange(result, options.paragraphRange);
-    if (result === "") {
-      return `Paragraph range "${options.paragraphRange}" is invalid or out of bounds.`;
-    }
+    if (!result) return `Paragraph range "${options.paragraphRange}" is invalid or out of bounds.`;
   }
 
-  // Apply character-based pagination last
-  if (options.startChar !== undefined || options.maxLength !== undefined) {
-    result = applyCharacterPagination(result, options.startChar, options.maxLength);
-  } else if (!isTargetedFetch(options) && result.length > DEFAULT_MAX_LENGTH) {
-    result = applyCharacterPagination(result, 0, DEFAULT_MAX_LENGTH);
-  }
-
-  return result;
+  return applyDefaultCap(result, options);
 }
 
 export async function checkContentLength(
