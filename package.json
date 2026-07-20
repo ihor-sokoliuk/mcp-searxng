@@ -61,8 +61,8 @@
     "devDependencies": {
         "@types/node": "22.20.1",
         "@types/supertest": "^7.2.0",
-        "@typescript-eslint/eslint-plugin": "8.63.0",
-        "@typescript-eslint/parser": "8.63.0",
+        "@typescript-eslint/eslint-plugin": "8.64.0",
+        "@typescript-eslint/parser": "8.64.0",
         "c8": "^11.0.0",
         "cross-env": "^10.1.0",
         "eslint": "10.7.0",
