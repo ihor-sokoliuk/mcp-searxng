@@ -360,10 +360,13 @@ export const READ_URL_TOOL: Tool = {
     "Fetches a URL and returns readable content as markdown. " +
     "Content-type aware: HTML is converted to markdown; JSON is pretty-printed; plain text, YAML, TOML, and XML are returned as fenced readable text. " +
     "Binary, media, archive, PDF, and octet-stream downloads are intentionally rejected instead of being returned as raw bytes. " +
+    "By default, uses Mozilla Readability to extract the main article content, stripping navigation, sidebars, and footers. " +
+    "A YAML metadata block (title, author, date, description, site name) is prepended when available. " +
+    "When no pagination/filtering params are provided, output is capped at 8000 characters by default; specify `startChar`, `maxLength`, `readHeadings`, `section`, or `paragraphRange` to bypass this cap. " +
+    "The YAML metadata block (title, author, etc.) is prepended after pagination and does not count toward the 8000-character cap or any explicit `maxLength`. " +
     "Three modes: " +
-    "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
-    "(2) Section extraction — set `section` to return content under a specific heading. " +
-    "(3) Headings only — set `readHeadings: true` to list all headings (mutually exclusive with other filtering params). " +
+    "(1) Full content — omit filtering params to get the full page; use `startChar`/`maxLength` to paginate large pages. " +
+    "(2) Headings only — set `readHeadings: true` to list all headings (mutually exclusive with other filtering params). " +
     "Returns an error string if the URL is unreachable or content cannot be extracted. " +
     "Use after `searxng_web_search` to read the full content of individual result URLs.",
   annotations: {
@@ -398,6 +401,14 @@ export const READ_URL_TOOL: Tool = {
       readHeadings: {
         type: "boolean",
         description: "Return only a list of headings instead of full content",
+      },
+      extractMainContent: {
+        type: "boolean",
+        description: "Use Mozilla Readability to extract main article content, stripping navigation, sidebars, and footers. Default: true.",
+      },
+      extractMetadata: {
+        type: "boolean",
+        description: "Extract page metadata (title, author, date, description, site name) and prepend as a YAML block. Default: true.",
       },
     },
     required: ["url"],
