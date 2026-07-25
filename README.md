@@ -2,6 +2,8 @@
 
 # 🔍 SearXNG MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.ihor-sokoliuk%2Fmcp-searxng.svg)](https://mcptoplist.com/server/io.github.ihor-sokoliuk%2Fmcp-searxng)
+
 **Private web search for AI assistants — connect any SearXNG instance to Claude, Cursor, and more.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/ihor-sokoliuk/mcp-searxng?style=flat-square&logo=github&label=stars)](https://github.com/ihor-sokoliuk/mcp-searxng/stargazers)
