@@ -41,14 +41,18 @@ export function getPrimarySearxngInstance(): string | undefined {
   return getSearxngInstances()[0];
 }
 
-export function validateSearxngInstanceUrl(value: string): string | null {
+export function validateSearxngInstanceUrl(
+  value: string,
+  entryIndex?: number,
+): string | null {
+  const entry = entryIndex === undefined ? "" : ` entry ${entryIndex}`;
   try {
     const url = new URL(value);
     if (!["http:", "https:"].includes(url.protocol)) {
-      return `SEARXNG_URL invalid protocol for "${value}": ${url.protocol}`;
+      return `SEARXNG_URL${entry} uses unsupported protocol ${url.protocol} for ${url.hostname}`;
     }
   } catch {
-    return `SEARXNG_URL invalid format: ${value}`;
+    return `SEARXNG_URL${entry} has invalid format`;
   }
 
   return null;
@@ -65,7 +69,7 @@ export function redactSearxngInstanceUrl(raw: string): string {
     url.password = "";
     return url.toString();
   } catch {
-    return raw.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/]*@/, "$1");
+    return "[invalid SearXNG URL]";
   }
 }
 

@@ -8,6 +8,12 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { logMessage } from "./logging.js";
 import { packageVersion } from "./version.js";
 import {
+  sanitizeDiagnosticText,
+  sanitizeDiagnosticValue,
+  sanitizeErrorForTransport,
+} from "./diagnostic-sanitizer.js";
+import { writeDiagnostic } from "./diagnostic-output.js";
+import {
   getHttpSecurityConfig,
   isOriginAllowed,
   isRequestAuthorized,
@@ -17,6 +23,18 @@ import {
 interface Session {
   transport: StreamableHTTPServerTransport;
   mcpServer: McpServer;
+}
+
+function warnDiagnostic(message: string, data?: unknown): void {
+  if (data === undefined) {
+    writeDiagnostic("warn", sanitizeDiagnosticText(message));
+    return;
+  }
+  writeDiagnostic(
+    "warn",
+    sanitizeDiagnosticText(message),
+    sanitizeDiagnosticValue(data),
+  );
 }
 
 /**
@@ -46,7 +64,7 @@ export function parseRateLimitEnv(name: string, fallback: number): number {
   }
   const parsed = parseInt(raw, 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
-    console.warn(
+    warnDiagnostic(
       `⚠️  Ignoring invalid ${name}="${raw}". Expected a positive integer. Using default ${fallback}.`,
     );
     return fallback;
@@ -133,7 +151,7 @@ export async function createHttpServer(
     res: express.Response,
     sessionId: string | undefined,
   ) {
-    console.warn(`⚠️  POST request rejected - invalid request:`, {
+    warnDiagnostic(`⚠️  POST request rejected - invalid request:`, {
       clientIP: req.ip || req.socket.remoteAddress,
       sessionId: sessionId || 'undefined',
       hasInitializeRequest: isInitializeRequest(req.body),
@@ -161,7 +179,7 @@ export async function createHttpServer(
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
       if (error instanceof Error && error.message.includes('accept')) {
-        console.warn(`⚠️  Connection rejected due to missing headers:`, {
+        warnDiagnostic(`⚠️  Connection rejected due to missing headers:`, {
           clientIP: req.ip || req.socket.remoteAddress,
           userAgent: req.headers['user-agent'],
           contentType: req.headers['content-type'],
@@ -169,7 +187,7 @@ export async function createHttpServer(
           error: error.message
         });
       }
-      throw error;
+      throw sanitizeErrorForTransport(error);
     }
   }
 
@@ -246,7 +264,7 @@ export async function createHttpServer(
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !sessions.has(sessionId)) {
-      console.warn(`⚠️  GET request rejected - missing or invalid session ID:`, {
+      warnDiagnostic(`⚠️  GET request rejected - missing or invalid session ID:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId: sessionId || 'undefined',
         userAgent: req.headers['user-agent']
@@ -259,12 +277,12 @@ export async function createHttpServer(
     try {
       await session.transport.handleRequest(req, res);
     } catch (error) {
-      console.warn(`⚠️  GET request failed:`, {
+      warnDiagnostic(`⚠️  GET request failed:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId,
         error: error instanceof Error ? error.message : String(error)
       });
-      throw error;
+      throw sanitizeErrorForTransport(error);
     }
   });
 
@@ -277,7 +295,7 @@ export async function createHttpServer(
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !sessions.has(sessionId)) {
-      console.warn(`⚠️  DELETE request rejected - missing or invalid session ID:`, {
+      warnDiagnostic(`⚠️  DELETE request rejected - missing or invalid session ID:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId: sessionId || 'undefined',
         userAgent: req.headers['user-agent']
@@ -290,12 +308,12 @@ export async function createHttpServer(
     try {
       await session.transport.handleRequest(req, res);
     } catch (error) {
-      console.warn(`⚠️  DELETE request failed:`, {
+      warnDiagnostic(`⚠️  DELETE request failed:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId,
         error: error instanceof Error ? error.message : String(error)
       });
-      throw error;
+      throw sanitizeErrorForTransport(error);
     } finally {
       sessions.delete(sessionId);
     }
@@ -308,6 +326,31 @@ export async function createHttpServer(
       server: 'ihor-sokoliuk/mcp-searxng',
       version: packageVersion,
       transport: 'http'
+    });
+  });
+
+  // Express catches rejected async route handlers here. Keep this after every
+  // route so session creation/connect failures cannot fall through to
+  // Express's development error page, which includes the raw stack.
+  app.use((
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    const safeError = sanitizeErrorForTransport(error);
+    warnDiagnostic("HTTP request failed:", safeError);
+    if (res.headersSent) {
+      next(safeError);
+      return;
+    }
+    res.status(500).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32603,
+        message: "Internal server error",
+      },
+      id: null,
     });
   });
 

@@ -11,6 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { resolveBindHost, parseRateLimitEnv } from '../../src/http-server.js';
 import { testFunction, createTestResults, printTestSummary, TestResult } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
+import {
+  initializeDiagnosticSanitizer,
+  resetDiagnosticSanitizerForTests,
+} from '../../src/diagnostic-sanitizer.js';
 
 const results = createTestResults();
 const envManager = new EnvManager();
@@ -119,6 +123,26 @@ export async function runTests(): Promise<TestResult> {
       assert.equal(result, 300, `${bad} → fallback`);
       assert.equal(warnings.length, 1, `${bad} must warn`);
     }
+  }, results);
+
+  await testFunction('parseRateLimitEnv warnings redact configured passwords', () => {
+    envManager.set('MCP_RATE_TEST', 'rate-secret');
+    envManager.set('AUTH_USERNAME', 'rate-user');
+    envManager.set('AUTH_PASSWORD', 'rate-secret');
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer();
+
+    let result = 0;
+    const warnings = captureWarnings(() => {
+      result = parseRateLimitEnv('MCP_RATE_TEST', 20);
+    });
+
+    assert.equal(result, 20);
+    assert.equal(warnings.length, 1);
+    assert.ok(!warnings[0].includes('rate-secret'), warnings[0]);
+    assert.ok(warnings[0].includes('[redacted]'), warnings[0]);
+    resetDiagnosticSanitizerForTests();
+    envManager.restore();
   }, results);
 
   await testFunction('parseRateLimitEnv: valid positive integer is honored, no warning', () => {

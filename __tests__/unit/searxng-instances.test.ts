@@ -63,8 +63,19 @@ async function runTests() {
   }, results);
 
   await testFunction('validateSearxngInstanceUrl rejects invalid and non-http URLs', () => {
-    assert.ok(validateSearxngInstanceUrl('not-a-url')?.includes('not-a-url'));
-    assert.ok(validateSearxngInstanceUrl('ftp://search.example.com')?.includes('ftp:'));
+    const malformed = validateSearxngInstanceUrl('not-a-url', 2);
+    const unsupported = validateSearxngInstanceUrl(
+      'ftp://user:pass@search.example.com/path',
+      3,
+    );
+
+    assert.equal(malformed, 'SEARXNG_URL entry 2 has invalid format');
+    assert.equal(
+      unsupported,
+      'SEARXNG_URL entry 3 uses unsupported protocol ftp: for search.example.com',
+    );
+    assert.ok(!unsupported?.includes('user'));
+    assert.ok(!unsupported?.includes('pass'));
   }, results);
 
   await testFunction('redactSearxngInstanceUrl removes username and password userinfo', () => {
@@ -88,29 +99,24 @@ async function runTests() {
     );
   }, results);
 
-  await testFunction('redactSearxngInstanceUrl leaves invalid strings unchanged', () => {
-    assert.equal(redactSearxngInstanceUrl('not a url'), 'not a url');
+  await testFunction('redactSearxngInstanceUrl makes invalid strings opaque', () => {
+    assert.equal(redactSearxngInstanceUrl('not a url'), '[invalid SearXNG URL]');
   }, results);
 
   await testFunction('redactSearxngInstanceUrl strips userinfo from unparsable URL strings', () => {
     const redacted = redactSearxngInstanceUrl('https://user:pass@ho st.example.com');
 
-    assert.equal(redacted, 'https://ho st.example.com');
-    assert.ok(!redacted.includes('user'), redacted);
-    assert.ok(!redacted.includes('pass'), redacted);
+    assert.equal(redacted, '[invalid SearXNG URL]');
   }, results);
 
   await testFunction('redactSearxngInstanceUrl strips multi-at userinfo from unparsable URL strings', () => {
     const redacted = redactSearxngInstanceUrl('https://a:b@c@ho st.example.com');
 
-    assert.equal(redacted, 'https://ho st.example.com');
-    assert.ok(redacted.includes('ho st.example.com'), redacted);
-    assert.ok(!redacted.includes('a:b'), redacted);
-    assert.ok(!redacted.includes('@c'), redacted);
+    assert.equal(redacted, '[invalid SearXNG URL]');
   }, results);
 
-  await testFunction('redactSearxngInstanceUrl leaves non-URL strings unchanged after parse failure', () => {
-    assert.equal(redactSearxngInstanceUrl('not a url'), 'not a url');
+  await testFunction('redactSearxngInstanceUrl never returns non-URL parse failures', () => {
+    assert.equal(redactSearxngInstanceUrl('not a url'), '[invalid SearXNG URL]');
   }, results);
 
   await testFunction('redactSearxngInstanceUrl leaves credential-free URLs byte-identical', () => {

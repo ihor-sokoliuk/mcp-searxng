@@ -10,6 +10,8 @@ import { TestResult } from './helpers/test-utils.js';
 
 // Import all test suites
 import { runTests as runLoggingTests } from './unit/logging.test.js';
+import { runTests as runDiagnosticSanitizerTests } from './unit/diagnostic-sanitizer.test.js';
+import { runTests as runDiagnosticOutputTests } from './unit/diagnostic-output.test.js';
 import { runTests as runTypesTests } from './unit/types.test.js';
 import { runTests as runCacheTests } from './unit/cache.test.js';
 import { runTests as runSearchCacheTests } from './unit/search-cache.test.js';
@@ -31,6 +33,7 @@ import { runTests as runHttpServerTests } from './integration/http-server.test.j
 import { runTests as runIndexTests } from './integration/index.test.js';
 import { runTests as runMcpHandlersTests } from './integration/mcp-handlers.test.js';
 import { runTests as runCliTests } from './integration/cli.test.js';
+import { runTests as runDiagnosticSecurityTests } from './integration/diagnostic-security.test.js';
 
 interface TestSuite {
   name: string;
@@ -41,6 +44,8 @@ interface TestSuite {
 const testSuites: TestSuite[] = [
   // Unit Tests
   { name: 'Logging', category: 'unit', run: runLoggingTests },
+  { name: 'Diagnostic Sanitizer', category: 'unit', run: runDiagnosticSanitizerTests },
+  { name: 'Diagnostic Output', category: 'unit', run: runDiagnosticOutputTests },
   { name: 'Types', category: 'unit', run: runTypesTests },
   { name: 'Cache', category: 'unit', run: runCacheTests },
   { name: 'Search Cache', category: 'unit', run: runSearchCacheTests },
@@ -64,6 +69,7 @@ const testSuites: TestSuite[] = [
   { name: 'Main Index', category: 'integration', run: runIndexTests },
   { name: 'MCP Handlers', category: 'integration', run: runMcpHandlersTests },
   { name: 'CLI', category: 'integration', run: runCliTests },
+  { name: 'Credential-Safe Diagnostics', category: 'integration', run: runDiagnosticSecurityTests },
 ];
 
 async function runAllTests() {

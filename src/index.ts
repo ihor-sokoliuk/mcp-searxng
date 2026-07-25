@@ -30,7 +30,15 @@ import { fetchInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
-import { getSearxngInstances } from "./searxng-instances.js";
+import {
+  getSearxngInstances,
+  redactSearxngInstanceUrl,
+} from "./searxng-instances.js";
+import {
+  initializeDiagnosticSanitizer,
+  sanitizeErrorForTransport,
+} from "./diagnostic-sanitizer.js";
+import { writeDiagnostic } from "./diagnostic-output.js";
 
 import { packageVersion } from "./version.js";
 
@@ -252,12 +260,13 @@ export function createMcpServer(): McpServer {
         throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error) {
-      logMessage(mcpServer, "error", `Tool execution error: ${error instanceof Error ? error.message : String(error)}`, { 
+      const safeError = sanitizeErrorForTransport(error);
+      logMessage(mcpServer, "error", `Tool execution error: ${safeError.message}`, {
         tool: name, 
         args: args,
-        error: error instanceof Error ? error.stack : String(error)
+        error: safeError.stack,
       });
-      throw error;
+      throw safeError;
     }
   });
 
@@ -326,7 +335,7 @@ export function createMcpServer(): McpServer {
         };
 
       default:
-        throw new Error(`Unknown resource: ${uri}`);
+        throw sanitizeErrorForTransport(new Error(`Unknown resource: ${uri}`));
     }
   });
 
@@ -335,31 +344,32 @@ export function createMcpServer(): McpServer {
 
 // Main function
 export async function main() {
+  initializeDiagnosticSanitizer();
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
   if (httpPort) {
     const port = parseInt(httpPort, 10);
     if (isNaN(port) || port < 1 || port > 65535) {
-      console.error(`Invalid HTTP port: ${httpPort}. Must be between 1-65535.`);
+      writeDiagnostic("error", `Invalid HTTP port: ${httpPort}. Must be between 1-65535.`);
       process.exit(1);
     }
 
     const host = resolveBindHost(process.env.MCP_HTTP_HOST);
-    console.log(`Starting HTTP transport on ${host}:${port}`);
+    writeDiagnostic("log", `Starting HTTP transport on ${host}:${port}`);
     const app = await createHttpServer(createMcpServer, port);
     
     const httpServer = app.listen(port, host, () => {
-      console.log(`HTTP server listening on ${host}:${port}`);
+      writeDiagnostic("log", `HTTP server listening on ${host}:${port}`);
       // Health/MCP URLs shown as localhost for developer convenience
-      console.log(`Health check: http://localhost:${port}/health`);
-      console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+      writeDiagnostic("log", `Health check: http://localhost:${port}/health`);
+      writeDiagnostic("log", `MCP endpoint: http://localhost:${port}/mcp`);
     });
 
     // Handle graceful shutdown
     const shutdown = (signal: string) => {
-      console.log(`Received ${signal}. Shutting down HTTP server...`);
+      writeDiagnostic("log", `Received ${signal}. Shutting down HTTP server...`);
       httpServer.close(() => {
-        console.log("HTTP server closed");
+        writeDiagnostic("log", "HTTP server closed");
         process.exit(0);
       });
     };
@@ -372,14 +382,17 @@ export async function main() {
 
     // Show helpful message when running in terminal
     if (process.stdin.isTTY) {
-      console.error(`🔍 MCP SearXNG Server v${packageVersion} - Ready`);
+      writeDiagnostic("error", `🔍 MCP SearXNG Server v${packageVersion} - Ready`);
       const searxngInstances = getSearxngInstances();
       if (searxngInstances.length > 0) {
-        console.error(`🌐 SearXNG URLs: ${searxngInstances.join("; ")}`);
+        writeDiagnostic(
+          "error",
+          `🌐 SearXNG URLs: ${searxngInstances.map(redactSearxngInstanceUrl).join("; ")}`,
+        );
       } else {
-        console.error("⚠️  SEARXNG_URL not set — configure it before using search tools");
+        writeDiagnostic("error", "⚠️  SEARXNG_URL not set — configure it before using search tools");
       }
-      console.error("📡 Waiting for MCP client connection via STDIO...\n");
+      writeDiagnostic("error", "📡 Waiting for MCP client connection via STDIO...\n");
     }
     
     const transport = new StdioServerTransport();
@@ -390,6 +403,14 @@ export async function main() {
     logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);
     logMessage(mcpServer, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
     const searxngInstances = getSearxngInstances();
-    logMessage(mcpServer, "info", `SearXNG URLs: ${searxngInstances.length > 0 ? searxngInstances.join("; ") : 'not configured'}`);
+    logMessage(
+      mcpServer,
+      "info",
+      `SearXNG URLs: ${
+        searxngInstances.length > 0
+          ? searxngInstances.map(redactSearxngInstanceUrl).join("; ")
+          : "not configured"
+      }`,
+    );
   }
 }

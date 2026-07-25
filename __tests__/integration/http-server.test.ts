@@ -13,6 +13,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createHttpServer } from '../../src/http-server.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
+import {
+  initializeDiagnosticSanitizer,
+  resetDiagnosticSanitizerForTests,
+} from '../../src/diagnostic-sanitizer.js';
 
 const results = createTestResults();
 const envManager = new EnvManager();
@@ -244,6 +248,42 @@ async function runTests() {
     // Should succeed (200) and return a session ID
     assert.equal(res.status, 200);
     assert.ok(res.headers['mcp-session-id'], 'Expected mcp-session-id header in response');
+  }, results);
+
+  await testFunction('HTTP initialization failures redact response and stderr diagnostics', async () => {
+    envManager.set(
+      'SEARXNG_URL',
+      'https://connect-user:connect-secret@search.example.com',
+    );
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer();
+    const app = await createHttpServer(() => {
+      throw new Error('connect failed for connect-user:connect-secret');
+    });
+    let response: request.Response | undefined;
+    const output = await captureConsoleOutput(async () => {
+      response = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'test-client', version: '1.0.0' },
+          },
+        });
+    });
+
+    const combined = `${response?.text}\n${output.join('\n')}`;
+    assert.equal(response?.status, 500);
+    assert.ok(!combined.includes('connect-user'), combined);
+    assert.ok(!combined.includes('connect-secret'), combined);
+    resetDiagnosticSanitizerForTests();
+    envManager.restore();
   }, results);
 
   await testFunction('POST /mcp with stale sessionId and initialize request creates new session', async () => {

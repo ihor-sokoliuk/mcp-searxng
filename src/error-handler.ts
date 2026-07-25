@@ -4,6 +4,8 @@
  */
 
 import { parseSearxngUrls, validateSearxngInstanceUrl } from "./searxng-instances.js";
+import { sanitizeErrorForTransport } from "./diagnostic-sanitizer.js";
+import { writeDiagnostic } from "./diagnostic-output.js";
 
 export interface ErrorContext {
   url?: string;
@@ -163,12 +165,13 @@ export function createUnexpectedError(error: any, context: ErrorContext): MCPSea
  * imported to test these in place.
  */
 export function handleUncaughtException(error: unknown): void {
-  console.error('Uncaught Exception:', error);
+  writeDiagnostic('error', 'Uncaught Exception:', sanitizeErrorForTransport(error));
   process.exit(1);
 }
 
 export function handleUnhandledRejection(reason: unknown, promise: Promise<unknown>): void {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  void promise;
+  writeDiagnostic('error', 'Unhandled Rejection:', sanitizeErrorForTransport(reason));
   process.exit(1);
 }
 
@@ -179,8 +182,8 @@ export function validateEnvironment(): string | null {
   if (searxngUrls.length === 0) {
     issues.push("SEARXNG_URL not set");
   } else {
-    for (const searxngUrl of searxngUrls) {
-      const validationError = validateSearxngInstanceUrl(searxngUrl);
+    for (const [index, searxngUrl] of searxngUrls.entries()) {
+      const validationError = validateSearxngInstanceUrl(searxngUrl, index + 1);
       if (validationError) {
         issues.push(validationError);
       }

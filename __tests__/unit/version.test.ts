@@ -31,6 +31,20 @@ export async function runTests(): Promise<TestResult> {
     assert.match(packageVersion, /^\d+\.\d+\.\d+/);
   }, results);
 
+  await testFunction('MCP registry treats credential-bearing SEARXNG_URL as secret', () => {
+    const manifest = JSON.parse(
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is a compile-time constant
+      readFileSync(new URL('../../.mcp/server.json', import.meta.url), 'utf-8'),
+    );
+    const variables = manifest.packages
+      .flatMap((entry: { environmentVariables?: unknown[] }) => entry.environmentVariables ?? []);
+    for (const name of ['SEARXNG_URL', 'AUTH_USERNAME', 'AUTH_PASSWORD']) {
+      const variable = variables.find((entry: { name?: string }) => entry.name === name);
+      assert.ok(variable, `${name} must be declared in the MCP registry manifest`);
+      assert.equal(variable.isSecret, true, `${name} must be marked secret`);
+    }
+  }, results);
+
   printTestSummary(results, 'Version Module');
   return results;
 }

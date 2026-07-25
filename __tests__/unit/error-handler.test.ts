@@ -28,6 +28,10 @@ import {
 } from '../../src/error-handler.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
+import {
+  initializeDiagnosticSanitizer,
+  resetDiagnosticSanitizerForTests,
+} from '../../src/diagnostic-sanitizer.js';
 
 const results = createTestResults();
 const envManager = new EnvManager();
@@ -175,7 +179,8 @@ async function runTests() {
     const result = validateEnvironment();
     assert.ok(typeof result === 'string');
     assert.ok(result!.includes('Configuration Issues'));
-    assert.ok(result!.includes('not-a-valid-url'));
+    assert.ok(result!.includes('entry 2'));
+    assert.ok(!result!.includes('not-a-valid-url'));
 
     envManager.restore();
   }, results);
@@ -288,24 +293,41 @@ async function runTests() {
     return { exitCode, calls };
   }
 
-  await testFunction('handleUncaughtException logs the error and exits with code 1', () => {
+  await testFunction('handleUncaughtException sanitizes the error and exits with code 1', () => {
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer({
+      AUTH_USERNAME: 'crash-user',
+      AUTH_PASSWORD: 'crash-secret',
+    });
     const err = new Error('boom');
+    err.message = 'boom crash-user:crash-secret';
     const { exitCode, calls } = captureExitAndError(() => handleUncaughtException(err));
     assert.equal(exitCode, 1);
     assert.equal(calls.length, 1);
     assert.equal(calls[0][0], 'Uncaught Exception:');
-    assert.equal(calls[0][1], err);
+    const output = String((calls[0][1] as Error).stack ?? calls[0][1]);
+    assert.ok(!output.includes('crash-user'), output);
+    assert.ok(!output.includes('crash-secret'), output);
+    resetDiagnosticSanitizerForTests();
   }, results);
 
-  await testFunction('handleUnhandledRejection logs the reason/promise and exits with code 1', () => {
-    const reason = new Error('nope');
+  await testFunction('handleUnhandledRejection sanitizes the reason and exits with code 1', () => {
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer({
+      AUTH_USERNAME: 'reject-user',
+      AUTH_PASSWORD: 'reject-secret',
+    });
+    const reason = new Error('nope reject-user:reject-secret');
     const promise = Promise.reject(reason);
     promise.catch(() => {}); // settle it so the test process sees no real unhandled rejection
     const { exitCode, calls } = captureExitAndError(() => handleUnhandledRejection(reason, promise));
     assert.equal(exitCode, 1);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0][0], 'Unhandled Rejection at:');
-    assert.equal(calls[0][3], reason);
+    assert.equal(calls[0][0], 'Unhandled Rejection:');
+    const output = String((calls[0][1] as Error).stack ?? calls[0][1]);
+    assert.ok(!output.includes('reject-user'), output);
+    assert.ok(!output.includes('reject-secret'), output);
+    resetDiagnosticSanitizerForTests();
   }, results);
 
   printTestSummary(results, 'Error Handler Module');

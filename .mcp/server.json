@@ -21,7 +21,21 @@
           "name": "SEARXNG_URL",
           "description": "URL of your SearXNG instance",
           "isRequired": true,
-          "isSecret": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTH_USERNAME",
+          "description": "Legacy global SearXNG Basic Auth username",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTH_PASSWORD",
+          "description": "Legacy global SearXNG Basic Auth password",
+          "isRequired": false,
+          "isSecret": true,
           "format": "string"
         }
       ]

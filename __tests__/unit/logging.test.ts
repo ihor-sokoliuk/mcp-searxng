@@ -16,6 +16,10 @@ import {
 } from '../../src/logging.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServerWithTracking } from '../helpers/mock-server.js';
+import {
+  initializeDiagnosticSanitizer,
+  resetDiagnosticSanitizerForTests,
+} from '../../src/diagnostic-sanitizer.js';
 
 const results = createTestResults();
 
@@ -89,6 +93,63 @@ async function runTests() {
     // Should have called notification for each message
     const calls = getLoggingCalls();
     assert.ok(calls.length >= 0); // Notification calls depend on implementation
+  }, results);
+
+  await testFunction('logMessage sanitizes text and structured metadata before MCP output', () => {
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer({
+      AUTH_USERNAME: 'log-user',
+      AUTH_PASSWORD: 'log-secret',
+    });
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    setLogLevel('debug');
+
+    logMessage(
+      server as any,
+      'error',
+      'failed for log-user:log-secret',
+      {
+        password: 'log-secret',
+        nested: { authorization: `Basic ${Buffer.from('log-user:log-secret').toString('base64')}` },
+      },
+    );
+
+    const serialized = JSON.stringify(getLoggingCalls());
+    assert.ok(!serialized.includes('log-user'), serialized);
+    assert.ok(!serialized.includes('log-secret'), serialized);
+    assert.ok(serialized.includes('[redacted]'), serialized);
+    resetDiagnosticSanitizerForTests();
+    setLogLevel('info');
+  }, results);
+
+  await testFunction('logging-send failures sanitize errors before stderr output', async () => {
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer({
+      AUTH_USERNAME: 'send-user',
+      AUTH_PASSWORD: 'send-secret',
+    });
+    const calls: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => calls.push(args);
+    try {
+      setLogLevel('debug');
+      logMessage({
+        sendLoggingMessage: async () => {
+          throw new Error('send failed for send-user:send-secret');
+        },
+      } as any, 'error', 'safe');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    } finally {
+      console.error = originalError;
+      resetDiagnosticSanitizerForTests();
+      setLogLevel('info');
+    }
+
+    const output = calls.flat().map((value) => (
+      value instanceof Error ? `${value.message}\n${value.stack}` : String(value)
+    )).join('\n');
+    assert.ok(!output.includes('send-user'), output);
+    assert.ok(!output.includes('send-secret'), output);
   }, results);
 
   await testFunction('shouldLog edge cases', () => {

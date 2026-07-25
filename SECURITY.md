@@ -133,7 +133,23 @@ Enable `MCP_HTTP_TRUST_PROXY` only when the server is behind a trusted reverse p
 
 SearXNG Basic Auth is supported by embedding credentials in the `SEARXNG_URL` userinfo — see the [Authentication section of CONFIGURATION.md](CONFIGURATION.md#authentication) for the exact format. This is the recommended path because each semicolon-separated instance URL can carry its own credentials. URL userinfo is stripped from outgoing fetch URLs and redacted from logs and errors, and it is redacted from the `config://server-config` resource as well (the host is shown, credentials are not). The `/health` endpoint does not expose `SEARXNG_URL`.
 
+Diagnostic output is sanitized before process output, MCP logging
+notifications, JSON-RPC errors, or HTTP diagnostic errors are emitted.
+Malformed SearXNG instance values are reported by entry number and
+classification without echoing the raw value. The configuration resource and
+outgoing requests also omit URL userinfo.
+
+Environment configuration is captured when the process starts. Restart the
+server after rotating or changing SearXNG Basic Auth credentials so both
+requests and diagnostic redaction use the new values.
+
 Because credentials may be embedded in it, treat the whole `SEARXNG_URL` as a secret: `AUTH_PASSWORD` remains available as a legacy global fallback when a `SEARXNG_URL` entry has no userinfo, and `MCP_HTTP_AUTH_TOKEN`, proxy credentials, and any credentials embedded in `SEARXNG_URL` are secrets. Avoid committing them to source control. Use secret management (Docker secrets, environment injection at runtime, or a secrets manager) in production.
+
+If an older release emitted SearXNG credentials into logs or client-visible
+errors, upgrade before further use, rotate the affected credentials, and remove
+or restrict access to captured logs and telemetry. For coordinated fixes,
+publish the patched runtime and updated MCP registry metadata before making the
+advisory public.
 
 ## Scope
 

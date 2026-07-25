@@ -14,7 +14,12 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { createMcpServer } from '../../src/index.js';
+import {
+  initializeDiagnosticSanitizer,
+  resetDiagnosticSanitizerForTests,
+} from '../../src/diagnostic-sanitizer.js';
 import { FetchMocker, createCapturingMockFetch, createMockFetch } from '../helpers/mock-fetch.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -32,6 +37,22 @@ async function connect() {
   await mcpServer.connect(serverTransport);
   await client.connect(clientTransport);
   return { client, mcpServer };
+}
+
+async function connectWithLogs() {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const mcpServer = createMcpServer();
+  const client = new Client(
+    { name: 'test-client', version: '1.0.0' },
+    { capabilities: {} },
+  );
+  const logs: unknown[] = [];
+  client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+    logs.push(notification);
+  });
+  await mcpServer.connect(serverTransport);
+  await client.connect(clientTransport);
+  return { client, logs };
 }
 
 /** Minimal valid SearXNG JSON response */
@@ -444,6 +465,37 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('tool errors and MCP logs never expose configured Basic Auth material', async () => {
+    const originalUrl = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = 'ftp://protocol-user:protocol-secret@search.example.com/path';
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer();
+    const { client, logs } = await connectWithLogs();
+    let errorText = '';
+
+    try {
+      await client.callTool({
+        name: 'searxng_web_search',
+        arguments: { query: 'test' },
+      });
+      assert.fail('Expected configuration error');
+    } catch (error) {
+      errorText = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
+    } finally {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await client.close();
+      if (originalUrl === undefined) delete process.env.SEARXNG_URL;
+      else process.env.SEARXNG_URL = originalUrl;
+      resetDiagnosticSanitizerForTests();
+    }
+
+    const output = `${errorText}\n${JSON.stringify(logs)}`;
+    assert.ok(!output.includes('protocol-user'), output);
+    assert.ok(!output.includes('protocol-secret'), output);
+    assert.ok(output.includes('ftp:'), output);
+    assert.ok(output.includes('search.example.com'), output);
+  }, results);
+
   // ── tools/call: web_url_read ─────────────────────────────────────────────────
 
   await testFunction('tools/call web_url_read returns markdown text', async () => {
@@ -746,6 +798,32 @@ async function runTests() {
     }
 
     await client.close();
+  }, results);
+
+  await testFunction('resources/read errors redact credential-bearing URIs', async () => {
+    const originalUrl = process.env.SEARXNG_URL;
+    const markerUrl = 'https://resource-user:resource-secret@search.example.com';
+    process.env.SEARXNG_URL = markerUrl;
+    resetDiagnosticSanitizerForTests();
+    initializeDiagnosticSanitizer();
+    const { client } = await connect();
+    let output = '';
+
+    try {
+      await client.readResource({ uri: markerUrl });
+      assert.fail('Expected error was not thrown');
+    } catch (error) {
+      output = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
+    } finally {
+      await client.close();
+      if (originalUrl === undefined) delete process.env.SEARXNG_URL;
+      else process.env.SEARXNG_URL = originalUrl;
+      resetDiagnosticSanitizerForTests();
+    }
+
+    assert.ok(!output.includes('resource-user'), output);
+    assert.ok(!output.includes('resource-secret'), output);
+    assert.ok(output.includes('search.example.com'), output);
   }, results);
 
   printTestSummary(results, 'MCP Handler Dispatch');

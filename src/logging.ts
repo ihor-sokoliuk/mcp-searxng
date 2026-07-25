@@ -1,5 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { LoggingLevel } from "@modelcontextprotocol/sdk/types.js";
+import {
+  sanitizeDiagnosticText,
+  sanitizeDiagnosticValue,
+  sanitizeErrorForTransport,
+} from "./diagnostic-sanitizer.js";
+import { writeDiagnostic } from "./diagnostic-output.js";
 
 // Logging state
 let currentLogLevel: LoggingLevel = "info";
@@ -18,7 +24,7 @@ const LOG_LEVELS: LoggingLevel[] = [
 // Shared handler for sendLoggingMessage errors
 function handleSendError(error: unknown): void {
   if (error instanceof Error && error.message !== "Not connected") {
-    console.error("Logging error:", error);
+    writeDiagnostic("error", "Logging error:", sanitizeErrorForTransport(error));
   }
 }
 
@@ -32,7 +38,10 @@ export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: s
 
       mcpServer.sendLoggingMessage({
         level,
-        data: notificationData
+        data: sanitizeDiagnosticValue({
+          ...notificationData,
+          message: sanitizeDiagnosticText(message),
+        }) as Record<string, unknown>,
       }).catch(handleSendError);
     } catch (error) {
       handleSendError(error);
