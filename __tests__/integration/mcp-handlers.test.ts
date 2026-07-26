@@ -25,6 +25,10 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 
 const results = createTestResults();
 const fetchMocker = new FetchMocker();
+const EXPECTED_PROTOCOL_ERROR_MESSAGE =
+  'MCP error -32603: ⚠️ Configuration Issues: '
+  + 'SEARXNG_URL entry 1 uses unsupported protocol ftp: for search.example.com. '
+  + 'Set SEARXNG_URL (e.g., http://localhost:8080 or https://search.example.com)';
 
 /** Spin up a fresh Client↔Server pair for each test. Call client.close() when done. */
 async function connect() {
@@ -471,6 +475,7 @@ async function runTests() {
     resetDiagnosticSanitizerForTests();
     initializeDiagnosticSanitizer();
     const { client, logs } = await connectWithLogs();
+    let caughtError: unknown;
     let errorText = '';
 
     try {
@@ -478,8 +483,8 @@ async function runTests() {
         name: 'searxng_web_search',
         arguments: { query: 'test' },
       });
-      assert.fail('Expected configuration error');
     } catch (error) {
+      caughtError = error;
       errorText = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
     } finally {
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -493,7 +498,8 @@ async function runTests() {
     assert.ok(!output.includes('protocol-user'), output);
     assert.ok(!output.includes('protocol-secret'), output);
     assert.ok(output.includes('ftp:'), output);
-    assert.ok(output.includes('search.example.com'), output);
+    assert.ok(caughtError instanceof Error, 'Expected configuration error');
+    assert.equal(caughtError.message, EXPECTED_PROTOCOL_ERROR_MESSAGE, output);
   }, results);
 
   // ── tools/call: web_url_read ─────────────────────────────────────────────────
@@ -807,12 +813,13 @@ async function runTests() {
     resetDiagnosticSanitizerForTests();
     initializeDiagnosticSanitizer();
     const { client } = await connect();
+    let caughtError: unknown;
     let output = '';
 
     try {
       await client.readResource({ uri: markerUrl });
-      assert.fail('Expected error was not thrown');
     } catch (error) {
+      caughtError = error;
       output = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
     } finally {
       await client.close();
@@ -823,7 +830,12 @@ async function runTests() {
 
     assert.ok(!output.includes('resource-user'), output);
     assert.ok(!output.includes('resource-secret'), output);
-    assert.ok(output.includes('search.example.com'), output);
+    assert.ok(caughtError instanceof Error, 'Expected resource error');
+    assert.equal(
+      caughtError.message,
+      'MCP error -32603: Unknown resource: https://search.example.com/',
+      output,
+    );
   }, results);
 
   printTestSummary(results, 'MCP Handler Dispatch');
