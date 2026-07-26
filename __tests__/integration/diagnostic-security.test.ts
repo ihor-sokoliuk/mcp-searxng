@@ -36,6 +36,8 @@ async function connectCli(
     cwd: process.cwd(),
     env: {
       ...process.env,
+      AUTH_USERNAME: "",
+      AUTH_PASSWORD: "",
       SEARXNG_URL: searxngUrl,
       ...extraEnv,
     } as Record<string, string>,
