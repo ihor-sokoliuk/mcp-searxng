@@ -3,6 +3,33 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.12.0] - 2026-07-25
+
+### Fixed
+
+- **Established HTTP sessions now receive the configured session rate limit:** Each `POST /mcp` request now passes through exactly one limiter. Requests with a currently live `mcp-session-id` use the session allowance, while initialization requests and missing, malformed, unknown, or stale session identifiers retain the stricter initialization limit. ([#179](https://github.com/ihor-sokoliuk/mcp-searxng/pull/179))
+
+- **Logging now honors all eight MCP severity levels:** Filtering recognizes `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, and `emergency`, so selecting a threshold such as `notice` or `emergency` no longer lets lower-severity messages through. ([#178](https://github.com/ihor-sokoliuk/mcp-searxng/pull/178))
+
+- **TypeScript test launchers now work consistently on Windows, Linux, and WSL:** Integration and end-to-end tests use Node's portable `--import tsx` loader instead of trying to execute npm's platform-specific `.bin/tsx` shim directly. This changes development and CI launchers only; production runtime behavior is unchanged. ([#176](https://github.com/ihor-sokoliuk/mcp-searxng/pull/176))
+
+### Security
+
+- **Authentication data is now sanitized at every diagnostic boundary:** Process output, MCP logging notifications, JSON-RPC errors, and HTTP diagnostic errors pass through a centralized redaction layer that removes configured credentials, URL userinfo, authorization values, proxy secrets, and structured authentication fields. Malformed SearXNG entries are reported without echoing their raw values. MCP registry metadata now marks `SEARXNG_URL`, `AUTH_USERNAME`, and `AUTH_PASSWORD` as secrets so compatible clients can mask and protect their values. If an older release exposed credentials in logs or client-visible errors, upgrade, rotate the affected credentials, and remove or restrict access to captured logs and telemetry.
+
+- **Hardened HTTP bearer authentication now uses constant-time comparison:** Authorization accepts only the documented exact, case-sensitive `Bearer <token>` form, fails closed when either value is absent, hashes the complete presented and expected strings with SHA-256, and compares the equal-length digests with timing-safe equality. Raw-token and malformed authorization headers are rejected. Before upgrading, clients that previously sent an undocumented bare token must change the header to `Authorization: Bearer <token>`. ([#177](https://github.com/ihor-sokoliuk/mcp-searxng/pull/177))
+
+- **Vulnerable transitive dependencies were patched:** `fast-uri` is updated to 3.1.4 for its host-confusion fixes, the root install overrides `@hono/node-server` to patched 2.0.11, and the development graph uses `brace-expansion` 5.0.8. Applications that install `mcp-searxng` as a dependency may need their own `@hono/node-server` 2.0.11 override until the MCP SDK admits the patched 2.x adapter, because npm does not apply dependency-owned overrides in a consuming application's root graph. ([#189](https://github.com/ihor-sokoliuk/mcp-searxng/pull/189))
+
+### Contributors
+
+- @app/dependabot - [#185](https://github.com/ihor-sokoliuk/mcp-searxng/pull/185) chore(deps): bump hono from 4.12.25 to 4.12.31
+- @app/dependabot - [#184](https://github.com/ihor-sokoliuk/mcp-searxng/pull/184) chore(deps): bump body-parser from 2.2.2 to 2.3.0
+- @app/dependabot - [#183](https://github.com/ihor-sokoliuk/mcp-searxng/pull/183) chore(deps-dev): bump brace-expansion from 5.0.6 to 5.0.7
+- @app/dependabot - [#182](https://github.com/ihor-sokoliuk/mcp-searxng/pull/182) chore(deps): bump the github-actions group with 4 updates
+- @app/dependabot - [#181](https://github.com/ihor-sokoliuk/mcp-searxng/pull/181) chore(deps): bump express-rate-limit from 8.5.2 to 8.6.0
+- @app/dependabot - [#180](https://github.com/ihor-sokoliuk/mcp-searxng/pull/180) chore(deps-dev): bump the dev-dependencies group with 3 updates
+
 ## [1.11.1] - 2026-07-14
 
 ### Fixed
