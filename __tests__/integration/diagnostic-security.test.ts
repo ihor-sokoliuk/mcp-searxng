@@ -12,6 +12,17 @@ import {
 } from "../helpers/test-utils.js";
 
 const results = createTestResults();
+const EXPECTED_PROTOCOL_ERROR_MESSAGE =
+  "MCP error -32603: ⚠️ Configuration Issues: "
+  + "SEARXNG_URL entry 1 uses unsupported protocol ftp: for search.example.com. "
+  + "Set SEARXNG_URL (e.g., http://localhost:8080 or https://search.example.com)";
+type LoggingNotification = {
+  method?: unknown;
+  params?: {
+    level?: unknown;
+    data?: { message?: unknown };
+  };
+};
 
 async function connectCli(
   searxngUrl: string,
@@ -25,6 +36,8 @@ async function connectCli(
     cwd: process.cwd(),
     env: {
       ...process.env,
+      AUTH_USERNAME: "",
+      AUTH_PASSWORD: "",
       SEARXNG_URL: searxngUrl,
       ...extraEnv,
     } as Record<string, string>,
@@ -54,22 +67,38 @@ async function runTests() {
     await client.close();
 
     const output = `${JSON.stringify(logs)}\n${getStderr()}`;
+    const startupMessages = logs
+      .map((notification) => notification as LoggingNotification)
+      .filter((notification) => (
+        notification.method === "notifications/message"
+        && notification.params?.level === "info"
+      ))
+      .map((notification) => notification.params?.data?.message)
+      .filter((message): message is string => typeof message === "string");
     assert.ok(!output.includes("cli-user"), output);
     assert.ok(!output.includes("cli-secret"), output);
-    assert.ok(output.includes("https://search.example.com/path"), output);
+    assert.ok(startupMessages.length > 0, output);
+    assert.equal(
+      startupMessages.filter(
+        (message) => message === "SearXNG URLs: https://search.example.com/path",
+      ).length,
+      1,
+      output,
+    );
   }, results);
 
   await testFunction("real CLI JSON-RPC errors remove invalid URL credentials", async () => {
     const markerUrl = "ftp://rpc-user:rpc-secret@search.example.com/path";
     const { client, logs, getStderr } = await connectCli(markerUrl);
+    let caughtError: unknown;
     let errorText = "";
     try {
       await client.callTool({
         name: "searxng_web_search",
         arguments: { query: "test" },
       });
-      assert.fail("Expected invalid protocol error");
     } catch (error) {
+      caughtError = error;
       errorText = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -79,7 +108,8 @@ async function runTests() {
     assert.ok(!output.includes("rpc-user"), output);
     assert.ok(!output.includes("rpc-secret"), output);
     assert.ok(output.includes("ftp:"), output);
-    assert.ok(output.includes("search.example.com"), output);
+    assert.ok(caughtError instanceof Error, "Expected invalid protocol error");
+    assert.equal(caughtError.message, EXPECTED_PROTOCOL_ERROR_MESSAGE, output);
   }, results);
 
   await testFunction("outbound network failures never echo Basic Auth material", async () => {
