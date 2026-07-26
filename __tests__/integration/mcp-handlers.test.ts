@@ -471,6 +471,10 @@ async function runTests() {
 
   await testFunction('tool errors and MCP logs never expose configured Basic Auth material', async () => {
     const originalUrl = process.env.SEARXNG_URL;
+    const originalUsername = process.env.AUTH_USERNAME;
+    const originalPassword = process.env.AUTH_PASSWORD;
+    delete process.env.AUTH_USERNAME;
+    delete process.env.AUTH_PASSWORD;
     process.env.SEARXNG_URL = 'ftp://protocol-user:protocol-secret@search.example.com/path';
     resetDiagnosticSanitizerForTests();
     initializeDiagnosticSanitizer();
@@ -491,6 +495,10 @@ async function runTests() {
       await client.close();
       if (originalUrl === undefined) delete process.env.SEARXNG_URL;
       else process.env.SEARXNG_URL = originalUrl;
+      if (originalUsername === undefined) delete process.env.AUTH_USERNAME;
+      else process.env.AUTH_USERNAME = originalUsername;
+      if (originalPassword === undefined) delete process.env.AUTH_PASSWORD;
+      else process.env.AUTH_PASSWORD = originalPassword;
       resetDiagnosticSanitizerForTests();
     }
 
