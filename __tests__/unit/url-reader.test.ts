@@ -16,7 +16,7 @@ import * as net from 'node:net';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
-import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
+import { checkContentLength, extractMainContent, extractMetadata, fetchAndConvertToMarkdown, formatMetadataBlock, applyPaginationOptions } from '../../src/url-reader.js';
 import { createUrlReaderLookup } from '../../src/proxy.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -823,7 +823,10 @@ async function runTests() {
     });
 
     try {
-      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMainContent: false,
+        extractMetadata: false,
+      });
       assert.equal(result, '# XHTML Title\n\nReadable page.');
     } finally {
       await close();
@@ -1992,6 +1995,321 @@ async function runTests() {
     } finally {
       await close();
     }
+  }, results);
+
+  // ── Readability content extraction ────────────────────────────────────────
+
+  await testFunction('extractMainContent strips nav, sidebar, and footer', async () => {
+    const html = `<html><body>
+      <nav>Navigation</nav>
+      <article><h1>Main Article</h1><p>This is the article body.</p></article>
+      <aside>Sidebar</aside>
+      <footer>Footer</footer>
+    </body></html>`;
+
+    const result = extractMainContent(html, 'http://test.local');
+    assert.ok(result);
+    assert.ok(result.includes('Main Article'), 'Expected article heading');
+    assert.ok(!result.includes('Navigation'), 'Expected nav to be stripped');
+    assert.ok(!result.includes('Sidebar'), 'Expected aside to be stripped');
+    assert.ok(!result.includes('Footer'), 'Expected footer to be stripped');
+  }, results);
+
+  await testFunction('extractMainContent returns null for empty body', async () => {
+    const html = '<html><body></body></html>';
+    const result = extractMainContent(html, 'http://test.local');
+    assert.equal(result, null);
+  }, results);
+
+  await testFunction('extractMainContent preserves heading hierarchy', async () => {
+    const html = `<html><body>
+      <article><h1>Title</h1><h2>Subtitle</h2><p>Body text.</p></article>
+    </body></html>`;
+
+    const result = extractMainContent(html, 'http://test.local');
+    assert.ok(result);
+    assert.ok(result.includes('Title'));
+    assert.ok(result.includes('Subtitle'));
+  }, results);
+
+  await testFunction('extractMainContent is not called when extractMainContent is false', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      body: '<html><body><nav>Nav</nav><article><h1>Article</h1></article></body></html>',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMainContent: false,
+      });
+      assert.ok(result.includes('Nav'), 'Expected full HTML when extractMainContent is false');
+      assert.ok(result.includes('Article'), 'Expected article content');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMainContent defaults to on via fetchAndConvertToMarkdown', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      body: '<html><body><nav><a href="/">Home</a><a href="/about">About</a></nav><article><h1>Article Title</h1><p>This is a longer article body with enough text for Readability to identify it as the main content of the page.</p></article></body></html>',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Article Title'), 'Expected article content');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMainContent handles malformed HTML gracefully', async () => {
+    const result = extractMainContent('<html><body><p>Hello', 'http://test.local');
+    assert.ok(result === null || result.includes('Hello'));
+  }, results);
+
+  // ── metadata extraction ────────────────────────────────────────────────────
+
+  await testFunction('extractMetadata pulls title from og:title', async () => {
+    const html = `<html><head>
+      <title>Fallback Title</title>
+      <meta property="og:title" content="OG Title">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.title, 'OG Title');
+  }, results);
+
+  await testFunction('extractMetadata falls back to title tag', async () => {
+    const html = `<html><head>
+      <title>Document Title</title>
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.title, 'Document Title');
+  }, results);
+
+  await testFunction('extractMetadata extracts author', async () => {
+    const html = `<html><head>
+      <meta name="author" content="Test Author">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.author, 'Test Author');
+  }, results);
+
+  await testFunction('extractMetadata extracts publish date', async () => {
+    const html = `<html><head>
+      <meta property="article:published_time" content="2024-01-15">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.publishedDate, '2024-01-15');
+  }, results);
+
+  await testFunction('extractMetadata extracts description', async () => {
+    const html = `<html><head>
+      <meta property="og:description" content="Test description">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.description, 'Test description');
+  }, results);
+
+  await testFunction('extractMetadata extracts site name', async () => {
+    const html = `<html><head>
+      <meta property="og:site_name" content="Test Site">
+    </head></html>`;
+
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.equal(meta.siteName, 'Test Site');
+  }, results);
+
+  await testFunction('extractMetadata returns empty object for no metadata', async () => {
+    const html = '<html><head></head><body><p>No metadata here.</p></body></html>';
+    const meta = extractMetadata(html, 'http://test.local');
+    assert.deepEqual(meta, {});
+  }, results);
+
+  await testFunction('extractMetadata handles malformed HTML gracefully', async () => {
+    const meta = extractMetadata('<html><head><meta', 'http://test.local');
+    assert.ok(typeof meta === 'object');
+  }, results);
+
+  // ── metadata block integration ─────────────────────────────────────────────
+
+  await testFunction('metadata is prepended as YAML block with Readability body', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = `<html><head>
+      <title>Test Page</title>
+      <meta name="author" content="Author Name">
+      <meta property="og:description" content="Page description">
+    </head><body>
+      <nav><a href="/">Home</a><a href="/about">About</a></nav>
+      <article><h1>Hello World</h1><p>This article has enough text for Readability to extract it as the main content of the page.</p></article>
+    </body></html>`;
+
+    const { url, close } = await startTestServer({ body: html });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.startsWith('---'), 'Expected YAML frontmatter');
+      assert.ok(result.includes('title: "Test Page"'));
+      assert.ok(result.includes('author: "Author Name"'));
+      assert.ok(result.includes('description: "Page description"'));
+      assert.ok(result.includes('Hello World'), 'Expected article content');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMetadata false skips metadata block', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = `<html><head>
+      <meta property="og:title" content="Title">
+    </head><body><h1>Hello</h1></body></html>`;
+
+    const { url, close } = await startTestServer({ body: html });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMetadata: false,
+      });
+      assert.ok(!result.startsWith('---'), 'Expected no YAML frontmatter');
+      assert.ok(result.includes('Hello'));
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('extractMainContent false preserves full HTML when metadata is also off', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = '<html><body><nav>Nav</nav><p>Just text.</p></body></html>';
+    const { url, close } = await startTestServer({ body: html });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        extractMainContent: false,
+        extractMetadata: false,
+      });
+      assert.ok(result.includes('Nav'), 'Expected Nav to be present');
+      assert.ok(result.includes('Just text'));
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  // ── YAML escaping ────────────────────────────────────────────────────────
+
+  await testFunction('formatMetadataBlock escapes colons in values', async () => {
+    const block = formatMetadataBlock({ title: 'Foo: Bar' });
+    assert.ok(block.includes('"Foo: Bar"'), 'Expected colon value to be quoted');
+  }, results);
+
+  await testFunction('formatMetadataBlock escapes double-quotes in values', async () => {
+    const block = formatMetadataBlock({ title: 'Page "title"' });
+    assert.ok(block.includes('\\"'), 'Expected double-quotes to be escaped');
+    assert.ok(block.includes('"Page \\"title\\""'), 'Expected quoted + escaped value');
+  }, results);
+
+  await testFunction('formatMetadataBlock escapes newlines in values', async () => {
+    const block = formatMetadataBlock({ description: 'line1\nline2' });
+    assert.ok(block.includes('\\n'), 'Expected newline to be escaped');
+  }, results);
+
+  await testFunction('formatMetadataBlock escapes multiple special characters', async () => {
+    const block = formatMetadataBlock({
+      title: 'Complex: "Title"',
+      author: 'Author\nName',
+      description: 'Tab\there',
+    });
+    assert.ok(block.includes('title: "Complex: \\"Title\\""'));
+    assert.ok(block.includes('description: "Tab\\there"'));
+    assert.ok(block.includes('author: "Author\\nName"'));
+  }, results);
+
+  await testFunction('formatMetadataBlock produces valid YAML with plain text', async () => {
+    const block = formatMetadataBlock({ title: 'Simple Title', author: 'Jane' });
+    assert.ok(block.startsWith('---\n'));
+    assert.ok(block.includes('title: "Simple Title"'));
+    assert.ok(block.includes('author: "Jane"'));
+    assert.ok(block.endsWith('---\n\n'));
+  }, results);
+
+  // ── cache metadata consistency ────────────────────────────────────────────
+
+  await testFunction('cache hit preserves metadata block', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const html = `<html><head>
+      <title>Cached Meta</title>
+      <meta name="author" content="Cache Author">
+    </head><body>
+      <article><p>Enough text for Readability extraction to work properly and produce content.</p></article>
+    </body></html>`;
+
+    let requestCount = 0;
+    const server = http.createServer((_req, res) => {
+      requestCount++;
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(html);
+    });
+    await new Promise<void>((res) => server.listen(0, '127.0.0.1', res));
+    const serverUrl = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+
+    try {
+      const result1 = await fetchAndConvertToMarkdown(mockServer as any, serverUrl);
+      assert.ok(result1.includes('title: "Cached Meta"'), 'First call should include metadata');
+      assert.ok(result1.includes('author: "Cache Author"'));
+      assert.equal(requestCount, 2);
+
+      const result2 = await fetchAndConvertToMarkdown(mockServer as any, serverUrl);
+      assert.equal(requestCount, 2, 'Second call should use cache');
+      assert.equal(result2, result1, 'Cache hit should return identical result including metadata');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((res) => server.close(() => res()));
+      urlCache.clear();
+    }
+  }, results);
+
+  // ── 8000-char default cap ────────────────────────────────────────────────
+
+  await testFunction('default 8000-char cap truncates long content', async () => {
+    urlCache.clear();
+    const body = 'A'.repeat(10000);
+    const result = applyPaginationOptions(body, {});
+    assert.equal(result.length, 8000);
+  }, results);
+
+  await testFunction('any pagination param bypasses default 8000-char cap', async () => {
+    urlCache.clear();
+    const body = 'A'.repeat(10000);
+    const result = applyPaginationOptions(body, { maxLength: 9000 });
+    assert.equal(result.length, 9000);
+  }, results);
+
+  await testFunction('explicit maxLength overrides default cap', async () => {
+    urlCache.clear();
+    const body = 'A'.repeat(10000);
+    const result = applyPaginationOptions(body, { maxLength: 500 });
+    assert.equal(result.length, 500);
   }, results);
 
   if (originalAllowPrivateUrls === undefined) {

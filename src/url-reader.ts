@@ -1,4 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { fetch as undiciFetch, type Dispatcher } from "undici";
 import { createProxyAgent, createUrlReaderAgent, ProxyType } from "./proxy.js";
@@ -18,12 +20,22 @@ import {
   type ErrorContext
 } from "./error-handler.js";
 
+interface PageMetadata {
+  title?: string;
+  author?: string;
+  publishedDate?: string;
+  description?: string;
+  siteName?: string;
+}
+
 interface PaginationOptions {
   startChar?: number;
   maxLength?: number;
   section?: string;
   paragraphRange?: string;
   readHeadings?: boolean;
+  extractMainContent?: boolean;
+  extractMetadata?: boolean;
 }
 
 type BoundedBodyReadResult =
@@ -32,6 +44,7 @@ type BoundedBodyReadResult =
 
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
+const DEFAULT_MAX_LENGTH = 8000;
 export const DEFAULT_MAX_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 const HEAD_TIMEOUT_CAP_MS = 3000;
 const BINARY_SNIFF_PREFIX_BYTES = 1024;
@@ -169,36 +182,104 @@ function extractHeadings(markdownContent: string): string {
   return headings.join('\n');
 }
 
-function applyPaginationOptions(markdownContent: string, options: PaginationOptions): string {
-  let result = markdownContent;
-
-  // Apply heading extraction first if requested
-  if (options.readHeadings) {
-    return extractHeadings(result);
+export function extractMainContent(html: string, url: string): string | null {
+  const { document } = parseHTML(html);
+  const reader = new Readability(document);
+  const article = reader.parse();
+  if (!article?.content) {
+    return null;
   }
+  return article.content;
+}
 
-  // Apply section extraction
-  if (options.section) {
-    result = extractSection(result, options.section);
-    if (result === "") {
-      return `Section "${options.section}" not found in the content.`;
-    }
-  }
+function getMeta(doc: Document, name: string): string | undefined {
+  const el = doc.querySelector(
+    `meta[name="${name}"], meta[property="${name}"], meta[itemprop="${name}"]`
+  );
+  return el?.getAttribute("content")?.trim() || undefined;
+}
 
-  // Apply paragraph range filtering
-  if (options.paragraphRange) {
-    result = extractParagraphRange(result, options.paragraphRange);
-    if (result === "") {
-      return `Paragraph range "${options.paragraphRange}" is invalid or out of bounds.`;
-    }
+function firstMeta(doc: Document, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = getMeta(doc, name);
+    if (value) return value;
   }
+  return undefined;
+}
 
-  // Apply character-based pagination last
-  if (options.startChar !== undefined || options.maxLength !== undefined) {
-    result = applyCharacterPagination(result, options.startChar, options.maxLength);
-  }
+function getPageTitle(doc: Document): string | undefined {
+  return firstMeta(doc, ["og:title", "twitter:title"])
+    || doc.querySelector("title")?.textContent?.trim();
+}
+
+export function extractMetadata(html: string, url: string): PageMetadata {
+  const { document } = parseHTML(html);
+  const result: PageMetadata = {};
+
+  const title = getPageTitle(document);
+  if (title) result.title = title;
+
+  const author = firstMeta(document, ["author", "article:author", "og:article:author"]);
+  if (author) result.author = author;
+
+  const publishedDate = firstMeta(document, ["article:published_time", "og:article:published_time", "date", "pubdate"]);
+  if (publishedDate) result.publishedDate = publishedDate;
+
+  const description = firstMeta(document, ["description", "og:description", "twitter:description"]);
+  if (description) result.description = description;
+
+  const siteName = firstMeta(document, ["og:site_name"]);
+  if (siteName) result.siteName = siteName;
 
   return result;
+}
+
+export function formatMetadataBlock(metadata: PageMetadata): string {
+  // JSON.stringify produces valid YAML double-quoted scalars: it escapes \, ", \n, \r, \t
+  // and wraps the result in double quotes, matching YAML's double-quoted scalar rules.
+  const lines: string[] = [];
+  if (metadata.title) lines.push(`title: ${JSON.stringify(metadata.title)}`);
+  if (metadata.author) lines.push(`author: ${JSON.stringify(metadata.author)}`);
+  if (metadata.publishedDate) lines.push(`published: ${JSON.stringify(metadata.publishedDate)}`);
+  if (metadata.description) lines.push(`description: ${JSON.stringify(metadata.description)}`);
+  if (metadata.siteName) lines.push(`site: ${JSON.stringify(metadata.siteName)}`);
+  return lines.length > 0 ? `---\n${lines.join("\n")}\n---\n\n` : "";
+}
+
+function isTargetedFetch(options: PaginationOptions): boolean {
+  return options.readHeadings === true
+    || options.section !== undefined
+    || options.paragraphRange !== undefined;
+}
+
+function applyDefaultCap(content: string, options: PaginationOptions): string {
+  if (options.startChar !== undefined || options.maxLength !== undefined) {
+    return applyCharacterPagination(content, options.startChar, options.maxLength);
+  }
+  if (!isTargetedFetch(options) && content.length > DEFAULT_MAX_LENGTH) {
+    return applyCharacterPagination(content, 0, DEFAULT_MAX_LENGTH);
+  }
+  return content;
+}
+
+export function applyPaginationOptions(markdownContent: string, options: PaginationOptions): string {
+  if (options.readHeadings) {
+    return extractHeadings(markdownContent);
+  }
+
+  let result = markdownContent;
+
+  if (options.section) {
+    result = extractSection(result, options.section);
+    if (!result) return `Section "${options.section}" not found in the content.`;
+  }
+
+  if (options.paragraphRange) {
+    result = extractParagraphRange(result, options.paragraphRange);
+    if (!result) return `Paragraph range "${options.paragraphRange}" is invalid or out of bounds.`;
+  }
+
+  return applyDefaultCap(result, options);
 }
 
 export async function checkContentLength(
@@ -489,9 +570,10 @@ export async function fetchAndConvertToMarkdown(
   if (cachedEntry) {
     logMessage(mcpServer, "info", `Using cached content for URL: ${url}`);
     const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
+    const finalResult = cachedEntry.metadataBlock + result;
     const duration = Date.now() - startTime;
-    logMessage(mcpServer, "info", `Processed cached URL: ${url} (${result.length} chars in ${duration}ms)`);
-    return result;
+    logMessage(mcpServer, "info", `Processed cached URL: ${url} (${finalResult.length} chars in ${duration}ms)`);
+    return finalResult;
   }
   
   // Validate URL format
@@ -639,6 +721,31 @@ export async function fetchAndConvertToMarkdown(
       throw createContentError("Website returned empty content.", url);
     }
 
+    // Extract metadata and apply Readability for HTML content
+    let metadataBlock = "";
+    if (contentType.kind === "html") {
+      if (paginationOptions.extractMetadata !== false) {
+        try {
+          const metadata = extractMetadata(rawContent, url);
+          metadataBlock = formatMetadataBlock(metadata);
+        } catch (metaErr: any) {
+          logMessage(mcpServer, "warning", `Metadata extraction failed for ${url}: ${metaErr.message}`);
+        }
+      }
+
+      if (paginationOptions.extractMainContent !== false) {
+        try {
+          const extracted = extractMainContent(rawContent, url);
+          if (extracted) {
+            rawContent = extracted;
+            logMessage(mcpServer, "info", `Readability extracted main content for: ${url}`);
+          }
+        } catch (readabilityErr: any) {
+          logMessage(mcpServer, "warning", `Readability failed for ${url} (falling back to full HTML): ${readabilityErr.message}`);
+        }
+      }
+    }
+
     // Convert readable content to Markdown
     let markdownContent: string;
     if (contentType.kind === "json") {
@@ -660,14 +767,17 @@ export async function fetchAndConvertToMarkdown(
     }
 
     // Only cache successful markdown conversion
-    urlCache.set(url, rawContent, markdownContent);
+    urlCache.set(url, rawContent, markdownContent, metadataBlock);
 
     // Apply pagination options
     const result = applyPaginationOptions(markdownContent, paginationOptions);
 
+    // Prepend metadata block after pagination — startChar/maxLength only apply to body
+    const finalResult = metadataBlock + result;
+
     const duration = Date.now() - startTime;
-    logMessage(mcpServer, "info", `Successfully fetched and converted URL: ${url} (${result.length} chars in ${duration}ms)`);
-    return result;
+    logMessage(mcpServer, "info", `Successfully fetched and converted URL: ${url} (${finalResult.length} chars in ${duration}ms)`);
+    return finalResult;
   } catch (error: any) {
     if (error.name === "AbortError") {
       logMessage(mcpServer, "error", `Timeout fetching URL: ${url} (${timeoutMs}ms)`);

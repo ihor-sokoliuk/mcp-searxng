@@ -54,6 +54,9 @@ docker-compose.yml
 docs/superpowers/
 docs/plans/
 
+# OpenCode memory search cache (local AI context, not project data)
+.memsearch/
+
 # TODO lists (private planning files)
 TODO.md
 TODO-features.md
