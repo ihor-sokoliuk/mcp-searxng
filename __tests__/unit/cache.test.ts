@@ -163,6 +163,28 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('Cache rejects non-decimal and unsafe integer spellings in CACHE_TTL_MS', () => {
+    const previousTtl = process.env.CACHE_TTL_MS;
+
+    try {
+      for (const value of ['5.0', '1e3', '0x10', '9007199254740993']) {
+        process.env.CACHE_TTL_MS = value;
+        const testCache = new SimpleCache();
+        try {
+          assert.equal((testCache as any).ttlMs, 86400000, value);
+        } finally {
+          testCache.destroy();
+        }
+      }
+    } finally {
+      if (previousTtl === undefined) {
+        delete process.env.CACHE_TTL_MS;
+      } else {
+        process.env.CACHE_TTL_MS = previousTtl;
+      }
+    }
+  }, results);
+
   await testFunction('Cache clear functionality', () => {
     const testCache = new SimpleCache(1000);
 
