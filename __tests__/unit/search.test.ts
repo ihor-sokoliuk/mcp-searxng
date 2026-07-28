@@ -1055,11 +1055,13 @@ async function runTests() {
     const mockServer = createMockServer();
     fetchMocker.mock(createMockFetch({ json: { results: makeMockSearchResults(6) } }));
 
-    const result = await performWebSearch(mockServer as any, 'suffix max results');
-    assert.ok(result.includes('Result 6'));
-
-    fetchMocker.restore();
-    envManager.restore();
+    try {
+      const result = await performWebSearch(mockServer as any, 'suffix max results');
+      assert.ok(result.includes('Result 6'));
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('Omitted num_results and unset SEARXNG_MAX_RESULTS preserves all results', async () => {
@@ -1175,11 +1177,13 @@ async function runTests() {
       },
     }));
 
-    const result = await performWebSearch(mockServer as any, 'suffix max chars');
-    assert.ok(result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
-
-    fetchMocker.restore();
-    envManager.restore();
+    try {
+      const result = await performWebSearch(mockServer as any, 'suffix max chars');
+      assert.ok(result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
   }, results);
 
   // A NaN/non-positive timeout makes setTimeout(abort, ms) fire on the next tick,
@@ -2051,16 +2055,18 @@ async function runTests() {
     });
 
     try {
-      await performWebSearch(mockServer as any, 'suffix safe search');
-    } catch {
-      // expected
+      try {
+        await performWebSearch(mockServer as any, 'suffix safe search');
+      } catch {
+        // expected
+      }
+
+      const url = new URL(getCapturedUrl());
+      assert.equal(url.searchParams.get('safesearch'), null);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
     }
-
-    const url = new URL(getCapturedUrl());
-    assert.equal(url.searchParams.get('safesearch'), null);
-
-    fetchMocker.restore();
-    envManager.restore();
   }, results);
 
   await testFunction('text output prepends answers before result list', async () => {

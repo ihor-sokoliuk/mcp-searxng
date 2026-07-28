@@ -1,7 +1,6 @@
 /**
- * Shared positive-integer parsing/normalization for environment-configured
- * numeric settings. Used by both the URL cache (`cache.ts`) and the search
- * cache (`search-cache.ts`) so their env-parsing behavior stays identical.
+ * Shared strict-integer parsing and positive-integer normalization for
+ * environment-configured numeric settings.
  */
 
 export function parseStrictInteger(value: string): number | undefined {
