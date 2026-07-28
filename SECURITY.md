@@ -180,6 +180,16 @@ npm run audit:deps
 
 The `npm run security` script combines linting (including `eslint-plugin-security` rules) with the dependency audit.
 
+### Published npm Dependency Verification
+
+npm applies `overrides` only from the installing root project, so an override in this package cannot guarantee the dependency tree selected by another application. Before publication, the release workflow packs the actual npm artifact, installs it into an isolated clean consumer whose only direct dependency is that artifact, and verifies that every resolved `@hono/node-server` copy is at least the first patched version, `2.0.5`. The same gate requires a zero-vulnerability production audit and completes an MCP initialize and tools-list smoke test against the installed artifact. npm then publishes that exact verified tarball rather than packing the working tree again.
+
+This guarantee describes the isolated single-dependency installation checked by the release workflow. An existing or newly created application can retain or introduce a different tree through sibling dependency constraints, its lockfile, or root overrides. Consumers should review those constraints after upgrading and run:
+
+```bash
+npm audit --omit=dev
+```
+
 ## Container Image Security
 
 The published Docker image (`isokoliuk/mcp-searxng`) is built from a digest-pinned `node:lts-alpine` base. Base-image updates are automated:
