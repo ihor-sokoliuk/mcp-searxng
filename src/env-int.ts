@@ -5,8 +5,13 @@
  */
 
 export function parseStrictInteger(value: string): number | undefined {
-  const parsed = Number(value.trim());
-  return Number.isInteger(parsed) ? parsed : undefined;
+  const trimmed = value.trim();
+  if (!/^[+-]?\d+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 export function parsePositiveInteger(value: string | undefined, fallback: number): number {
