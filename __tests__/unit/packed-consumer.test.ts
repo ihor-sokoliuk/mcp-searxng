@@ -211,7 +211,7 @@ async function runWorkflowContractTests(): Promise<void> {
   await testFunction('requires an unsuppressed verifier before publish in the same job', () => {
     assert.equal(assertPublishWorkflowContract(validWorkflow), true);
 
-    for (const workflow of invalidPublishWorkflows()) {
+    for (const workflow of invalidPublishWorkflows) {
       assert.throws(
         () => assertPublishWorkflowContract(workflow),
         /workflow_contract:/,

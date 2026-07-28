@@ -279,7 +279,7 @@ function requireOrderedCommands(jobLines) {
 
 function assertFailClosed(jobLines, verifierIndex, publishIndex) {
   const normalizedJobLines = jobLines.map(normalizeGuardLine);
-  if (normalizedJobLines.includes('continue-on-error: true')) {
+  if (normalizedJobLines.some((line) => line.startsWith('continue-on-error:'))) {
     fail('workflow_contract', 'continue-on-error is forbidden');
   }
   const verifierStep = findStepBlock(jobLines, verifierIndex);
@@ -287,11 +287,12 @@ function assertFailClosed(jobLines, verifierIndex, publishIndex) {
   const publishCondition = publishStep
     .map(normalizeGuardLine)
     .find((line) => line.startsWith('if:'));
-  if (publishCondition === 'if: always()' || publishCondition === 'if: failure()') {
-    fail('workflow_contract', 'publish cannot run after a failed verifier');
+  if (publishCondition) {
+    fail('workflow_contract', 'publish conditions are forbidden');
   }
   const verifierText = verifierStep.join('\n');
-  if (verifierText.includes('|| true') || verifierText.includes('set +e')) {
+  const compactVerifierText = verifierText.replaceAll(/\s/g, '');
+  if (compactVerifierText.includes('||true') || compactVerifierText.includes('set+e')) {
     fail('workflow_contract', 'verifier exit suppression is forbidden');
   }
   return { verifierStep, publishStep };
