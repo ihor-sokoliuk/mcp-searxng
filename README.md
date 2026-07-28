@@ -242,7 +242,7 @@ services:
       - MCP_HTTP_HOST=0.0.0.0
 ```
 
-Here `0.0.0.0` is the container-side bind address; the host-side port remains loopback-only. This override has no authentication and is only a temporary single-host migration path. Before adding co-located containers or exposing the service beyond the local machine, follow the hardened guidance in [HTTP Transport](#http-transport).
+Here `0.0.0.0` is the container-side bind address; the host-side port remains loopback-only. This override has no authentication and is only a temporary single-host migration path. Before adding co-located containers or exposing the service beyond the local machine, follow the hardened [deployment guidance](SECURITY.md#deployment-recommendations).
 
 </details>
 
