@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { parse } from "node-html-parser";
 import { SearXNGWeb } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
-import { applySearchRequestConfig } from "./proxy.js";
+import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { searchCache } from "./search-cache.js";
 import { parseStrictInteger } from "./env-int.js";
@@ -172,7 +172,7 @@ async function fetchWithSearchTimeout(
 
   try {
     logMessage(mcpServer, "info", `Making request to: ${redactedUrl}`);
-    return await fetch(rawUrl, {
+    return await fetchSearxng(rawUrl, {
       ...requestOptions,
       signal: controller.signal,
     });
