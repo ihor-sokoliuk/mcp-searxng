@@ -49,6 +49,7 @@ Thumbs.db
 
 # Docker files
 docker-compose.yml
+docker-compose.override.yml
 
 # AI process artifacts (plans, brainstorms, drafts) — must never be committed
 docs/superpowers/

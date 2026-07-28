@@ -204,9 +204,11 @@ services:
     image: isokoliuk/mcp-searxng:latest
     stdin_open: true
     environment:
-      - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
+      - SEARXNG_URL=${SEARXNG_URL:?Set SEARXNG_URL in the environment}
       # Add optional variables as needed — see CONFIGURATION.md
 ```
+
+The tracked Compose file is intentionally STDIO-only and publishes no network ports; MCP clients launch it with an absolute Compose-file path and `docker compose run --rm -T`, not `docker compose up`. The `-T` flag prevents pseudo-TTY allocation so MCP JSON-RPC stays on raw standard input and output. Compose fails before launch unless the MCP client supplies `SEARXNG_URL`.
 
 MCP client config:
 
@@ -214,12 +216,33 @@ MCP client config:
 {
   "mcpServers": {
     "searxng": {
-      "command": "docker-compose",
-      "args": ["run", "--rm", "mcp-searxng"]
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "/absolute/path/to/docker-compose.yml",
+        "run", "--rm", "-T", "mcp-searxng"
+      ],
+      "env": {
+        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL"
+      }
     }
   }
 }
 ```
+
+If you previously used the tracked file as an HTTP service on port 8080, put the HTTP settings in an untracked `docker-compose.override.yml`:
+
+```yaml
+services:
+  mcp-searxng:
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - MCP_HTTP_PORT=8080
+      - MCP_HTTP_HOST=0.0.0.0
+```
+
+Here `0.0.0.0` is the container-side bind address; the host-side port remains loopback-only. This override has no authentication and is only a temporary single-host migration path. Before adding co-located containers or exposing the service beyond the local machine, follow the hardened guidance in [HTTP Transport](#http-transport).
 
 </details>
 
