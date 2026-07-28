@@ -148,6 +148,17 @@ function mcpSmokeInput() {
   ].map((message) => JSON.stringify(message)).join('\n') + '\n';
 }
 
+function copyVerifiedArtifact(artifactPath, artifactOutput) {
+  try {
+    copyFileSync(artifactPath, path.resolve(artifactOutput));
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error
+      ? error.code
+      : 'copy failed';
+    fail('infrastructure', `verified artifact output failed: ${code}`);
+  }
+}
+
 function npmInvocation(args) {
   if (process.platform !== 'win32') {
     return { command: 'npm', args };
@@ -332,7 +343,7 @@ export function verifyPackedConsumer({
     );
     const toolCount = assertMcpSmokeResponses(smokeOutput);
     if (artifactOutput) {
-      copyFileSync(artifactPath, path.resolve(artifactOutput));
+      copyVerifiedArtifact(artifactPath, artifactOutput);
     }
 
     return {
