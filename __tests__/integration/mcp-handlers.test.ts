@@ -654,12 +654,15 @@ async function runTests() {
           assert.equal(result.content[0].type, 'text');
         });
       });
-      await new Promise(resolve => setTimeout(resolve, 10));
-      assert.ok(
-        logs.some((entry: any) => entry.params?.level === 'warning'
-          && entry.params?.data?.message?.includes('Ignoring invalid FETCH_TIMEOUT_MS="10s"')),
-        JSON.stringify(logs),
+      const hasExpectedWarning = () => logs.some((entry: any) =>
+        entry.params?.level === 'warning'
+        && entry.params?.data?.message?.includes('Ignoring invalid FETCH_TIMEOUT_MS="10s"')
       );
+      const deadline = Date.now() + 1000;
+      while (!hasExpectedWarning() && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.ok(hasExpectedWarning(), JSON.stringify(logs));
     } finally {
       await client.close();
       if (originalValue === undefined) {

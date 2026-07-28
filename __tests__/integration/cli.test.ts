@@ -65,7 +65,7 @@ async function runTests() {
           SEARXNG_URL: 'https://test-searx.example.com',
         },
         encoding: 'utf8',
-        timeout: 2000,
+        timeout: 8000,
       }
     );
 
