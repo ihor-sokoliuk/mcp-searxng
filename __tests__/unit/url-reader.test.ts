@@ -20,7 +20,7 @@ import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-rea
 import { createUrlReaderLookup } from '../../src/proxy.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
-import { createMockServer } from '../helpers/mock-server.js';
+import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
 const results = createTestResults();
@@ -653,6 +653,42 @@ async function runTests() {
       const result = await fetchAndConvertToMarkdown(mockServer as any, url);
       assert.ok(result.includes('Content too large'));
       assert.deepEqual(seenMethods, ['HEAD']);
+    } finally {
+      await close();
+      envManager.restore();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('URL_READ_MAX_CONTENT_LENGTH_BYTES rejects a numeric prefix with a suffix', async () => {
+    const { server: mockServer, getLoggingCalls } = createMockServerWithTracking();
+    urlCache.clear();
+    envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '5MB');
+
+    const seenMethods: string[] = [];
+    const { url, close } = await startHttpServer((req, res) => {
+      seenMethods.push(req.method || 'UNKNOWN');
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-length': '6' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<html><body><h1>Readable Content</h1></body></html>');
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('Readable Content'), `Expected default limit to allow the read, got: ${result}`);
+      assert.deepEqual(seenMethods, ['HEAD', 'GET']);
+      assert.ok(
+        getLoggingCalls().some((entry: any) =>
+          entry.level === 'warning'
+          && entry.data?.message?.includes(
+            'Ignoring invalid URL_READ_MAX_CONTENT_LENGTH_BYTES="5MB"',
+          )),
+        `Expected invalid-value warning, got: ${JSON.stringify(getLoggingCalls())}`,
+      );
     } finally {
       await close();
       envManager.restore();

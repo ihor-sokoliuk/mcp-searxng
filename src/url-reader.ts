@@ -5,6 +5,7 @@ import { createProxyAgent, createUrlReaderAgent, ProxyType } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { urlCache } from "./cache.js";
 import { assertUrlAllowed, isUrlSecurityPolicyDnsError } from "./url-security.js";
+import { parseStrictInteger } from "./env-int.js";
 import {
   createURLFormatError,
   createURLSecurityPolicyError,
@@ -249,8 +250,8 @@ function getMaxContentLengthBytes(mcpServer: McpServer): number {
     return DEFAULT_MAX_CONTENT_LENGTH_BYTES;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
+  const parsed = parseStrictInteger(rawValue);
+  if (parsed === undefined || parsed <= 0) {
     logMessage(
       mcpServer,
       "warning",
