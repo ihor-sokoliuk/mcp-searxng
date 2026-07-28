@@ -116,15 +116,18 @@ export function assertZeroProductionAudit(report) {
   return vulnerabilities;
 }
 
-export function assertArtifactMetadata(packReport, installedPackage) {
+function requirePackFiles(packReport) {
   if (!packReport || typeof packReport !== 'object') {
     fail('artifact_metadata', 'npm pack report is missing');
   }
   if (!Array.isArray(packReport.files)) {
     fail('artifact_metadata', 'npm pack file list is missing');
   }
-  let hasShrinkwrap = false;
-  for (const file of packReport.files) {
+  return packReport.files;
+}
+
+function assertPackFilesSafe(files) {
+  for (const file of files) {
     if (!file || typeof file !== 'object' || Array.isArray(file)) {
       fail('artifact_metadata', 'npm pack file entry is malformed');
     }
@@ -133,18 +136,23 @@ export function assertArtifactMetadata(packReport, installedPackage) {
       typeof filePath === 'string'
       && filePath.toLowerCase() === 'npm-shrinkwrap.json'
     ) {
-      hasShrinkwrap = true;
+      fail('artifact_metadata', 'npm shrinkwrap is forbidden');
     }
   }
-  if (hasShrinkwrap) {
-    fail('artifact_metadata', 'npm shrinkwrap is forbidden');
-  }
+}
+
+function assertInstalledPackageSafe(installedPackage) {
   if (!installedPackage || typeof installedPackage !== 'object') {
     fail('artifact_metadata', 'installed package manifest is missing');
   }
   if (installedPackage.dependencies?.['@hono/node-server'] !== undefined) {
     fail('artifact_metadata', 'direct @hono/node-server dependency is forbidden');
   }
+}
+
+export function assertArtifactMetadata(packReport, installedPackage) {
+  assertPackFilesSafe(requirePackFiles(packReport));
+  assertInstalledPackageSafe(installedPackage);
   return true;
 }
 
@@ -270,13 +278,14 @@ function requireOrderedCommands(jobLines) {
 }
 
 function assertFailClosed(jobLines, verifierIndex, publishIndex) {
-  if (jobLines.some((line) => line.trim() === 'continue-on-error: true')) {
+  const normalizedJobLines = jobLines.map(normalizeGuardLine);
+  if (normalizedJobLines.includes('continue-on-error: true')) {
     fail('workflow_contract', 'continue-on-error is forbidden');
   }
   const verifierStep = findStepBlock(jobLines, verifierIndex);
   const publishStep = findStepBlock(jobLines, publishIndex);
   const publishCondition = publishStep
-    .map((line) => line.trim())
+    .map(normalizeGuardLine)
     .find((line) => line.startsWith('if:'));
   if (publishCondition === 'if: always()' || publishCondition === 'if: failure()') {
     fail('workflow_contract', 'publish cannot run after a failed verifier');
@@ -286,6 +295,11 @@ function assertFailClosed(jobLines, verifierIndex, publishIndex) {
     fail('workflow_contract', 'verifier exit suppression is forbidden');
   }
   return { verifierStep, publishStep };
+}
+
+function normalizeGuardLine(line) {
+  const commentIndex = line.indexOf('#');
+  return (commentIndex < 0 ? line : line.slice(0, commentIndex)).trim();
 }
 
 function shellTokens(lines) {

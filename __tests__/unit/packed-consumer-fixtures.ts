@@ -36,6 +36,65 @@ jobs:
       - run: echo complete
 `;
 
+export function invalidPublishWorkflows(): string[] {
+  return [
+    validWorkflow.replace(
+      '      - name: Test package\n        run: npm run test:coverage\n',
+      '',
+    ),
+    validWorkflow.replace(
+      '      - name: Verify packed consumer\n        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"',
+      '  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm run verify:packed-consumer',
+    ),
+    validWorkflow.replace(
+      '      - name: Build package\n        run: npm run build\n      - name: Verify packed consumer\n        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"',
+      '      - name: Verify packed consumer\n        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"\n      - name: Build package\n        run: npm run build',
+    ),
+    validWorkflow.replace(
+      '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+      '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance\n        continue-on-error: true',
+    ),
+    validWorkflow.replace(
+      '    runs-on: ubuntu-latest',
+      '    continue-on-error: true\n    runs-on: ubuntu-latest',
+    ),
+    validWorkflow.replace(
+      '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+      '      - name: Publish to npm\n        if: always()\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+    ),
+    validWorkflow.replace(
+      '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+      '      - name: Publish to npm\n        if: failure()\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+    ),
+    validWorkflow.replace(
+      '        run: npm run verify:packed-consumer',
+      '        run: set +e; npm run verify:packed-consumer',
+    ),
+    validWorkflow.replace(
+      '        run: npm run verify:packed-consumer',
+      '        run: npm run verify:packed-consumer || true',
+    ),
+    validWorkflow.replace(
+      'npm publish "$RUNNER_TEMP/verified-package.tgz"',
+      'npm publish .',
+    ),
+    validWorkflow.replace(
+      '    runs-on: ubuntu-latest',
+      '    continue-on-error: true # forbidden\n    runs-on: ubuntu-latest',
+    ),
+    validWorkflow.replace(
+      '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+      '      - name: Publish to npm\n        if: always() # forbidden\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+    ),
+  ];
+}
+
+export interface SpawnCall {
+  command: string;
+  args: string[];
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number };
+}
+
 export const zeroAudit = {
   metadata: {
     vulnerabilities: {

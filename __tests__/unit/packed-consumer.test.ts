@@ -17,8 +17,8 @@ import {
   TestResult,
 } from '../helpers/test-utils.js';
 import {
-  commandResult, safeTree, treeWithNodeServer,
-  validMcpSmokeOutput, validWorkflow, zeroAudit,
+  commandResult, invalidPublishWorkflows, safeTree, SpawnCall,
+  treeWithNodeServer, validMcpSmokeOutput, validWorkflow, zeroAudit,
 } from './packed-consumer-fixtures.js';
 
 const results = createTestResults();
@@ -211,50 +211,7 @@ async function runWorkflowContractTests(): Promise<void> {
   await testFunction('requires an unsuppressed verifier before publish in the same job', () => {
     assert.equal(assertPublishWorkflowContract(validWorkflow), true);
 
-    const invalidWorkflows = [
-      validWorkflow.replace(
-        '      - name: Test package\n        run: npm run test:coverage\n',
-        '',
-      ),
-      validWorkflow.replace(
-        '      - name: Verify packed consumer\n        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"',
-        '  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm run verify:packed-consumer',
-      ),
-      validWorkflow.replace(
-        '      - name: Build package\n        run: npm run build\n      - name: Verify packed consumer\n        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"',
-        '      - name: Verify packed consumer\n        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"\n      - name: Build package\n        run: npm run build',
-      ),
-      validWorkflow.replace(
-        '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
-        '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance\n        continue-on-error: true',
-      ),
-      validWorkflow.replace(
-        '    runs-on: ubuntu-latest',
-        '    continue-on-error: true\n    runs-on: ubuntu-latest',
-      ),
-      validWorkflow.replace(
-        '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
-        '      - name: Publish to npm\n        if: always()\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
-      ),
-      validWorkflow.replace(
-        '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
-        '      - name: Publish to npm\n        if: failure()\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
-      ),
-      validWorkflow.replace(
-        '        run: npm run verify:packed-consumer',
-        '        run: set +e; npm run verify:packed-consumer',
-      ),
-      validWorkflow.replace(
-        '        run: npm run verify:packed-consumer',
-        '        run: npm run verify:packed-consumer || true',
-      ),
-      validWorkflow.replace(
-        'npm publish "$RUNNER_TEMP/verified-package.tgz"',
-        'npm publish .',
-      ),
-    ];
-
-    for (const workflow of invalidWorkflows) {
+    for (const workflow of invalidPublishWorkflows()) {
       assert.throws(
         () => assertPublishWorkflowContract(workflow),
         /workflow_contract:/,
@@ -328,11 +285,7 @@ async function runWorkflowContractTests(): Promise<void> {
 
 async function runOrchestrationTests(): Promise<void> {
   await testFunction('packs, installs, validates, audits, and smokes an isolated consumer in order', () => {
-    const calls: Array<{
-      command: string;
-      args: string[];
-      options: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number };
-    }> = [];
+    const calls: SpawnCall[] = [];
     let temporaryRoot = '';
     const artifactOutput = path.join(tmpdir(), `mcp-searxng-verified-${process.pid}-${Date.now()}.tgz`);
     const credentialVariable = ['NODE', 'AUTH', 'TOKEN'].join('_');
@@ -519,7 +472,8 @@ export async function runTests(): Promise<TestResult> {
   await runProcessContractTests();
   await runWorkflowContractTests();
   await runOrchestrationTests();
-  printTestSummary(results, 'Packed Consumer Verification'); return results;
+  printTestSummary(results, 'Packed Consumer Verification');
+  return results;
 }
 
 if (
