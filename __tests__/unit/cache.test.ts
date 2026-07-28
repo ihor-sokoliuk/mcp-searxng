@@ -146,6 +146,23 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('Cache rejects a numeric prefix with a suffix in CACHE_TTL_MS', () => {
+    const previousTtl = process.env.CACHE_TTL_MS;
+    process.env.CACHE_TTL_MS = '500x';
+    const testCache = new SimpleCache();
+
+    try {
+      assert.equal((testCache as any).ttlMs, 86400000);
+    } finally {
+      testCache.destroy();
+      if (previousTtl === undefined) {
+        delete process.env.CACHE_TTL_MS;
+      } else {
+        process.env.CACHE_TTL_MS = previousTtl;
+      }
+    }
+  }, results);
+
   await testFunction('Cache clear functionality', () => {
     const testCache = new SimpleCache(1000);
 

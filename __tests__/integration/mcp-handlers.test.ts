@@ -612,6 +612,64 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('tools/call web_url_read rejects a numeric prefix with a suffix in URL_READ_MAX_CHARS', async () => {
+    const originalValue = process.env.URL_READ_MAX_CHARS;
+    process.env.URL_READ_MAX_CHARS = '10x';
+    const { client } = await connect();
+
+    try {
+      await withPrivateUrlReadsAllowed(async () => {
+        await withLocalHtmlServer(LONG_HTML_RESPONSE, async (url) => {
+          const result = await client.callTool({
+            name: 'web_url_read',
+            arguments: { url },
+          });
+
+          const text = (result.content[0] as { type: string; text: string }).text;
+          assert.ok(text.includes('abcdefghijklmnopqrstuvwxyz'), text);
+        });
+      });
+    } finally {
+      await client.close();
+      if (originalValue === undefined) {
+        delete process.env.URL_READ_MAX_CHARS;
+      } else {
+        process.env.URL_READ_MAX_CHARS = originalValue;
+      }
+    }
+  }, results);
+
+  await testFunction('tools/call web_url_read rejects FETCH_TIMEOUT_MS with a unit suffix', async () => {
+    const originalValue = process.env.FETCH_TIMEOUT_MS;
+    process.env.FETCH_TIMEOUT_MS = '10s';
+    const { client, logs } = await connectWithLogs();
+
+    try {
+      await withPrivateUrlReadsAllowed(async () => {
+        await withLocalHtmlServer(HTML_RESPONSE, async (url) => {
+          const result = await client.callTool({
+            name: 'web_url_read',
+            arguments: { url },
+          });
+          assert.equal(result.content[0].type, 'text');
+        });
+      });
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.ok(
+        logs.some((entry: any) => entry.params?.level === 'warning'
+          && entry.params?.data?.message?.includes('Ignoring invalid FETCH_TIMEOUT_MS="10s"')),
+        JSON.stringify(logs),
+      );
+    } finally {
+      await client.close();
+      if (originalValue === undefined) {
+        delete process.env.FETCH_TIMEOUT_MS;
+      } else {
+        process.env.FETCH_TIMEOUT_MS = originalValue;
+      }
+    }
+  }, results);
+
   await testFunction('tools/call web_url_read FETCH_TIMEOUT_MS=100 times out against hanging server', async () => {
     process.env.FETCH_TIMEOUT_MS = '100';
     process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = 'true';

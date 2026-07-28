@@ -5,6 +5,7 @@ import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { applySearchRequestConfig } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { searchCache } from "./search-cache.js";
+import { parseStrictInteger } from "./env-int.js";
 import {
   getHealthySearxngInstances,
   getSearxngInstances,
@@ -31,8 +32,8 @@ function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
     return undefined;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || parsed <= 0 || parsed > 20) {
+  const parsed = parseStrictInteger(rawValue);
+  if (parsed === undefined || parsed <= 0 || parsed > 20) {
     logMessage(
       mcpServer,
       "warning",
@@ -50,8 +51,8 @@ function getMaxResultChars(mcpServer: McpServer): number | undefined {
     return undefined;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
+  const parsed = parseStrictInteger(rawValue);
+  if (parsed === undefined || parsed <= 0) {
     logMessage(
       mcpServer,
       "warning",
@@ -398,8 +399,8 @@ function getDefaultSafesearch(mcpServer: McpServer): number | undefined {
     return undefined;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || ![0, 1, 2].includes(parsed)) {
+  const parsed = parseStrictInteger(rawValue);
+  if (parsed === undefined || ![0, 1, 2].includes(parsed)) {
     logMessage(
       mcpServer,
       "warning",

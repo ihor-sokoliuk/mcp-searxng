@@ -4,13 +4,18 @@
  * cache (`search-cache.ts`) so their env-parsing behavior stays identical.
  */
 
+export function parseStrictInteger(value: string): number | undefined {
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
+
 export function parsePositiveInteger(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") {
     return fallback;
   }
 
-  const parsed = parseInt(value, 10);
-  return Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed;
+  const parsed = parseStrictInteger(value);
+  return parsed === undefined || parsed <= 0 ? fallback : parsed;
 }
 
 export function normalizePositiveInteger(value: number, fallback: number): number {

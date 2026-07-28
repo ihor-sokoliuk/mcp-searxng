@@ -149,6 +149,22 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('SearchCache rejects a numeric prefix with a suffix in SEARCH_CACHE_TTL_MS', () => {
+    const previousTtl = process.env.SEARCH_CACHE_TTL_MS;
+    process.env.SEARCH_CACHE_TTL_MS = '500x';
+    const testCache = new SearchCache();
+
+    try {
+      assert.equal((testCache as any).ttlMs, 86400000);
+    } finally {
+      if (previousTtl === undefined) {
+        delete process.env.SEARCH_CACHE_TTL_MS;
+      } else {
+        process.env.SEARCH_CACHE_TTL_MS = previousTtl;
+      }
+    }
+  }, results);
+
   await testFunction('Global search cache instance', () => {
     searchCache.clear();
 
