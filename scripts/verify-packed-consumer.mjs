@@ -13,124 +13,22 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+  assertArtifactMetadata,
+  assertMcpSmokeResponses,
+  assertPublishWorkflowContract,
+  assertSafeDependencyTree,
+  assertZeroProductionAudit,
+  fail,
+} from './packed-consumer-contracts.mjs';
 
-const PATCHED_NODE_SERVER = Object.freeze([2, 0, 5]);
-const EXPECTED_TOOLS = Object.freeze([
-  'searxng_web_search',
-  'web_url_read',
-  'searxng_search_suggestions',
-  'searxng_instance_info',
-]);
-
-function fail(category, message) {
-  throw new Error(`${category}: ${message}`);
-}
-
-function parseStableSemver(value) {
-  if (typeof value !== 'string') {
-    fail('unsafe_dependency_tree', 'adapter version is missing');
-  }
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
-  if (!match) {
-    fail('unsafe_dependency_tree', `adapter version is invalid: ${value}`);
-  }
-  return match.slice(1, 4).map(Number);
-}
-
-function isAtLeastPatched(version) {
-  for (let index = 0; index < PATCHED_NODE_SERVER.length; index += 1) {
-    if (version[index] > PATCHED_NODE_SERVER[index]) return true;
-    if (version[index] < PATCHED_NODE_SERVER[index]) return false;
-  }
-  return true;
-}
-
-export function assertSafeDependencyTree(tree) {
-  if (!tree || typeof tree !== 'object' || Array.isArray(tree)) {
-    fail('unsafe_dependency_tree', 'npm ls output is not an object');
-  }
-
-  const versions = [];
-  const visit = (node) => {
-    if (!node || typeof node !== 'object' || Array.isArray(node)) {
-      fail('unsafe_dependency_tree', 'dependency node is malformed');
-    }
-    if (Array.isArray(node.problems) && node.problems.length > 0) {
-      fail('unsafe_dependency_tree', `npm problems: ${node.problems.join('; ')}`);
-    }
-    const dependencies = node.dependencies;
-    if (dependencies === undefined) return;
-    if (!dependencies || typeof dependencies !== 'object' || Array.isArray(dependencies)) {
-      fail('unsafe_dependency_tree', 'dependencies map is malformed');
-    }
-    for (const [name, dependency] of Object.entries(dependencies)) {
-      if (!dependency || typeof dependency !== 'object' || Array.isArray(dependency)) {
-        fail('unsafe_dependency_tree', `dependency ${name} is malformed`);
-      }
-      if (name === '@hono/node-server') {
-        if (dependency.invalid) {
-          fail('unsafe_dependency_tree', 'adapter is marked invalid');
-        }
-        if (dependency.extraneous) {
-          fail('unsafe_dependency_tree', 'adapter is marked extraneous');
-        }
-        const parsed = parseStableSemver(dependency.version);
-        if (!isAtLeastPatched(parsed)) {
-          fail(
-            'unsafe_dependency_tree',
-            `adapter version ${dependency.version} is below 2.0.5`,
-          );
-        }
-        versions.push(dependency.version);
-      }
-      visit(dependency);
-    }
-  };
-
-  visit(tree);
-  if (versions.length === 0) {
-    fail('unsafe_dependency_tree', 'patched adapter dependency is missing');
-  }
-  return versions.sort((left, right) => left.localeCompare(right, undefined, {
-    numeric: true,
-  }));
-}
-
-export function assertZeroProductionAudit(report) {
-  const vulnerabilities = report?.metadata?.vulnerabilities;
-  if (!vulnerabilities || typeof vulnerabilities !== 'object') {
-    fail('audit_gate', 'vulnerability metadata is missing');
-  }
-  if (typeof vulnerabilities.total !== 'number' || !Number.isFinite(vulnerabilities.total)) {
-    fail('audit_gate', 'vulnerability total must be numeric');
-  }
-  if (vulnerabilities.total !== 0) {
-    fail('audit_gate', `production audit reported ${vulnerabilities.total} vulnerabilities`);
-  }
-  return vulnerabilities;
-}
-
-export function assertArtifactMetadata(packReport, installedPackage) {
-  if (!packReport || typeof packReport !== 'object') {
-    fail('artifact_metadata', 'npm pack report is missing');
-  }
-  if (!Array.isArray(packReport.files)) {
-    fail('artifact_metadata', 'npm pack file list is missing');
-  }
-  if (packReport.files.some(({ path: filePath }) => (
-    typeof filePath === 'string'
-    && filePath.toLowerCase() === 'npm-shrinkwrap.json'
-  ))) {
-    fail('artifact_metadata', 'npm shrinkwrap is forbidden');
-  }
-  if (!installedPackage || typeof installedPackage !== 'object') {
-    fail('artifact_metadata', 'installed package manifest is missing');
-  }
-  if (installedPackage.dependencies?.['@hono/node-server'] !== undefined) {
-    fail('artifact_metadata', 'direct @hono/node-server dependency is forbidden');
-  }
-  return true;
-}
+export {
+  assertArtifactMetadata,
+  assertMcpSmokeResponses,
+  assertPublishWorkflowContract,
+  assertSafeDependencyTree,
+  assertZeroProductionAudit,
+} from './packed-consumer-contracts.mjs';
 
 export function runCheckedCommand(command, args, {
   cwd,
@@ -157,7 +55,9 @@ export function runCheckedCommand(command, args, {
     fail('infrastructure', `${command} terminated by ${result.signal}`);
   }
   if (result.status !== 0) {
-    fail('infrastructure', `${command} exited with status ${result.status}`);
+    const operation = args.at(0);
+    const commandLabel = operation ? `${command} ${operation}` : command;
+    fail('infrastructure', `${commandLabel} exited with status ${result.status}`);
   }
   return result.stdout ?? '';
 }
@@ -194,152 +94,25 @@ function runJsonCommand(command, args, {
   return { json, status: result.status };
 }
 
-export function assertMcpSmokeResponses(stdout) {
-  const responses = new Map();
-  for (const line of String(stdout).split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const message = JSON.parse(line);
-      if (message && typeof message === 'object' && message.id !== undefined) {
-        responses.set(message.id, message);
-      }
-    } catch {
-      // Diagnostic lines are intentionally ignored; only JSON-RPC IDs are relevant.
-    }
-  }
-  const initialize = responses.get(1);
-  if (!initialize) fail('mcp_smoke', 'initialize response is missing');
-  if (initialize.error) fail('mcp_smoke', 'initialize returned an error');
-  if (!initialize.result || typeof initialize.result !== 'object') {
-    fail('mcp_smoke', 'initialize result is malformed');
-  }
-  const toolsList = responses.get(2);
-  if (!toolsList) fail('mcp_smoke', 'tools/list response is missing');
-  if (toolsList.error) fail('mcp_smoke', 'tools/list returned an error');
-  if (!Array.isArray(toolsList.result?.tools)) {
-    fail('mcp_smoke', 'tools/list tools result is malformed');
-  }
-  const toolNames = new Set(
-    toolsList.result.tools.map((tool) => tool?.name).filter(Boolean),
-  );
-  const missingTools = EXPECTED_TOOLS.filter((name) => !toolNames.has(name));
-  if (missingTools.length > 0) {
-    fail('mcp_smoke', `expected tools are missing: ${missingTools.join(', ')}`);
-  }
-  return toolsList.result.tools.length;
-}
-
-function findStepBlock(lines, commandIndex) {
-  let start = commandIndex;
-  while (start >= 0 && !/^\s{6}-\s/.test(lines[start])) start -= 1;
-  if (start < 0) fail('workflow_contract', 'command is not inside a step');
-  let end = commandIndex + 1;
-  while (end < lines.length && !/^\s{6}-\s/.test(lines[end])) end += 1;
-  return lines.slice(start, end);
-}
-
-export function assertPublishWorkflowContract(yamlText) {
-  const lines = String(yamlText).split(/\r?\n/);
-  const jobStart = lines.findIndex((line) => /^  build-and-publish:\s*$/.test(line));
-  if (jobStart < 0) fail('workflow_contract', 'build-and-publish job is missing');
-  let jobEnd = lines.length;
-  for (let index = jobStart + 1; index < lines.length; index += 1) {
-    if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[index])) {
-      jobEnd = index;
-      break;
-    }
-  }
-  const jobLines = lines.slice(jobStart, jobEnd);
-  if (jobLines.some((line) => /^\s{4}continue-on-error:\s*true\s*$/.test(line))) {
-    fail('workflow_contract', 'job-level continue-on-error is forbidden');
-  }
-
-  const testIndex = jobLines.findIndex(
-    (line) => /^\s+run:\s*.*\bnpm run test:coverage\b/.test(line),
-  );
-  const buildIndex = jobLines.findIndex(
-    (line) => /^\s+run:\s*.*\bnpm run build\b/.test(line),
-  );
-  const verifierIndex = jobLines.findIndex(
-    (line) => /^\s+run:\s*.*\bnpm run verify:packed-consumer\b/.test(line),
-  );
-  const publishIndex = jobLines.findIndex(
-    (line) => /^\s+run:\s*.*\bnpm publish\b/.test(line),
-  );
-  if (testIndex < 0 || buildIndex < 0 || verifierIndex < 0 || publishIndex < 0) {
-    fail('workflow_contract', 'tests, build, verifier, and publish must share one job');
-  }
-  if (!(
-    testIndex < buildIndex
-    && buildIndex < verifierIndex
-    && verifierIndex < publishIndex
-  )) {
-    fail(
-      'workflow_contract',
-      'tests and build must run before the verifier, which must precede publish',
-    );
-  }
-
-  const verifierStep = findStepBlock(jobLines, verifierIndex);
-  const publishStep = findStepBlock(jobLines, publishIndex);
-  for (const step of [verifierStep, publishStep]) {
-    if (step.some((line) => /^\s+continue-on-error:\s*true\s*$/.test(line))) {
-      fail('workflow_contract', 'step-level continue-on-error is forbidden');
-    }
-  }
-  if (publishStep.some((line) => /^\s+if:\s*(?:always|failure)\s*\(\s*\)/.test(line))) {
-    fail('workflow_contract', 'publish cannot run after a failed verifier');
-  }
-  if (verifierStep.some((line) => /\|\|\s*true|set\s+\+e/.test(line))) {
-    fail('workflow_contract', 'verifier exit suppression is forbidden');
-  }
-  const verifierText = verifierStep.join('\n');
-  const publishText = publishStep.join('\n');
-  const outputMatch = /--output\s+("[^"]+"|'[^']+'|\S+)/.exec(verifierText);
-  if (!outputMatch) {
-    fail('workflow_contract', 'verifier output artifact is missing');
-  }
-  const escapedArtifact = outputMatch[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (!new RegExp(`npm publish\\s+${escapedArtifact}(?:\\s|$)`).test(publishText)) {
-    fail('workflow_contract', 'publish must use the exact verified artifact');
-  }
-  return true;
-}
-
 function allowlistedProcessEnvironment() {
-  const allowedNames = [
-    'PATH',
-    'Path',
-    'SystemRoot',
-    'ComSpec',
-    'PATHEXT',
-    'TEMP',
-    'TMP',
-    'TMPDIR',
-    'HOME',
-    'USERPROFILE',
-    'CI',
-    'HTTP_PROXY',
-    'HTTPS_PROXY',
-    'NO_PROXY',
-    'http_proxy',
-    'https_proxy',
-    'no_proxy',
-    'NODE_EXTRA_CA_CERTS',
-    'SSL_CERT_FILE',
-    'SSL_CERT_DIR',
-  ];
-  return Object.fromEntries(
-    allowedNames
-      .filter((name) => process.env[name] !== undefined)
-      .map((name) => [name, process.env[name]]),
-  );
+  const {
+    PATH, Path, SystemRoot, ComSpec, PATHEXT, TEMP, TMP, TMPDIR, HOME,
+    USERPROFILE, CI, HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy,
+    https_proxy, no_proxy, NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR,
+  } = process.env;
+  return Object.fromEntries(Object.entries({
+    PATH, Path, SystemRoot, ComSpec, PATHEXT, TEMP, TMP, TMPDIR, HOME,
+    USERPROFILE, CI, HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy,
+    https_proxy, no_proxy, NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR,
+  }).filter(([, value]) => value !== undefined));
 }
 
 function isolatedNpmEnvironment(root) {
   const userConfig = path.join(root, 'user.npmrc');
   const globalConfig = path.join(root, 'global.npmrc');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- root is created by mkdtempSync for this verifier
   writeFileSync(userConfig, '', 'utf8');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- root is created by mkdtempSync for this verifier
   writeFileSync(globalConfig, '', 'utf8');
   return {
     ...allowlistedProcessEnvironment(),
@@ -387,18 +160,13 @@ function npmInvocation(args) {
     'bin',
     'npm-cli.js',
   );
-  const npmCli = (
-    process.env.npm_execpath
-    && existsSync(process.env.npm_execpath)
-  )
-    ? process.env.npm_execpath
-    : bundledNpm;
-  if (!existsSync(npmCli)) {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is derived from the trusted Node executable location
+  if (!existsSync(bundledNpm)) {
     fail('infrastructure', 'npm CLI entrypoint is unavailable');
   }
   return {
     command: process.execPath,
-    args: [npmCli, ...args],
+    args: [bundledNpm, ...args],
   };
 }
 
@@ -411,7 +179,9 @@ export function verifyPackedConsumer({
   const artifactDirectory = path.join(temporaryRoot, 'artifact');
   const consumerDirectory = path.join(temporaryRoot, 'consumer');
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is under the verifier-created temporary root
     mkdirSync(artifactDirectory);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is under the verifier-created temporary root
     mkdirSync(consumerDirectory);
     const npmEnvironment = isolatedNpmEnvironment(temporaryRoot);
     const packInvocation = npmInvocation([
@@ -445,10 +215,12 @@ export function verifyPackedConsumer({
       fail('infrastructure', 'npm pack did not report exactly one artifact');
     }
     const artifactPath = path.join(artifactDirectory, packedArtifacts[0].filename);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- npm pack reports a file in the verifier-owned artifact directory
     if (!existsSync(artifactPath)) {
       fail('infrastructure', 'npm pack reported an artifact that does not exist');
     }
 
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is under the verifier-created temporary consumer
     writeFileSync(
       path.join(consumerDirectory, 'package.json'),
       `${JSON.stringify({
@@ -489,6 +261,7 @@ export function verifyPackedConsumer({
     );
     let installedPackage;
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is fixed beneath the verifier-created consumer
       installedPackage = JSON.parse(readFileSync(installedManifestPath, 'utf8'));
     } catch {
       fail('artifact_metadata', 'installed package manifest is unreadable');
@@ -540,6 +313,7 @@ export function verifyPackedConsumer({
       'dist',
       'cli.js',
     );
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is fixed beneath the verifier-created consumer
     if (!existsSync(cliPath) && spawn === spawnSync) {
       fail('infrastructure', 'packed CLI is missing after installation');
     }
@@ -580,8 +354,8 @@ if (
     const args = process.argv.slice(2);
     let artifactOutput;
     for (let index = 0; index < args.length; index += 2) {
-      const option = args[index];
-      const value = args[index + 1];
+      const option = args.at(index);
+      const value = args.at(index + 1);
       if (!value) {
         fail(
           'infrastructure',

@@ -1,23 +1,13 @@
 #!/usr/bin/env tsx
 
 import { strict as assert } from 'node:assert';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  assertMcpSmokeResponses,
-  assertArtifactMetadata,
-  assertPublishWorkflowContract,
-  assertSafeDependencyTree,
-  assertZeroProductionAudit,
-  runCheckedCommand,
+  assertMcpSmokeResponses, assertArtifactMetadata, assertPublishWorkflowContract,
+  assertSafeDependencyTree, assertZeroProductionAudit, runCheckedCommand,
   verifyPackedConsumer,
 } from '../../scripts/verify-packed-consumer.mjs';
 import {
@@ -26,82 +16,14 @@ import {
   testFunction,
   TestResult,
 } from '../helpers/test-utils.js';
+import {
+  commandResult, safeTree, treeWithNodeServer,
+  validMcpSmokeOutput, validWorkflow, zeroAudit,
+} from './packed-consumer-fixtures.js';
 
 const results = createTestResults();
 
-const safeTree = {
-  name: 'consumer',
-  version: '1.0.0',
-  dependencies: {
-    'mcp-searxng': {
-      version: '1.12.0',
-      dependencies: {
-        '@modelcontextprotocol/sdk': {
-          version: '1.30.0',
-          dependencies: {
-            '@hono/node-server': { version: '2.0.12' },
-          },
-        },
-      },
-    },
-  },
-};
-
-const validWorkflow = `name: Publish
-jobs:
-  build-and-publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Test package
-        run: npm run test:coverage
-      - name: Build package
-        run: npm run build
-      - name: Verify packed consumer
-        run: npm run verify:packed-consumer -- --output "$RUNNER_TEMP/verified-package.tgz"
-      - name: Publish to npm
-        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance
-  publish-registry:
-    needs: build-and-publish
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo complete
-`;
-
-const zeroAudit = {
-  metadata: {
-    vulnerabilities: {
-      info: 0,
-      low: 0,
-      moderate: 0,
-      high: 0,
-      critical: 0,
-      total: 0,
-    },
-  },
-};
-
-function treeWithNodeServer(nodeServer: object): object {
-  return {
-    ...safeTree,
-    dependencies: {
-      'mcp-searxng': {
-        version: '1.12.0',
-        dependencies: {
-          '@modelcontextprotocol/sdk': {
-            version: '1.30.0',
-            dependencies: {
-              '@hono/node-server': nodeServer,
-            },
-          },
-        },
-      },
-    },
-  };
-}
-
-export async function runTests(): Promise<TestResult> {
-  console.log('Testing: packed consumer release verification\n');
-
+async function runDependencyContractTests(): Promise<void> {
   await testFunction('accepts a clean dependency tree containing only patched adapter copies', () => {
     assert.deepEqual(assertSafeDependencyTree(safeTree), ['2.0.12']);
     const duplicateSafeTree = {
@@ -208,18 +130,17 @@ export async function runTests(): Promise<TestResult> {
       /audit_gate:.*numeric/,
     );
   }, results);
+}
 
+async function runProcessContractTests(): Promise<void> {
   await testFunction('classifies command timeout, spawn, signal, and exit failures as infrastructure errors', () => {
     const baseOptions = { cwd: '.', env: {}, timeoutMs: 1000 };
     assert.throws(
       () => runCheckedCommand('npm', ['install'], {
         ...baseOptions,
-        spawn: () => ({
+        spawn: () => commandResult({
           error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }),
           status: null,
-          signal: null,
-          stdout: '',
-          stderr: '',
         }),
       }),
       /infrastructure:.*timeout/,
@@ -227,12 +148,9 @@ export async function runTests(): Promise<TestResult> {
     assert.throws(
       () => runCheckedCommand('npm', ['install'], {
         ...baseOptions,
-        spawn: () => ({
+        spawn: () => commandResult({
           error: new Error('spawn failed'),
           status: null,
-          signal: null,
-          stdout: '',
-          stderr: '',
         }),
       }),
       /infrastructure:.*spawn failed/,
@@ -240,12 +158,9 @@ export async function runTests(): Promise<TestResult> {
     assert.throws(
       () => runCheckedCommand('npm', ['install'], {
         ...baseOptions,
-        spawn: () => ({
-          error: undefined,
+        spawn: () => commandResult({
           status: null,
           signal: 'SIGTERM',
-          stdout: '',
-          stderr: '',
         }),
       }),
       /infrastructure:.*SIGTERM/,
@@ -253,35 +168,17 @@ export async function runTests(): Promise<TestResult> {
     assert.throws(
       () => runCheckedCommand('npm', ['install'], {
         ...baseOptions,
-        spawn: () => ({
-          error: undefined,
+        spawn: () => commandResult({
           status: 1,
-          signal: null,
-          stdout: '',
           stderr: 'registry unavailable',
         }),
       }),
-      /infrastructure:.*status 1/,
+      /infrastructure:.*npm install.*status 1/,
     );
   }, results);
 
   await testFunction('accepts successful MCP initialize and tools/list responses from the packed CLI', () => {
-    const stdout = [
-      JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2024-11-05' } }),
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 2,
-        result: {
-          tools: [
-            { name: 'searxng_web_search' },
-            { name: 'web_url_read' },
-            { name: 'searxng_search_suggestions' },
-            { name: 'searxng_instance_info' },
-          ],
-        },
-      }),
-    ].join('\n');
-    assert.equal(assertMcpSmokeResponses(stdout), 4);
+    assert.equal(assertMcpSmokeResponses(validMcpSmokeOutput()), 4);
     assert.throws(
       () => assertMcpSmokeResponses(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools: [] } })),
       /mcp_smoke:.*initialize/,
@@ -308,7 +205,9 @@ export async function runTests(): Promise<TestResult> {
       /mcp_smoke:.*expected/,
     );
   }, results);
+}
 
+async function runWorkflowContractTests(): Promise<void> {
   await testFunction('requires an unsuppressed verifier before publish in the same job', () => {
     assert.equal(assertPublishWorkflowContract(validWorkflow), true);
 
@@ -408,6 +307,13 @@ export async function runTests(): Promise<TestResult> {
       ),
       /artifact_metadata:.*direct/,
     );
+    assert.throws(
+      () => assertArtifactMetadata(
+        { filename: 'mcp-searxng-1.12.0.tgz', files: [null] },
+        { name: 'mcp-searxng', dependencies: {} },
+      ),
+      /artifact_metadata:.*file entry/,
+    );
   }, results);
 
   await testFunction('the public npm release workflow enforces the packed-consumer gate', () => {
@@ -418,7 +324,9 @@ export async function runTests(): Promise<TestResult> {
     );
     assert.equal(assertPublishWorkflowContract(workflow), true);
   }, results);
+}
 
+async function runOrchestrationTests(): Promise<void> {
   await testFunction('packs, installs, validates, audits, and smokes an isolated consumer in order', () => {
     const calls: Array<{
       command: string;
@@ -426,13 +334,11 @@ export async function runTests(): Promise<TestResult> {
       options: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number };
     }> = [];
     let temporaryRoot = '';
-    const artifactOutput = path.join(
-      tmpdir(),
-      `mcp-searxng-verified-${process.pid}-${Date.now()}.tgz`,
-    );
+    const artifactOutput = path.join(tmpdir(), `mcp-searxng-verified-${process.pid}-${Date.now()}.tgz`);
     const credentialVariable = ['NODE', 'AUTH', 'TOKEN'].join('_');
     const previousCredential = process.env[credentialVariable];
     process.env[credentialVariable] = 'fixture-release-credential';
+    // #lizard forgives -- fake process dispatch mirrors five deterministic commands
     const spawn = (
       command: string,
       args: string[],
@@ -466,11 +372,7 @@ export async function runTests(): Promise<TestResult> {
           consumerPackage.dependencies['mcp-searxng'],
           /^file:.*mcp-searxng-1\.12\.0\.tgz$/,
         );
-        const installedPackageDirectory = path.join(
-          options.cwd!,
-          'node_modules',
-          'mcp-searxng',
-        );
+        const installedPackageDirectory = path.join(options.cwd!, 'node_modules', 'mcp-searxng');
         // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
         mkdirSync(installedPackageDirectory, { recursive: true });
         // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
@@ -502,21 +404,7 @@ export async function runTests(): Promise<TestResult> {
       return {
         status: 0,
         signal: null,
-        stdout: [
-          JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2024-11-05' } }),
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: 2,
-            result: {
-              tools: [
-                { name: 'searxng_web_search' },
-                { name: 'web_url_read' },
-                { name: 'searxng_search_suggestions' },
-                { name: 'searxng_instance_info' },
-              ],
-            },
-          }),
-        ].join('\n'),
+        stdout: validMcpSmokeOutput(),
         stderr: '',
       };
     };
@@ -593,11 +481,7 @@ export async function runTests(): Promise<TestResult> {
         };
       }
       if (args.includes('install')) {
-        const installedPackageDirectory = path.join(
-          _options.cwd!,
-          'node_modules',
-          'mcp-searxng',
-        );
+        const installedPackageDirectory = path.join(_options.cwd!, 'node_modules', 'mcp-searxng');
         // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
         mkdirSync(installedPackageDirectory, { recursive: true });
         // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
@@ -627,9 +511,15 @@ export async function runTests(): Promise<TestResult> {
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- path was captured from the verifier-created temporary directory
     assert.equal(existsSync(temporaryRoot), false);
   }, results);
+}
 
-  printTestSummary(results, 'Packed Consumer Verification');
-  return results;
+export async function runTests(): Promise<TestResult> {
+  console.log('Testing: packed consumer release verification\n');
+  await runDependencyContractTests();
+  await runProcessContractTests();
+  await runWorkflowContractTests();
+  await runOrchestrationTests();
+  printTestSummary(results, 'Packed Consumer Verification'); return results;
 }
 
 if (

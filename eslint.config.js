@@ -37,4 +37,15 @@ export default [
       'security/detect-object-injection': 'off',
     },
   },
+  // Release scripts handle registry output and temporary paths, so keep the
+  // security rules active and require narrow, justified suppressions.
+  {
+    files: ['scripts/**/*.mjs'],
+    plugins: {
+      'security': security,
+    },
+    rules: {
+      ...security.configs.recommended.rules,
+    },
+  },
 ];
