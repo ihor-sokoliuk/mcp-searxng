@@ -36,8 +36,7 @@ jobs:
       - run: echo complete
 `;
 
-export function invalidPublishWorkflows(): string[] {
-  return [
+export const invalidPublishWorkflows = Object.freeze([
     validWorkflow.replace(
       '      - name: Test package\n        run: npm run test:coverage\n',
       '',
@@ -86,8 +85,19 @@ export function invalidPublishWorkflows(): string[] {
       '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
       '      - name: Publish to npm\n        if: always() # forbidden\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
     ),
-  ];
-}
+    validWorkflow.replace(
+      '    runs-on: ubuntu-latest',
+      '    continue-on-error: ${{ true }}\n    runs-on: ubuntu-latest',
+    ),
+    validWorkflow.replace(
+      '      - name: Publish to npm\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+      '      - name: Publish to npm\n        if: ${{ always() }}\n        run: npm publish "$RUNNER_TEMP/verified-package.tgz" --access public --provenance',
+    ),
+    validWorkflow.replace(
+      '        run: npm run verify:packed-consumer',
+      '        run: npm run verify:packed-consumer||true',
+    ),
+]);
 
 export interface SpawnCall {
   command: string;
