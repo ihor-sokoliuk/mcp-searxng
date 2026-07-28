@@ -16,7 +16,6 @@ import { pathToFileURL } from 'node:url';
 import {
   assertArtifactMetadata,
   assertMcpSmokeResponses,
-  assertPublishWorkflowContract,
   assertSafeDependencyTree,
   assertZeroProductionAudit,
   fail,
