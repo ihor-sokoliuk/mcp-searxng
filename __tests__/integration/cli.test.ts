@@ -53,6 +53,29 @@ async function runTests() {
     );
   }, results);
 
+  await testFunction('MCP_HTTP_PORT rejects a numeric prefix with a suffix', () => {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', 'src/cli.ts'],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MCP_HTTP_PORT: '3000x',
+          SEARXNG_URL: 'https://test-searx.example.com',
+        },
+        encoding: 'utf8',
+        timeout: 2000,
+      }
+    );
+
+    assert.equal(result.status, 1, `expected exit code 1, got ${result.status}; stderr:\n${result.stderr}`);
+    assert.ok(
+      result.stderr.includes('Invalid HTTP port: 3000x'),
+      `expected invalid-port diagnostic in stderr, got:\n${result.stderr}`
+    );
+  }, results);
+
   printTestSummary(results, 'CLI');
   return results;
 }

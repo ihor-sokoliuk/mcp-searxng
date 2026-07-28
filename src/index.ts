@@ -39,6 +39,7 @@ import {
   sanitizeErrorForTransport,
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
+import { parseStrictInteger } from "./env-int.js";
 
 import { packageVersion } from "./version.js";
 
@@ -92,8 +93,8 @@ function getFetchTimeoutMs(mcpServer: McpServer): number {
     return 10000;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
+  const parsed = parseStrictInteger(rawValue);
+  if (parsed === undefined || parsed <= 0) {
     logMessage(
       mcpServer,
       "warning",
@@ -111,8 +112,8 @@ function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
     return undefined;
   }
 
-  const parsed = parseInt(rawValue, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
+  const parsed = parseStrictInteger(rawValue);
+  if (parsed === undefined || parsed <= 0) {
     logMessage(
       mcpServer,
       "warning",
@@ -348,8 +349,8 @@ export async function main() {
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
   if (httpPort) {
-    const port = parseInt(httpPort, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
+    const port = parseStrictInteger(httpPort);
+    if (port === undefined || port < 1 || port > 65535) {
       writeDiagnostic("error", `Invalid HTTP port: ${httpPort}. Must be between 1-65535.`);
       process.exit(1);
     }

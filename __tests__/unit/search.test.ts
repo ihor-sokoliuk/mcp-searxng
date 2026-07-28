@@ -1048,6 +1048,20 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('SEARXNG_MAX_RESULTS rejects a numeric prefix with a suffix', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULTS', '5s');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: makeMockSearchResults(6) } }));
+
+    const result = await performWebSearch(mockServer as any, 'suffix max results');
+    assert.ok(result.includes('Result 6'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('Omitted num_results and unset SEARXNG_MAX_RESULTS preserves all results', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     envManager.delete('SEARXNG_MAX_RESULTS');
@@ -1139,6 +1153,29 @@ async function runTests() {
     fetchMocker.mock(mockFetch);
 
     const result = await performWebSearch(mockServer as any, 'test query');
+    assert.ok(result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_MAX_RESULT_CHARS rejects a numeric prefix with a suffix', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '5x');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        results: [{
+          title: 'Untruncated suffix result',
+          content: 'abcdefghijklmnopqrstuvwxyz',
+          url: 'https://example.com/untruncated-suffix',
+          score: 1,
+        }],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'suffix max chars');
     assert.ok(result.includes('Description: abcdefghijklmnopqrstuvwxyz'));
 
     fetchMocker.restore();
@@ -1996,6 +2033,31 @@ async function runTests() {
 
     const url = new URL(getCapturedUrl());
     assert.equal(url.searchParams.get('safesearch'), null, 'Invalid SEARXNG_DEFAULT_SAFESEARCH should not set URL param');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('SEARXNG_DEFAULT_SAFESEARCH rejects a numeric prefix with a suffix', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_DEFAULT_SAFESEARCH', '1x');
+
+    const mockServer = createMockServer();
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+
+    fetchMocker.mock(async (url, options) => {
+      await mockFetch(url, options);
+      throw new Error('MOCK_STOP');
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'suffix safe search');
+    } catch {
+      // expected
+    }
+
+    const url = new URL(getCapturedUrl());
+    assert.equal(url.searchParams.get('safesearch'), null);
 
     fetchMocker.restore();
     envManager.restore();
