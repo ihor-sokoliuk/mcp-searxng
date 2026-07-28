@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
-import { applySearchRequestConfig } from "./proxy.js";
+import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import { getPrimarySearxngInstance, stripSearxngInstanceUrlUserinfo } from "./searxng-instances.js";
 
 export async function performSearchSuggestions(
@@ -27,7 +27,7 @@ export async function performSearchSuggestions(
     };
     applySearchRequestConfig(requestOptions, url.toString());
 
-    const response = await fetch(requestUrl.toString(), requestOptions);
+    const response = await fetchSearxng(requestUrl.toString(), requestOptions);
     if (!response.ok) {
       return [];
     }

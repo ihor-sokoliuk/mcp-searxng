@@ -1,5 +1,5 @@
 import * as dns from "node:dns";
-import { Agent, ProxyAgent } from "undici";
+import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { getConnectOptions } from "./tls-config.js";
 import { createUrlSecurityPolicyDnsError, isPrivateAddress } from "./url-security.js";
@@ -10,6 +10,23 @@ type LookupCallback = (
   address: string | dns.LookupAddress[],
   family?: number,
 ) => void;
+
+type SearxngFetch = typeof globalThis.fetch;
+const defaultSearxngFetch = undiciFetch as unknown as SearxngFetch;
+let searxngFetch = defaultSearxngFetch;
+
+export function fetchSearxng(
+  input: string | URL | Request,
+  options?: RequestInit,
+): Promise<Response> {
+  return searxngFetch(input, options);
+}
+
+export function setSearxngFetchForTesting(
+  implementation: SearxngFetch = defaultSearxngFetch,
+): void {
+  searxngFetch = implementation;
+}
 
 export function createUrlReaderLookup() {
   return (hostname: string, options: dns.LookupOptions, callback: LookupCallback): void => {

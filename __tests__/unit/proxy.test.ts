@@ -8,7 +8,14 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { createProxyAgent, createDefaultAgent, applySearchRequestConfig, ProxyType } from '../../src/proxy.js';
+import {
+  createProxyAgent,
+  createDefaultAgent,
+  applySearchRequestConfig,
+  fetchSearxng,
+  setSearxngFetchForTesting,
+  ProxyType,
+} from '../../src/proxy.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
 
@@ -502,6 +509,32 @@ async function runTests() {
     assert.equal(headers['user-agent'], 'MyBot/1.0', 'User-Agent should be set');
 
     envManager.restore();
+  }, results);
+
+  await testFunction('fetchSearxng forwards requests through the configured implementation', async () => {
+    const expectedResponse = { ok: true, status: 200 } as Response;
+    let capturedInput: string | URL | Request | undefined;
+    let capturedOptions: RequestInit | undefined;
+
+    setSearxngFetchForTesting(async (input, options) => {
+      capturedInput = input;
+      capturedOptions = options;
+      return expectedResponse;
+    });
+
+    try {
+      const options: RequestInit = {
+        method: 'POST',
+        headers: { 'X-Test': 'forwarded' },
+      };
+      const response = await fetchSearxng('https://searx.example.com/search', options);
+
+      assert.equal(response, expectedResponse);
+      assert.equal(capturedInput, 'https://searx.example.com/search');
+      assert.equal(capturedOptions, options);
+    } finally {
+      setSearxngFetchForTesting();
+    }
   }, results);
 
   printTestSummary(results, 'Proxy Module');
