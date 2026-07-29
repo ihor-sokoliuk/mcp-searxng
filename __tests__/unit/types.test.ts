@@ -36,6 +36,7 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', language: 'en' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test search' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'day' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 2 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1, time_range: 'week', safesearch: 2 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 0 }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', safesearch: 1 }), true);
@@ -61,6 +62,7 @@ async function runTests() {
   await testFunction('isSearXNGWebSearchArgs type guard - invalid optional parameters', () => {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 0 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: -1 }), false);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: 1.5 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: '1' }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', time_range: 'last week' }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', language: 123 }), false);
@@ -89,6 +91,8 @@ async function runTests() {
     assert.equal(properties.min_score.type, 'number');
     assert.equal(properties.min_score.minimum, 0);
     assert.equal(properties.min_score.maximum, 1);
+    assert.equal(properties.pageno.type, 'integer');
+    assert.equal(properties.pageno.minimum, 1);
     assert.equal(properties.num_results.type, 'number');
     assert.equal(properties.num_results.minimum, 1);
     assert.equal(properties.num_results.maximum, 20);
