@@ -661,7 +661,7 @@ export async function fetchAndConvertToMarkdown(
     }
 
     // Only cache successful markdown conversion
-    urlCache.set(url, rawContent, markdownContent);
+    urlCache.set(url, markdownContent);
 
     // Apply pagination options
     const result = applyPaginationOptions(markdownContent, paginationOptions);

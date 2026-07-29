@@ -46,10 +46,10 @@ async function runTests() {
     const testCache = new SimpleCache(1000); // 1 second TTL
 
     // Test set and get
-    testCache.set('test-url', '<html>test</html>', '# Test');
+    testCache.set('test-url', '# Test');
     const entry = testCache.get('test-url');
     assert.ok(entry);
-    assert.equal(entry.htmlContent, '<html>test</html>');
+    assert.equal(Object.hasOwn(entry, 'htmlContent'), false);
     assert.equal(entry.markdownContent, '# Test');
 
     testCache.destroy();
@@ -58,7 +58,7 @@ async function runTests() {
   await testFunction('Cache hitCount increments on repeated get() hits', () => {
     const testCache = new SimpleCache(1000);
 
-    testCache.set('popular-url', '<html>popular</html>', '# Popular');
+    testCache.set('popular-url', '# Popular');
 
     assert.equal(testCache.get('popular-url')?.hitCount, 1);
     assert.equal(testCache.get('popular-url')?.hitCount, 2);
@@ -80,7 +80,7 @@ async function runTests() {
     try {
       testCache = new SimpleCache(50); // 50ms TTL
 
-      testCache.set('short-lived', '<html>test</html>', '# Test');
+      testCache.set('short-lived', '# Test');
 
       // Should exist immediately
       assert.ok(testCache.get('short-lived'));
@@ -102,7 +102,7 @@ async function runTests() {
       process.env.CACHE_TTL_MS = '1000';
       testCache = new SimpleCache();
 
-      testCache.set('env-ttl', '<html>test</html>', '# Test');
+      testCache.set('env-ttl', '# Test');
 
       assert.ok(testCache.get('env-ttl'));
 
@@ -188,8 +188,8 @@ async function runTests() {
   await testFunction('Cache clear functionality', () => {
     const testCache = new SimpleCache(1000);
 
-    testCache.set('url1', '<html>1</html>', '# 1');
-    testCache.set('url2', '<html>2</html>', '# 2');
+    testCache.set('url1', '# 1');
+    testCache.set('url2', '# 2');
 
     assert.ok(testCache.get('url1'));
     assert.ok(testCache.get('url2'));
@@ -205,8 +205,8 @@ async function runTests() {
   await testFunction('Cache statistics', () => {
     const testCache = new SimpleCache(1000);
 
-    testCache.set('url1', '<html>1</html>', '# 1');
-    testCache.set('url2', '<html>2</html>', '# 2');
+    testCache.set('url1', '# 1');
+    testCache.set('url2', '# 2');
 
     const stats = testCache.getStats();
     assert.equal(stats.size, 2);
@@ -222,14 +222,14 @@ async function runTests() {
   await testFunction('Cache evicts lowest hitCount entry when capacity is exceeded', () => {
     const testCache = new SimpleCache(1000, 2);
 
-    testCache.set('popular-url', '<html>popular</html>', '# Popular');
-    testCache.set('cold-url', '<html>cold</html>', '# Cold');
+    testCache.set('popular-url', '# Popular');
+    testCache.set('cold-url', '# Cold');
 
     for (let i = 0; i < 5; i++) {
       assert.ok(testCache.get('popular-url'));
     }
 
-    testCache.set('new-url', '<html>new</html>', '# New');
+    testCache.set('new-url', '# New');
 
     assert.ok(testCache.get('popular-url'), 'Expected popular URL to remain cached');
     assert.equal(testCache.get('cold-url'), null, 'Expected cold URL to be evicted');
@@ -244,7 +244,7 @@ async function runTests() {
     try {
       testCache = new SimpleCache(50, 2, 1000);
 
-      testCache.set('expired-popular-url', '<html>expired</html>', '# Expired');
+      testCache.set('expired-popular-url', '# Expired');
       for (let i = 0; i < 5; i++) {
         assert.ok(testCache.get('expired-popular-url'));
       }
@@ -252,8 +252,8 @@ async function runTests() {
       // Advance past the 50ms TTL so the popular entry is now expired
       advance(51);
 
-      testCache.set('fresh-url', '<html>fresh</html>', '# Fresh');
-      testCache.set('new-url', '<html>new</html>', '# New');
+      testCache.set('fresh-url', '# Fresh');
+      testCache.set('new-url', '# New');
 
       assert.equal(testCache.get('expired-popular-url'), null, 'Expected expired popular URL to be purged');
       assert.ok(testCache.get('fresh-url'), 'Expected fresh URL to remain cached');
@@ -281,10 +281,10 @@ async function runTests() {
     const testCache = new SimpleCache();
 
     try {
-      testCache.set('url1', '<html>1</html>', '# 1');
-      testCache.set('url2', '<html>2</html>', '# 2');
-      testCache.set('url3', '<html>3</html>', '# 3');
-      testCache.set('url4', '<html>4</html>', '# 4');
+      testCache.set('url1', '# 1');
+      testCache.set('url2', '# 2');
+      testCache.set('url3', '# 3');
+      testCache.set('url4', '# 4');
 
       assert.equal(testCache.getStats().size, 3);
       assert.equal(testCache.get('url1'), null);
@@ -305,7 +305,7 @@ async function runTests() {
     // Test that global cache exists and works
     urlCache.clear(); // Start fresh
 
-    urlCache.set('global-test', '<html>global</html>', '# Global');
+    urlCache.set('global-test', '# Global');
     const entry = urlCache.get('global-test');
 
     assert.ok(entry);
@@ -319,7 +319,7 @@ async function runTests() {
     try {
       testCache = new SimpleCache(50); // 50ms TTL
 
-      testCache.set('cleanup-test', '<html>test</html>', '# Test');
+      testCache.set('cleanup-test', '# Test');
 
       // Advance past the TTL
       advance(51);
@@ -340,7 +340,7 @@ async function runTests() {
     try {
       testCache = new SimpleCache(50, 500, 1); // 50ms TTL, 1ms cleanup interval
 
-      testCache.set('cleanup-target', '<html>test</html>', '# Test');
+      testCache.set('cleanup-target', '# Test');
       assert.equal(testCache.getStats().size, 1);
 
       // Logically expire the entry, then let the 1ms interval fire and purge it.
