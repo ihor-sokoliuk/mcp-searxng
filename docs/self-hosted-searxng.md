@@ -11,7 +11,7 @@ procedure for your packaging or orchestrator.
 | Concern | SearXNG | mcp-searxng | Shared boundary |
 |---|---|---|---|
 | Deployment and capabilities | Runs the metasearch service and exposes its configured formats, categories, providers, locales, and plugins. | Consumes the public search and administration APIs. | A capability must exist upstream before an MCP request can rely on it. |
-| Request construction | Applies server defaults and forwards supported filters to upstream providers. | Builds every upstream search request with `format=json`, plus caller or operator defaults. | Language, safe search, categories, and provider filters can be set at both layers. |
+| Request construction | Applies server defaults and forwards supported filters to upstream providers. | Builds every upstream search request with `format=json`, plus caller or operator defaults. | Language, safe search, categories, and engine filters can be set at both layers. |
 | Results | Produces answers, results, suggestions, corrections, and provider error metadata. | Filters, limits, formats, deduplicates, and caches returned data. | Poor or empty output can originate upstream or from MCP-side filters, limits, or cache state. |
 | Availability | Owns its process, storage, provider connectivity, and local recovery. | Selects configured replicas and performs ordered failover or optional fan-out. | Timeouts and partial failures must be diagnosed at both layers. |
 | Network security | Owns ingress TLS, any front-end authentication, the limiter, Valkey, and reverse-proxy trust. | Owns MCP transport security, outbound proxy selection, credentials used for SearXNG, and Node.js CA trust. | Authentication, TLS, forwarded client identity, egress policy, and rate limiting require compatible settings on both sides. |
@@ -230,7 +230,7 @@ layer:
 3. **Partial degradation:** Inspect the JSON error metadata and SearXNG logs.
    A useful result set can coexist with unavailable providers.
 4. **Empty or poor results:** Compare the same query directly and through
-   `searxng_web_search`. Repeat without optional category, provider, language,
+   `searxng_web_search`. Repeat without optional category, engine, language,
    time, safe-search, score, or result-count filters to isolate the constraint.
 5. **Capability drift:** Call `searxng_instance_info` with `refresh=true` and
    compare its inventory with the direct capability response after SearXNG
