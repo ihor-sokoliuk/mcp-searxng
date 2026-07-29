@@ -9,6 +9,7 @@
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { 
+  DEFAULT_LOG_LEVEL,
   logMessage, 
   shouldLog, 
   setLogLevel, 
@@ -22,26 +23,50 @@ import {
 } from '../../src/diagnostic-sanitizer.js';
 
 const results = createTestResults();
+const testServer = createMockServerWithTracking().server as any;
 
 async function runTests() {
   console.log('🧪 Testing: logging.ts\n');
 
+  await testFunction('Default log level is explicit and deterministic', () => {
+    const freshServer = createMockServerWithTracking().server;
+    assert.equal(DEFAULT_LOG_LEVEL, 'info');
+    assert.equal(getCurrentLogLevel(freshServer as any), DEFAULT_LOG_LEVEL);
+    assert.equal(getCurrentLogLevel(), DEFAULT_LOG_LEVEL);
+  }, results);
+
   await testFunction('Log level filtering', () => {
-    setLogLevel('error');
-    assert.equal(shouldLog('error'), true);
-    assert.equal(shouldLog('info'), false);
+    setLogLevel(testServer, 'error');
+    assert.equal(shouldLog(testServer, 'error'), true);
+    assert.equal(shouldLog(testServer, 'info'), false);
     
-    setLogLevel('debug');  
-    assert.equal(shouldLog('error'), true);
-    assert.equal(shouldLog('debug'), true);
+    setLogLevel(testServer, 'debug');
+    assert.equal(shouldLog(testServer, 'error'), true);
+    assert.equal(shouldLog(testServer, 'debug'), true);
   }, results);
 
   await testFunction('Get and set current log level', () => {
-    setLogLevel('warning');
-    assert.equal(getCurrentLogLevel(), 'warning');
+    setLogLevel(testServer, 'warning');
+    assert.equal(getCurrentLogLevel(testServer), 'warning');
     
-    setLogLevel('info');
-    assert.equal(getCurrentLogLevel(), 'info');
+    setLogLevel(testServer, 'info');
+    assert.equal(getCurrentLogLevel(testServer), 'info');
+  }, results);
+
+  await testFunction('Log levels are isolated by MCP server identity', () => {
+    const first = createMockServerWithTracking().server;
+    const second = createMockServerWithTracking().server;
+
+    assert.equal(getCurrentLogLevel(first as any), 'info');
+    assert.equal(getCurrentLogLevel(second as any), 'info');
+
+    setLogLevel(first as any, 'debug');
+    setLogLevel(second as any, 'error');
+
+    assert.equal(getCurrentLogLevel(first as any), 'debug');
+    assert.equal(getCurrentLogLevel(second as any), 'error');
+    assert.equal(shouldLog(first as any, 'debug'), true);
+    assert.equal(shouldLog(second as any, 'debug'), false);
   }, results);
 
   await testFunction('All log levels work correctly', () => {
@@ -57,9 +82,9 @@ async function runTests() {
     ] as const;
     
     for (const level of levels) {
-      setLogLevel(level);
+      setLogLevel(testServer, level);
       for (const testLevel of levels) {
-        const result = shouldLog(testLevel);
+        const result = shouldLog(testServer, testLevel);
         assert.equal(typeof result, 'boolean');
       }
     }
@@ -67,16 +92,16 @@ async function runTests() {
 
   await testFunction('RFC 5424 thresholds filter lower-severity messages', () => {
     try {
-      setLogLevel('notice');
-      assert.equal(shouldLog('info'), false);
-      assert.equal(shouldLog('notice'), true);
-      assert.equal(shouldLog('warning'), true);
+      setLogLevel(testServer, 'notice');
+      assert.equal(shouldLog(testServer, 'info'), false);
+      assert.equal(shouldLog(testServer, 'notice'), true);
+      assert.equal(shouldLog(testServer, 'warning'), true);
 
-      setLogLevel('emergency');
-      assert.equal(shouldLog('error'), false);
-      assert.equal(shouldLog('emergency'), true);
+      setLogLevel(testServer, 'emergency');
+      assert.equal(shouldLog(testServer, 'error'), false);
+      assert.equal(shouldLog(testServer, 'emergency'), true);
     } finally {
-      setLogLevel('info');
+      setLogLevel(testServer, 'info');
     }
   }, results);
 
@@ -84,7 +109,7 @@ async function runTests() {
     const { server, getLoggingCalls } = createMockServerWithTracking();
 
     // Test different log levels
-    setLogLevel('debug'); // Allow all messages
+    setLogLevel(server as any, 'debug'); // Allow all messages
     
     logMessage(server as any, 'info', 'Test info message');
     logMessage(server as any, 'warning', 'Test warning message');
@@ -102,7 +127,7 @@ async function runTests() {
       AUTH_PASSWORD: 'log-secret',
     });
     const { server, getLoggingCalls } = createMockServerWithTracking();
-    setLogLevel('debug');
+    setLogLevel(server as any, 'debug');
 
     logMessage(
       server as any,
@@ -119,7 +144,7 @@ async function runTests() {
     assert.ok(!serialized.includes('log-secret'), serialized);
     assert.ok(serialized.includes('[redacted]'), serialized);
     resetDiagnosticSanitizerForTests();
-    setLogLevel('info');
+    setLogLevel(server as any, 'info');
   }, results);
 
   await testFunction('logging-send failures sanitize errors before stderr output', async () => {
@@ -132,17 +157,18 @@ async function runTests() {
     const originalError = console.error;
     console.error = (...args: unknown[]) => calls.push(args);
     try {
-      setLogLevel('debug');
-      logMessage({
+      const server = {
         sendLoggingMessage: async () => {
           throw new Error('send failed for send-user:send-secret');
         },
-      } as any, 'error', 'safe');
+      } as any;
+      setLogLevel(server, 'debug');
+      logMessage(server, 'error', 'safe');
       await new Promise(resolve => setTimeout(resolve, 10));
     } finally {
       console.error = originalError;
       resetDiagnosticSanitizerForTests();
-      setLogLevel('info');
+      setLogLevel(testServer, 'info');
     }
 
     const output = calls.flat().map((value) => (
@@ -154,29 +180,29 @@ async function runTests() {
 
   await testFunction('shouldLog edge cases', () => {
     // Test with all combinations of log levels
-    setLogLevel('error');
-    assert.equal(shouldLog('error'), true);
-    assert.equal(shouldLog('warning'), false);
-    assert.equal(shouldLog('info'), false);
-    assert.equal(shouldLog('debug'), false);
+    setLogLevel(testServer, 'error');
+    assert.equal(shouldLog(testServer, 'error'), true);
+    assert.equal(shouldLog(testServer, 'warning'), false);
+    assert.equal(shouldLog(testServer, 'info'), false);
+    assert.equal(shouldLog(testServer, 'debug'), false);
     
-    setLogLevel('warning');
-    assert.equal(shouldLog('error'), true);
-    assert.equal(shouldLog('warning'), true);
-    assert.equal(shouldLog('info'), false);
-    assert.equal(shouldLog('debug'), false);
+    setLogLevel(testServer, 'warning');
+    assert.equal(shouldLog(testServer, 'error'), true);
+    assert.equal(shouldLog(testServer, 'warning'), true);
+    assert.equal(shouldLog(testServer, 'info'), false);
+    assert.equal(shouldLog(testServer, 'debug'), false);
     
-    setLogLevel('info');
-    assert.equal(shouldLog('error'), true);
-    assert.equal(shouldLog('warning'), true);
-    assert.equal(shouldLog('info'), true);
-    assert.equal(shouldLog('debug'), false);
+    setLogLevel(testServer, 'info');
+    assert.equal(shouldLog(testServer, 'error'), true);
+    assert.equal(shouldLog(testServer, 'warning'), true);
+    assert.equal(shouldLog(testServer, 'info'), true);
+    assert.equal(shouldLog(testServer, 'debug'), false);
     
-    setLogLevel('debug');
-    assert.equal(shouldLog('error'), true);
-    assert.equal(shouldLog('warning'), true);
-    assert.equal(shouldLog('info'), true);
-    assert.equal(shouldLog('debug'), true);
+    setLogLevel(testServer, 'debug');
+    assert.equal(shouldLog(testServer, 'error'), true);
+    assert.equal(shouldLog(testServer, 'warning'), true);
+    assert.equal(shouldLog(testServer, 'info'), true);
+    assert.equal(shouldLog(testServer, 'debug'), true);
   }, results);
 
   await testFunction('logMessage silently ignores async "Not connected" errors', async () => {
@@ -186,12 +212,12 @@ async function runTests() {
       }
     };
 
-    setLogLevel('debug');
+    setLogLevel(server as any, 'debug');
     // Should not throw
     logMessage(server as any, 'info', 'test message');
     // Wait for the async rejection to be handled
     await new Promise(resolve => setTimeout(resolve, 10));
-    setLogLevel('info');
+    setLogLevel(server as any, 'info');
   }, results);
 
   await testFunction('logMessage silently ignores sync "Not connected" errors', () => {
@@ -201,10 +227,10 @@ async function runTests() {
       }
     };
 
-    setLogLevel('debug');
+    setLogLevel(server as any, 'debug');
     // Should not throw
     logMessage(server as any, 'info', 'test message');
-    setLogLevel('info');
+    setLogLevel(server as any, 'info');
   }, results);
 
   await testFunction('logMessage logs non-"Not connected" async errors to console.error', async () => {
@@ -218,12 +244,12 @@ async function runTests() {
       }
     };
 
-    setLogLevel('debug');
+    setLogLevel(server as any, 'debug');
     logMessage(server as any, 'info', 'test message');
     await new Promise(resolve => setTimeout(resolve, 10));
 
     console.error = originalError;
-    setLogLevel('info');
+    setLogLevel(server as any, 'info');
     assert.ok(consoleErrors.length > 0, 'Expected console.error to be called');
   }, results);
 
@@ -238,11 +264,11 @@ async function runTests() {
       }
     };
 
-    setLogLevel('debug');
+    setLogLevel(server as any, 'debug');
     logMessage(server as any, 'info', 'test message');
 
     console.error = originalError;
-    setLogLevel('info');
+    setLogLevel(server as any, 'info');
     assert.ok(consoleErrors.length > 0, 'Expected console.error to be called');
   }, results);
 

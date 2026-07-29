@@ -275,7 +275,7 @@ export function createMcpServer(): McpServer {
   server.setRequestHandler(SetLevelRequestSchema, async (request) => {
     const { level } = request.params;
     logMessage(mcpServer, "info", `Setting log level to: ${level}`);
-    setLogLevel(level);
+    setLogLevel(mcpServer, level);
     return {};
   });
 
@@ -319,7 +319,7 @@ export function createMcpServer(): McpServer {
             {
               uri: uri,
               mimeType: "application/json",
-              text: createConfigResource()
+              text: createConfigResource(mcpServer)
             }
           ]
         };
@@ -401,7 +401,7 @@ export async function main() {
     
     // Log after connection is established
     logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
-    logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel()}`);
+    logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel(mcpServer)}`);
     logMessage(mcpServer, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
     const searxngInstances = getSearxngInstances();
     logMessage(

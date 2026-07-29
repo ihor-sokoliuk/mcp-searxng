@@ -1,3 +1,4 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getCurrentLogLevel } from "./logging.js";
 import { packageVersion } from "./version.js";
 import { getHttpSecurityConfig } from "./http-security.js";
@@ -58,7 +59,7 @@ function hasConfiguredAuth(): boolean {
   });
 }
 
-export function createConfigResource() {
+export function createConfigResource(mcpServer?: McpServer) {
   const security = getHttpSecurityConfig();
   const showFullConfig = !security.harden || security.exposeFullConfig;
 
@@ -76,7 +77,7 @@ export function createConfigResource() {
       hasProxy: !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy),
       hasNoProxy: !!(process.env.NO_PROXY || process.env.no_proxy),
       nodeVersion: process.version,
-      currentLogLevel: getCurrentLogLevel()
+      currentLogLevel: getCurrentLogLevel(mcpServer)
     },
     capabilities: {
       tools: [

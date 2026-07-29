@@ -36,7 +36,7 @@ async function runTests() {
     // Check that config includes environment information
     assert.ok(parsed.environment);
     assert.ok(parsed.environment.searxngUrl || parsed.environment.hasOwnProperty('searxngUrl'));
-    assert.ok(parsed.environment.currentLogLevel || parsed.environment.hasOwnProperty('currentLogLevel'));
+    assert.equal(parsed.environment.currentLogLevel, 'info');
   }, results);
 
   await testFunction('createHelpResource returns markdown string', () => {
