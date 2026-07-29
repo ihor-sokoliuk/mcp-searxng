@@ -48,7 +48,7 @@ Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. 
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
 - **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
 - **URL Content Reading**: Content-type-aware Markdown conversion with pagination, section filtering, paragraph ranges, and heading extraction.
-- **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and LRU eviction, reducing redundant requests.
+- **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
 - **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
 - **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
 - **HTML Fallback**: Optionally parse results from the HTML page for public instances that reject `format=json`.
