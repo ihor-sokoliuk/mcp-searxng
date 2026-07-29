@@ -59,6 +59,25 @@ function hasConfiguredAuth(): boolean {
   });
 }
 
+const PROXY_ENVIRONMENT_KEYS = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "SEARCH_HTTP_PROXY",
+  "SEARCH_HTTPS_PROXY",
+  "search_http_proxy",
+  "search_https_proxy",
+  "URL_READER_HTTP_PROXY",
+  "URL_READER_HTTPS_PROXY",
+  "url_reader_http_proxy",
+  "url_reader_https_proxy",
+] as const;
+
+function hasConfiguredProxy(): boolean {
+  return PROXY_ENVIRONMENT_KEYS.some((key) => Boolean(process.env[key]));
+}
+
 export function createConfigResource(mcpServer?: McpServer) {
   const security = getHttpSecurityConfig();
   const showFullConfig = !security.harden || security.exposeFullConfig;
@@ -74,7 +93,7 @@ export function createConfigResource(mcpServer?: McpServer) {
         ? { searxngUrl: redactedConfiguredSearxngUrl() }
         : { searxngUrlConfigured: !!process.env.SEARXNG_URL }),
       hasAuth: hasConfiguredAuth(),
-      hasProxy: !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy),
+      hasProxy: hasConfiguredProxy(),
       hasNoProxy: !!(process.env.NO_PROXY || process.env.no_proxy),
       nodeVersion: process.version,
       currentLogLevel: getCurrentLogLevel(mcpServer)

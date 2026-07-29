@@ -14,6 +14,26 @@ import { EnvManager } from '../helpers/env-utils.js';
 
 const results = createTestResults();
 const envManager = new EnvManager();
+const proxyEnvironmentKeys = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'SEARCH_HTTP_PROXY',
+  'SEARCH_HTTPS_PROXY',
+  'search_http_proxy',
+  'search_https_proxy',
+  'URL_READER_HTTP_PROXY',
+  'URL_READER_HTTPS_PROXY',
+  'url_reader_http_proxy',
+  'url_reader_https_proxy',
+] as const;
+
+function clearProxyEnvironment() {
+  for (const key of proxyEnvironmentKeys) {
+    envManager.delete(key);
+  }
+}
 
 async function runTests() {
   console.log('🧪 Testing: resources.ts\n');
@@ -136,20 +156,22 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('createConfigResource - hasProxy true when HTTP_PROXY set', () => {
-    envManager.set('HTTP_PROXY', 'http://proxy:8080');
+  await testFunction('createConfigResource - hasProxy true for every supported proxy variable', () => {
+    try {
+      for (const key of proxyEnvironmentKeys) {
+        clearProxyEnvironment();
+        envManager.set(key, 'http://proxy:8080');
 
-    const config = JSON.parse(createConfigResource());
-    assert.equal(config.environment.hasProxy, true);
-
-    envManager.restore();
+        const config = JSON.parse(createConfigResource());
+        assert.equal(config.environment.hasProxy, true, `expected ${key} to be reported`);
+      }
+    } finally {
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('createConfigResource - hasProxy false when no proxy set', () => {
-    envManager.delete('HTTP_PROXY');
-    envManager.delete('HTTPS_PROXY');
-    envManager.delete('http_proxy');
-    envManager.delete('https_proxy');
+    clearProxyEnvironment();
 
     const config = JSON.parse(createConfigResource());
     assert.equal(config.environment.hasProxy, false);
