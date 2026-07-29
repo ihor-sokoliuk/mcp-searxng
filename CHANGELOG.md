@@ -3,6 +3,37 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.12.1] - 2026-07-28
+
+### Fixed
+
+- **Configuration integers are now validated consistently:** Cache limits, timeouts, HTTP settings, URL content limits, and search page numbers reject fractional, unit-suffixed, non-decimal, unsafe, and otherwise malformed values instead of accepting numeric prefixes or truncating fractions. ([#201](https://github.com/ihor-sokoliuk/mcp-searxng/pull/201), [#202](https://github.com/ihor-sokoliuk/mcp-searxng/pull/202), [#211](https://github.com/ihor-sokoliuk/mcp-searxng/pull/211))
+
+- **Search and URL caching now preserve only useful final results:** Empty searches are no longer cached, URL-reader entries retain the final markdown instead of redundant raw payloads, and SearXNG requests use aligned fetch and dispatcher clients. ([#203](https://github.com/ihor-sokoliuk/mcp-searxng/pull/203), [#206](https://github.com/ihor-sokoliuk/mcp-searxng/pull/206), [#207](https://github.com/ihor-sokoliuk/mcp-searxng/pull/207))
+
+- **CLI metadata flags no longer initialize the MCP server:** `--help`, `-h`, `--version`, and `-v` return immediately through a minimal path, avoiding configuration and network startup side effects. ([#204](https://github.com/ihor-sokoliuk/mcp-searxng/pull/204))
+
+- **MCP logging thresholds are isolated per server session:** Changing one connected client's log level no longer changes the threshold used by other sessions. ([#205](https://github.com/ihor-sokoliuk/mcp-searxng/pull/205))
+
+- **The default Compose deployment now remains STDIO-only:** HTTP transport is no longer exposed unless it is explicitly configured. ([#198](https://github.com/ihor-sokoliuk/mcp-searxng/pull/198))
+
+- **Server configuration now reports every supported proxy source:** The `hasProxy` indicator includes global, search-specific, and URL-reader-specific HTTP and HTTPS proxy variables in either case. ([#212](https://github.com/ihor-sokoliuk/mcp-searxng/pull/212))
+
+- **Development and regression tooling is more reliable:** Coverage works on supported Node releases, test environment mutations are restored even after failures, and documentation now accurately describes configuration exposure, LFU eviction, fallback errors, and available test commands. ([#199](https://github.com/ihor-sokoliuk/mcp-searxng/pull/199), [#200](https://github.com/ihor-sokoliuk/mcp-searxng/pull/200), [#208](https://github.com/ihor-sokoliuk/mcp-searxng/pull/208), [#209](https://github.com/ihor-sokoliuk/mcp-searxng/pull/209), [#210](https://github.com/ihor-sokoliuk/mcp-searxng/pull/210), [#213](https://github.com/ihor-sokoliuk/mcp-searxng/pull/213))
+
+### Security
+
+- **Published-package dependency verification is now fail-closed:** The MCP SDK is updated from 1.29.0 to 1.30.0 so clean consumer installs can resolve the patched `@hono/node-server` 2.x line. The previous root-only adapter override was removed because npm consumers do not inherit dependency-owned overrides. The npm publication workflow now packs and installs the exact release artifact in an isolated consumer, rejects every resolved `@hono/node-server` version below `2.0.5`, requires a zero-vulnerability production audit, and smoke-tests the installed MCP CLI before publication. ([#197](https://github.com/ihor-sokoliuk/mcp-searxng/pull/197))
+
+- **Security regression assertions now match complete diagnostic URLs:** Exact-message tests prevent ambiguous safe substrings from hiding an unsafe credential-bearing URL. ([#190](https://github.com/ihor-sokoliuk/mcp-searxng/pull/190))
+
+### Contributors
+
+- @app/dependabot - [#193](https://github.com/ihor-sokoliuk/mcp-searxng/pull/193) chore(deps-dev): bump the development dependencies group
+- @app/dependabot - [#194](https://github.com/ihor-sokoliuk/mcp-searxng/pull/194) chore(deps): bump undici from 7.28.0 to 7.29.0
+- @app/dependabot - [#195](https://github.com/ihor-sokoliuk/mcp-searxng/pull/195) chore(deps): bump express-rate-limit from 8.6.0 to 8.6.1
+- @app/dependabot - [#196](https://github.com/ihor-sokoliuk/mcp-searxng/pull/196) chore(deps): bump the GitHub Actions group
+
 ## [1.12.0] - 2026-07-25
 
 ### Fixed
