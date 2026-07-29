@@ -766,6 +766,80 @@ async function runTests() {
     searchCache.clear();
   }, results);
 
+  await testFunction('Zero-result text searches are fetched again instead of cached', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://empty-cache-text.example.com');
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({ json: { results: [] } })(url, options);
+    });
+
+    try {
+      const first = await performWebSearch(mockServer as any, 'empty text cache');
+      const second = await performWebSearch(mockServer as any, 'empty text cache');
+
+      assert.equal(fetchCount, 2);
+      assert.ok(first.includes('No results found'));
+      assert.ok(second.includes('No results found'));
+      assert.ok(!second.includes('_Cached result_'), second);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('Zero-result JSON searches are fetched again instead of cached', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://empty-cache-json.example.com');
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({ json: { query: 'empty json cache', results: [] } })(url, options);
+    });
+
+    try {
+      const first = JSON.parse(await performWebSearch(
+        mockServer as any,
+        'empty json cache',
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'json',
+      ));
+      const second = JSON.parse(await performWebSearch(
+        mockServer as any,
+        'empty json cache',
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'json',
+      ));
+
+      assert.equal(fetchCount, 2);
+      assert.deepEqual(first.results, []);
+      assert.deepEqual(second.results, []);
+      assert.equal(second.cached, undefined);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
   await testFunction('Cached text search includes _Cached result_ suffix', async () => {
     searchCache.clear();
     envManager.set('SEARXNG_URL', 'https://cache-marker.example.com');
