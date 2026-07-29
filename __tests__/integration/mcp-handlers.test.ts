@@ -795,6 +795,41 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('logging/setLevel and config resources stay isolated per server', async () => {
+    const first = await connectWithLogs();
+    const second = await connectWithLogs();
+
+    try {
+      await first.client.setLoggingLevel('debug');
+      await second.client.setLoggingLevel('error');
+      first.logs.length = 0;
+      second.logs.length = 0;
+
+      await first.client.listTools();
+      await second.client.listTools();
+
+      assert.ok(
+        first.logs.some((entry) => JSON.stringify(entry).includes('Handling list_tools request')),
+        JSON.stringify(first.logs),
+      );
+      assert.ok(
+        !second.logs.some((entry) => JSON.stringify(entry).includes('Handling list_tools request')),
+        JSON.stringify(second.logs),
+      );
+
+      const firstConfig = await first.client.readResource({ uri: 'config://server-config' });
+      const secondConfig = await second.client.readResource({ uri: 'config://server-config' });
+      const firstPayload = JSON.parse((firstConfig.contents[0] as { text: string }).text);
+      const secondPayload = JSON.parse((secondConfig.contents[0] as { text: string }).text);
+
+      assert.equal(firstPayload.environment.currentLogLevel, 'debug');
+      assert.equal(secondPayload.environment.currentLogLevel, 'error');
+    } finally {
+      await first.client.close();
+      await second.client.close();
+    }
+  }, results);
+
   // ── resources/list ───────────────────────────────────────────────────────────
 
   await testFunction('resources/list returns config and help resources', async () => {

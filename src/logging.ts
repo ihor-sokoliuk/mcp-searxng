@@ -7,8 +7,8 @@ import {
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
 
-// Logging state
-let currentLogLevel: LoggingLevel = "info";
+export const DEFAULT_LOG_LEVEL: LoggingLevel = "info";
+const logLevelsByServer = new WeakMap<McpServer, LoggingLevel>();
 
 const LOG_LEVELS: LoggingLevel[] = [
   "debug",
@@ -30,7 +30,7 @@ function handleSendError(error: unknown): void {
 
 // Logging helper function
 export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: string, data?: unknown): void {
-  if (shouldLog(level)) {
+  if (shouldLog(mcpServer, level)) {
     try {
       const notificationData = data !== undefined
         ? (typeof data === 'object' && data !== null ? { message, ...data } : { message, data })
@@ -49,14 +49,16 @@ export function logMessage(mcpServer: McpServer, level: LoggingLevel, message: s
   }
 }
 
-export function shouldLog(level: LoggingLevel): boolean {
-  return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(currentLogLevel);
+export function shouldLog(mcpServer: McpServer, level: LoggingLevel): boolean {
+  return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(getCurrentLogLevel(mcpServer));
 }
 
-export function setLogLevel(level: LoggingLevel): void {
-  currentLogLevel = level;
+export function setLogLevel(mcpServer: McpServer, level: LoggingLevel): void {
+  logLevelsByServer.set(mcpServer, level);
 }
 
-export function getCurrentLogLevel(): LoggingLevel {
-  return currentLogLevel;
+export function getCurrentLogLevel(mcpServer?: McpServer): LoggingLevel {
+  return mcpServer === undefined
+    ? DEFAULT_LOG_LEVEL
+    : (logLevelsByServer.get(mcpServer) ?? DEFAULT_LOG_LEVEL);
 }
