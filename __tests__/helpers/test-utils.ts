@@ -4,6 +4,8 @@
  * Shared utility functions for test suite
  */
 
+import { restoreProcessEnv, snapshotProcessEnv } from './env-utils.js';
+
 export interface TestResult {
   passed: number;
   failed: number;
@@ -25,6 +27,7 @@ export async function testFunction(
   results: TestResult
 ): Promise<void> {
   console.log(`Testing ${name}...`);
+  const environmentSnapshot = snapshotProcessEnv();
   try {
     const result = fn();
     if (result instanceof Promise) {
@@ -37,6 +40,8 @@ export async function testFunction(
     const errorMsg = `❌ ${name} failed: ${error.message}`;
     results.errors.push(errorMsg);
     console.log(errorMsg);
+  } finally {
+    restoreProcessEnv(environmentSnapshot);
   }
 }
 
