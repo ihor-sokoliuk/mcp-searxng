@@ -793,7 +793,9 @@ export async function performWebSearch(
       ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
       ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
     }, null, 2);
-    searchCache.set("searxng_web_search", cacheArgs, result);
+    if (slicedResults.length > 0) {
+      searchCache.set("searxng_web_search", cacheArgs, result);
+    }
     return result;
   }
 
@@ -816,7 +818,6 @@ export async function performWebSearch(
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
     const result = leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
-    searchCache.set("searxng_web_search", cacheArgs, result);
     return result;
   }
 
