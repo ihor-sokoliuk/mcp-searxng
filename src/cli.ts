@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { main } from "./index.js";
 import { handleUncaughtException, handleUnhandledRejection } from "./error-handler.js";
 import {
   initializeDiagnosticSanitizer,
@@ -20,8 +19,10 @@ if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
 } else if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
   writeDiagnostic("log", createCliHelpText());
 } else {
-  main().catch((error) => {
-    writeDiagnostic("error", "Failed to start server:", sanitizeErrorForTransport(error));
-    process.exit(1);
-  });
+  void import("./index.js")
+    .then(({ main }) => main())
+    .catch((error) => {
+      writeDiagnostic("error", "Failed to start server:", sanitizeErrorForTransport(error));
+      process.exit(1);
+    });
 }

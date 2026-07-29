@@ -60,6 +60,7 @@ async function runTests() {
       assert.ok(result.stdout.includes('STDIO is the default transport'));
       assert.ok(result.stdout.includes('MCP_HTTP_PORT enables HTTP transport'));
       assert.ok(result.stdout.includes('CONFIGURATION.md'));
+      assert.ok(!result.stdout.endsWith('\n\n'), 'help output should end with one newline');
     }
   }, results);
 
@@ -101,6 +102,7 @@ async function runTests() {
       assert.ok(result.stdout.includes('--version, -v'));
       assert.ok(result.stdout.includes('SEARXNG_URL is the only required environment variable'));
       assert.ok(result.stdout.includes('CONFIGURATION.md'));
+      assert.ok(!result.stdout.endsWith('\n\n'), 'help output should end with one newline');
     }
   }, results);
 
