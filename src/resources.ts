@@ -22,7 +22,7 @@ Configuration:
 Transport:
   STDIO is the default transport.
   MCP_HTTP_PORT enables HTTP transport.
-`;
+`.trimEnd();
 }
 
 // SEARXNG_URL may embed Basic Auth credentials in its userinfo (the recommended
