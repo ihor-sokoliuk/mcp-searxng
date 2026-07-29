@@ -4,6 +4,7 @@
 
 - **[README](../README.md)** — Quick start, features, installation, tool reference, and troubleshooting
 - **[CONFIGURATION](../CONFIGURATION.md)** — Every environment variable with defaults and examples
+- **[Operating Self-Hosted SearXNG](self-hosted-searxng.md)** — SearXNG operation and MCP integration
 - **[SECURITY](../SECURITY.md)** — Threat model, SSRF protection, HTTP hardening, and vulnerability reporting
 
 ## Topics
