@@ -108,7 +108,7 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - `language` (string, optional): Language code for suggestions (e.g., "en", "fr", "de") or "all" (default: "all")
 
 - **searxng_instance_info**
-  - Discover categories and engines aggregated from reachable configured SearXNG instances, plus defaults, locales, and plugins from the primary reachable instance. The response reports `common` values present on every reachable instance and `available` values present on at least one reachable instance.
+  - Discover categories aggregated from reachable configured SearXNG instances, optionally include engine names, and inspect defaults, locales, and plugins from the primary reachable instance. Categories—and engines when requested—report `common` values present on every reachable instance and `available` values present on at least one reachable instance.
   - Inputs:
     - `includeEngines` (boolean, optional): Include enabled engine names in the response. (default: false)
     - `includeDisabled` (boolean, optional): Include disabled engine names when `includeEngines` is true. (default: false)
