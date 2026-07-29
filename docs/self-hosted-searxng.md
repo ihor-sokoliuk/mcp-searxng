@@ -10,7 +10,7 @@ procedure for your packaging or orchestrator.
 
 | Concern | SearXNG | mcp-searxng | Shared boundary |
 |---|---|---|---|
-| Deployment and capabilities | Runs the metasearch service and exposes its configured formats, categories, providers, locales, and plugins. | Consumes the public search and administration APIs. | A capability must exist upstream before an MCP request can rely on it. |
+| Deployment and capabilities | Runs the metasearch service and exposes its configured formats, categories, providers, locales, and plugins. | Consumes the public `/search` and `/config` endpoints. | A capability must exist upstream before an MCP request can rely on it. |
 | Request construction | Applies server defaults and forwards supported filters to upstream providers. | Initially builds upstream search requests with `format=json`, plus caller or operator defaults. | Language, safe search, categories, and engine filters can be set at both layers. |
 | Results | Produces answers, results, suggestions, corrections, and provider error metadata. | Filters, limits, formats, deduplicates, and caches returned data. | Poor or empty output can originate upstream or from MCP-side filters, limits, or cache state. |
 | Availability | Owns its process, storage, provider connectivity, and local recovery. | Selects configured replicas and performs ordered failover or optional fan-out. | Timeouts and partial failures must be diagnosed at both layers. |
