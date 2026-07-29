@@ -3,6 +3,28 @@ import { packageVersion } from "./version.js";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { parseSearxngUrls, redactSearxngInstanceUrl } from "./searxng-instances.js";
 
+export const REQUIRED_CONFIGURATION_GUIDANCE =
+  "SEARXNG_URL is the only required environment variable.";
+export const OPTIONAL_CONFIGURATION_GUIDANCE =
+  "All other environment variables are optional; see CONFIGURATION.md for the complete reference.";
+
+export function createCliHelpText(): string {
+  return `Usage: mcp-searxng [options]
+
+Options:
+  --help, -h       Show this help and exit
+  --version, -v    Print the package version and exit
+
+Configuration:
+  ${REQUIRED_CONFIGURATION_GUIDANCE}
+  ${OPTIONAL_CONFIGURATION_GUIDANCE}
+
+Transport:
+  STDIO is the default transport.
+  MCP_HTTP_PORT enables HTTP transport.
+`;
+}
+
 // SEARXNG_URL may embed Basic Auth credentials in its userinfo (the recommended
 // auth path) and may be a semicolon-separated multi-instance list. Redact the
 // userinfo from each entry before exposing it in the config resource so the host
@@ -127,10 +149,12 @@ Reads and converts web page content to Markdown format.
 ## Configuration
 
 ### Required Environment Variables
+${REQUIRED_CONFIGURATION_GUIDANCE}
 - \`SEARXNG_URL\`: URL of your SearXNG instance (e.g., http://localhost:8080). For Basic Auth, embed credentials in the URL (e.g., https://user:password@search.example.com); percent-encode special characters in the username or password (e.g. \`@\` as \`%40\`). Multi-instance lists can use different credentials per semicolon-separated URL.
 
 ### Optional Environment Variables
-Common ones are listed below. This is not exhaustive — see CONFIGURATION.md in the project repository for the full reference (failover/fan-out, caching, timeouts, result limits, per-tool proxies, TLS, HTTP transport, and hardening).
+${OPTIONAL_CONFIGURATION_GUIDANCE}
+Common ones are listed below (failover/fan-out, caching, timeouts, result limits, per-tool proxies, TLS, HTTP transport, and hardening).
 - \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Legacy global Basic Auth fallback when \`SEARXNG_URL\` has no userinfo
 - \`HTTP_PROXY\` / \`HTTPS_PROXY\`: Proxy server configuration
 - \`NO_PROXY\` / \`no_proxy\`: Comma-separated list of hosts to bypass proxy
