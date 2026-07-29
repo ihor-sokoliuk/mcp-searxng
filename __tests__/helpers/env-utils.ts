@@ -8,6 +8,36 @@ export interface EnvSnapshot {
   [key: string]: string | undefined;
 }
 
+export type ProcessEnvSnapshot = Record<string, string>;
+
+/**
+ * Snapshot the complete process environment for per-test isolation.
+ */
+export function snapshotProcessEnv(): ProcessEnvSnapshot {
+  const snapshot = Object.create(null) as ProcessEnvSnapshot;
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      snapshot[key] = value;
+    }
+  }
+  return snapshot;
+}
+
+/**
+ * Restore the complete process environment, removing keys added after the snapshot.
+ */
+export function restoreProcessEnv(snapshot: ProcessEnvSnapshot): void {
+  for (const key of Object.keys(process.env)) {
+    if (!Object.hasOwn(snapshot, key)) {
+      delete process.env[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    process.env[key] = value;
+  }
+}
+
 /**
  * Save current environment variables
  */
