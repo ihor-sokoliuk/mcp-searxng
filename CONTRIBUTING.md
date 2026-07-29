@@ -35,7 +35,6 @@ npm run build   # One-off build
 ```bash
 npm test                  # Run all tests
 npm run test:coverage     # Generate coverage report
-npm run test:watch        # Watch mode
 ```
 
 ## Submitting a PR
