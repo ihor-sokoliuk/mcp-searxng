@@ -68,7 +68,10 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     response_format?: unknown;
   };
 
-  if (searchArgs.pageno !== undefined && (typeof searchArgs.pageno !== "number" || searchArgs.pageno < 1)) {
+  if (
+    searchArgs.pageno !== undefined &&
+    (typeof searchArgs.pageno !== "number" || !Number.isInteger(searchArgs.pageno) || searchArgs.pageno < 1)
+  ) {
     return false;
   }
   if (
@@ -196,8 +199,9 @@ export const WEB_SEARCH_TOOL: Tool = {
           "The search query string. This is the required parameter name — use exactly `query`, not `prompt` or `q`.",
       },
       pageno: {
-        type: "number",
+        type: "integer",
         description: "Search page number (starts at 1)",
+        minimum: 1,
         default: 1,
       },
       time_range: {
