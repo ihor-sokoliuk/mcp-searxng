@@ -336,7 +336,9 @@ See also: [SearXNG settings docs](https://docs.searxng.org/admin/settings/settin
 If you must use a public instance you don't control and it rejects `format=json` (the 403 above), set the opt-in flag instead of editing the server:
 
 ```json
-"SEARXNG_HTML_FALLBACK": "true"
+{
+  "SEARXNG_HTML_FALLBACK": "true"
+}
 ```
 
 A search that gets a `403`/`404` or a non-JSON response is then retried automatically **without** `format=json` and parsed from the regular HTML results page.

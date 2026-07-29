@@ -136,9 +136,11 @@ certutil -encode "$env:USERPROFILE\corp-ca.cer" "$env:USERPROFILE\corp-ca.pem"
 Example MCP client environment block:
 
 ```json
-"env": {
-  "SEARXNG_URL": "https://searxng.example.com",
-  "NODE_EXTRA_CA_CERTS": "C:\\Users\\you\\corp-ca.pem"
+{
+  "env": {
+    "SEARXNG_URL": "https://searxng.example.com",
+    "NODE_EXTRA_CA_CERTS": "C:\\Users\\you\\corp-ca.pem"
+  }
 }
 ```
 
