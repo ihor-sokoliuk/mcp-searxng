@@ -11,7 +11,7 @@ procedure for your packaging or orchestrator.
 | Concern | SearXNG | mcp-searxng | Shared boundary |
 |---|---|---|---|
 | Deployment and capabilities | Runs the metasearch service and exposes its configured formats, categories, providers, locales, and plugins. | Consumes the public search and administration APIs. | A capability must exist upstream before an MCP request can rely on it. |
-| Request construction | Applies server defaults and forwards supported filters to upstream providers. | Builds every upstream search request with `format=json`, plus caller or operator defaults. | Language, safe search, categories, and engine filters can be set at both layers. |
+| Request construction | Applies server defaults and forwards supported filters to upstream providers. | Initially builds upstream search requests with `format=json`, plus caller or operator defaults. | Language, safe search, categories, and engine filters can be set at both layers. |
 | Results | Produces answers, results, suggestions, corrections, and provider error metadata. | Filters, limits, formats, deduplicates, and caches returned data. | Poor or empty output can originate upstream or from MCP-side filters, limits, or cache state. |
 | Availability | Owns its process, storage, provider connectivity, and local recovery. | Selects configured replicas and performs ordered failover or optional fan-out. | Timeouts and partial failures must be diagnosed at both layers. |
 | Network security | Owns ingress TLS, any front-end authentication, the limiter, Valkey, and reverse-proxy trust. | Owns MCP transport security, outbound proxy selection, credentials used for SearXNG, and Node.js CA trust. | Authentication, TLS, forwarded client identity, egress policy, and rate limiting require compatible settings on both sides. |
@@ -50,8 +50,10 @@ placeholder is not safe for service use. `server.base_url`, the language, the
 safe-search level, and the Valkey address are deployment decisions. The Valkey
 hostname must resolve on the network where SearXNG runs.
 
-The `search.formats` list must contain `json` because mcp-searxng always asks
-SearXNG for JSON. Keeping `html` also preserves the ordinary browser interface.
+The `search.formats` list must contain `json` because mcp-searxng uses JSON as
+its primary search path. When `SEARXNG_HTML_FALLBACK=true`, a denied or
+non-JSON response may be retried without `format=json`. Keeping `html` also
+preserves the ordinary browser interface.
 The language and safe-search values are defaults, not guarantees: a caller can
 override them, and an upstream provider may not support every filter.
 
