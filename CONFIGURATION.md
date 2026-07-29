@@ -13,6 +13,9 @@ When `SEARXNG_URL` contains multiple semicolon-separated URLs, they are treated 
 
 With `SEARXNG_FANOUT=true`, all healthy instances are queried in parallel. Results are deduplicated by canonical URL, the copy with the highest `score` is kept, and merged results are ordered by descending score. Capability discovery and filter guidance aggregate `/config` data from all reachable configured instances; `common` categories/engines work everywhere reachable, while `available` values are best-effort. A `/config` endpoint that fails is skipped for about 60 seconds before retry, or retried immediately when `searxng_instance_info` is called with `refresh=true`. Search suggestions use the first configured instance.
 
+For SearXNG setup, direct verification, and replica troubleshooting, see
+[Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
+
 ## Authentication
 
 For SearXNG instances protected with HTTP Basic Auth, embed credentials in each `SEARXNG_URL` entry:
@@ -70,6 +73,9 @@ Search results are cached in memory per process only; cache contents are not per
 ## Search Compatibility
 
 Self-hosting SearXNG with JSON output enabled remains the recommended setup. The HTML fallback is best-effort for public instances that reject `format=json`; HTML theme differences may limit parsed metadata.
+
+For the self-hosted SearXNG configuration and verification procedure, see
+[Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
 
 | Variable | Required | Default | Description |
 |---|---|---|---|

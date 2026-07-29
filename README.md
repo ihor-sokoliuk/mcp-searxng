@@ -82,6 +82,9 @@ AI Assistant (e.g. Claude)
   SearXNG instance(s)
 ```
 
+For SearXNG deployment, configuration, and troubleshooting, see
+[Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
+
 ## Tools
 
 - **searxng_web_search**
@@ -105,7 +108,7 @@ AI Assistant (e.g. Claude)
     - `language` (string, optional): Language code for suggestions (e.g., "en", "fr", "de") or "all" (default: "all")
 
 - **searxng_instance_info**
-  - Discover categories, engines, defaults, locales, and plugins exposed by all reachable configured SearXNG instances. The response reports `common` values present on every reachable instance and `available` values present on at least one reachable instance.
+  - Discover categories and engines aggregated from reachable configured SearXNG instances, plus defaults, locales, and plugins from the primary reachable instance. The response reports `common` values present on every reachable instance and `available` values present on at least one reachable instance.
   - Inputs:
     - `includeEngines` (boolean, optional): Include enabled engine names in the response. (default: false)
     - `includeDisabled` (boolean, optional): Include disabled engine names when `includeEngines` is true. (default: false)
@@ -301,6 +304,9 @@ The server binds to `127.0.0.1` by default; set `MCP_HTTP_HOST=0.0.0.0` for remo
 See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable reference, including authentication, failover/fan-out, caching, timeouts, proxies, TLS, HTTP transport, and hardening.
 
 ## Troubleshooting
+
+For self-hosted SearXNG configuration, direct verification, and troubleshooting,
+see [Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
 
 If HTTPS requests fail behind a TLS-inspecting corporate proxy with certificate errors, see [TLS / Corporate CA](CONFIGURATION.md#tls--corporate-ca).
 
