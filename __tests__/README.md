@@ -9,7 +9,6 @@ Production-ready test suite for MCP SearXNG Server. Tests are organized into uni
 ```bash
 npm test                    # Run all tests
 npm run test:coverage       # Run with coverage report
-npm run test:watch          # Watch mode (auto-rerun)
 npx tsx __tests__/unit/logging.test.ts  # Run single test file
 ```
 
