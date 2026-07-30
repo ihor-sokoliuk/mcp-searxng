@@ -372,8 +372,9 @@ docker run --rm -p 3000:3000 \
   isokoliuk/mcp-searxng:latest
 ```
 
-Set `MCP_HTTP_AUTH_TOKEN`, `MCP_SEARXNG_TOKEN`, and `SEARXNG_URL` in the
-operator environment before starting the container. Replace
+Set `MCP_HTTP_AUTH_TOKEN` and `SEARXNG_URL` in the operator environment before
+starting the container. In each client environment, set `MCP_SEARXNG_TOKEN` to
+the same value as `MCP_HTTP_AUTH_TOKEN`. Replace
 `https://client.example.com` with any browser client origin you intentionally
 allow and `mcp.example.com` with the exact `Host` header forwarded by the
 reverse proxy. Native clients that omit `Origin` are not granted browser CORS
