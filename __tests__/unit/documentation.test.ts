@@ -151,8 +151,10 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(document.includes('Verified with FlareSolverr 3.5.0 on 2026-07-30.'));
       assert.ok(document.includes('Byparr has not been verified and is not currently supported.'));
     }
-    for (const document of [readme, configuration]) {
-      assert.ok(document.includes('Every uncached URL is disclosed to the configured FlareSolverr service.'));
+    for (const document of [readme, configuration, security]) {
+      assert.ok(document.replace(/\s+/gu, ' ').includes(
+        'When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured FlareSolverr service.',
+      ));
     }
     for (const contract of [
       `\`FLARESOLVERR_TIMEOUT_MS\` | No | \`${DEFAULT_FLARESOLVERR_TIMEOUT_MS}\``,
@@ -165,7 +167,7 @@ export async function runTests(): Promise<TestResult> {
 
     for (const tool of [LITE_READ_URL_TOOL, READ_URL_TOOL]) {
       assert.ok(tool.description.includes('attempts to acquire a browser session'));
-      assert.ok(tool.description.includes('before every uncached URL read'));
+      assert.ok(tool.description.includes('after URL validation and a HEAD size preflight'));
       assert.ok(tool.description.includes('uncached direct'));
       assert.ok(!tool.description.includes('Byparr'));
     }
