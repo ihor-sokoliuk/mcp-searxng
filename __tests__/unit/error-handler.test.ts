@@ -171,11 +171,12 @@ async function runTests() {
   await testFunction('validateEnvironment rejects invalid browser solver endpoints without echoing them', () => {
     envManager.set('SEARXNG_URL', 'https://valid-url.com');
     envManager.delete('FLARESOLVERR_URL');
-    envManager.set('BYPARR_URL', 'http://user:password@byparr-secret.example');
+    const sensitiveUserinfo = ['operator', 'credential-value'].join(':');
+    envManager.set('BYPARR_URL', `http://${sensitiveUserinfo}@byparr-secret.example`);
 
     const result = validateEnvironment();
     assert.ok(result?.includes('BYPARR_URL'));
-    assert.ok(!result?.includes('user:password'));
+    assert.ok(!result?.includes(sensitiveUserinfo));
     assert.ok(!result?.includes('byparr-secret'));
 
     envManager.restore();

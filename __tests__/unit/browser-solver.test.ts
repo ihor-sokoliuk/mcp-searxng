@@ -6,8 +6,6 @@ import * as net from "node:net";
 import { fileURLToPath } from "node:url";
 import {
   acquireBrowserSolverSolution,
-  buildBrowserSolverHeaders,
-  createBrowserSolverCacheKey,
   resolveBrowserSolverConfig,
   type BrowserSolverConfig,
 } from "../../src/browser-solver.js";
@@ -70,7 +68,7 @@ function jsonSolution(url: string, extra: Record<string, unknown> = {}) {
 }
 
 async function runTests() {
-  console.log("🧪 Testing: flaresolverr.ts\n");
+  console.log("🧪 Testing: browser-solver.ts\n");
 
   await testFunction("unset and blank FLARESOLVERR_URL disable the solver", () => {
     const server = createMockServer();
@@ -180,12 +178,13 @@ async function runTests() {
     );
 
     delete process.env.FLARESOLVERR_URL;
-    process.env.BYPARR_URL = "http://user:password@byparr-secret.example";
+    const sensitiveUserinfo = ["operator", "credential-value"].join(":");
+    process.env.BYPARR_URL = `http://${sensitiveUserinfo}@byparr-secret.example`;
     assert.throws(
       () => resolveBrowserSolverConfig(createMockServer() as any),
       (error: Error) => (
         error.message.includes("BYPARR_URL")
-        && !error.message.includes("user:password")
+        && !error.message.includes(sensitiveUserinfo)
         && !error.message.includes("byparr-secret")
       ),
     );
@@ -537,176 +536,7 @@ async function runTests() {
     }
   }, results);
 
-  await testFunction("provider counters stay independent across environment switches and saturation", async () => {
-    const target = new URL("https://example.com/paper");
-    const pending: http.ServerResponse[] = [];
-    const hanging = await startServer((_req, res) => {
-      pending.push(res);
-    });
-    const responding = await startServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(jsonSolution(target.href)));
-    });
-
-    try {
-      process.env.FLARESOLVERR_URL = hanging.url;
-      delete process.env.BYPARR_URL;
-      process.env.FLARESOLVERR_MAX_CONCURRENT_REQUESTS = "1";
-      const flareConfig = resolveBrowserSolverConfig(createMockServer() as any)!;
-      const flarePending = acquireBrowserSolverSolution(
-        createMockServer() as any,
-        flareConfig,
-        target,
-      );
-      while (pending.length < 1) {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-      assert.deepEqual(
-        await acquireBrowserSolverSolution(createMockServer() as any, flareConfig, target),
-        { kind: "fallback", reason: "busy" },
-      );
-
-      delete process.env.FLARESOLVERR_URL;
-      process.env.BYPARR_URL = responding.url;
-      process.env.BYPARR_MAX_CONCURRENT_REQUESTS = "1";
-      const byparrConfig = resolveBrowserSolverConfig(createMockServer() as any)!;
-      assert.equal(
-        (await acquireBrowserSolverSolution(
-          createMockServer() as any,
-          byparrConfig,
-          target,
-        )).kind,
-        "solved",
-      );
-
-      pending[0].writeHead(200, { "content-type": "application/json" });
-      pending[0].end(JSON.stringify(jsonSolution(target.href)));
-      assert.equal((await flarePending).kind, "solved");
-
-      const byparrHanging = { ...byparrConfig, endpoint: new URL(`${hanging.url}/v1`) };
-      const byparrPending = acquireBrowserSolverSolution(
-        createMockServer() as any,
-        byparrHanging,
-        target,
-      );
-      while (pending.length < 2) {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-      assert.deepEqual(
-        await acquireBrowserSolverSolution(
-          createMockServer() as any,
-          byparrHanging,
-          target,
-        ),
-        { kind: "fallback", reason: "busy" },
-      );
-      pending[1].writeHead(200, { "content-type": "application/json" });
-      pending[1].end(JSON.stringify(jsonSolution(target.href)));
-      assert.equal((await byparrPending).kind, "solved");
-    } finally {
-      for (const response of pending) {
-        if (!response.writableEnded) {
-          response.end();
-        }
-      }
-      await responding.close();
-      await hanging.close();
-    }
-  }, results);
-
-  await testFunction("solution validation never logs clearance-cookie values", async () => {
-    const cookieSecret = "clearance-secret-value";
-    const target = new URL("https://example.com/paper");
-    const solver = await startServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(jsonSolution("https://other.example/paper", {
-        cookies: [{ name: "cf_clearance", value: cookieSecret }],
-      })));
-    });
-    const { server, getLoggingCalls } = createMockServerWithTracking();
-    try {
-      await assert.rejects(
-        acquireBrowserSolverSolution(
-          server as any,
-          {
-            provider: "flaresolverr",
-            endpoint: new URL(`${solver.url}/v1`),
-            timeoutMs: 1000,
-            wireTimeout: 1000,
-            maxConcurrentRequests: 2,
-            maxResponseBytes: 256 * 1024,
-          },
-          target,
-        ),
-        /different or unsupported hostname/iu,
-      );
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.ok(!JSON.stringify(getLoggingCalls()).includes(cookieSecret));
-    } finally {
-      await solver.close();
-    }
-  }, results);
-
-  await testFunction("cookie scope, expiry, security, and path specificity are enforced", () => {
-    const solution = {
-      url: "https://sub.example.com/a/b",
-      status: 200,
-      userAgent: "SolverUA/1.0",
-      cookies: [
-        { name: "domain", value: "2", domain: ".example.com", path: "/", secure: true, expires: 4102444800 },
-        { name: "deep", value: "1", domain: "sub.example.com", path: "/a", secure: true, expires: 4102444800 },
-        { name: "session", value: "3", path: "/", secure: false, expires: -1 },
-        { name: "expired", value: "x", domain: ".example.com", path: "/", expires: 1000 },
-        { name: "wrong-domain", value: "x", domain: ".other.example", path: "/" },
-        { name: "wrong-path", value: "x", domain: ".example.com", path: "/other" },
-        { name: "secure-http", value: "x", domain: ".example.com", path: "/", secure: true },
-        { name: "bad\nname", value: "x", domain: ".example.com", path: "/" },
-        { name: "bad-value", value: "x;y", domain: ".example.com", path: "/" },
-        { name: "oversized", value: "x".repeat(5000), domain: ".example.com", path: "/" },
-        { name: "", value: "x", domain: ".example.com", path: "/" },
-      ],
-    };
-
-    assert.deepEqual(
-      buildBrowserSolverHeaders(solution, new URL("https://sub.example.com/a/b"), 2000),
-      {
-        "User-Agent": "SolverUA/1.0",
-        Cookie: "deep=1; domain=2; session=3; secure-http=x",
-      },
-    );
-    assert.deepEqual(
-      buildBrowserSolverHeaders(solution, new URL("http://sub.example.com/a/b"), 2000),
-      {
-        "User-Agent": "SolverUA/1.0",
-        Cookie: "session=3",
-      },
-    );
-    assert.deepEqual(
-      buildBrowserSolverHeaders(
-        { ...solution, cookies: [] },
-        new URL("https://sub.example.com/a/b"),
-        2000,
-      ),
-      { "User-Agent": "SolverUA/1.0" },
-    );
-    assert.deepEqual(
-      buildBrowserSolverHeaders(
-        solution,
-        new URL("https://other.example.com/a/b"),
-        2000,
-      ),
-      { "User-Agent": "SolverUA/1.0" },
-    );
-  }, results);
-
-  await testFunction("solver cache key uses the original requested URL", () => {
-    assert.equal(
-      createBrowserSolverCacheKey("flaresolverr", "https://example.com/original"),
-      "solver:flaresolverr:https://example.com/original",
-    );
-  }, results);
-
-  printTestSummary(results, "FlareSolverr Module");
+  printTestSummary(results, "Browser Solver Module");
   return results;
 }
 

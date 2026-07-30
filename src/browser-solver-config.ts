@@ -20,6 +20,15 @@ function configuredValue(name: "FLARESOLVERR_URL" | "BYPARR_URL"): string | null
   return value === undefined || value.trim() === "" ? null : value.trim();
 }
 
+function hasForbiddenEndpointComponents(endpoint: URL): boolean {
+  return [
+    endpoint.username,
+    endpoint.password,
+    endpoint.search,
+    endpoint.hash,
+  ].some((component) => component !== "");
+}
+
 function normalizeEndpoint(name: "FLARESOLVERR_URL" | "BYPARR_URL", value: string): URL {
   let endpoint: URL;
   try {
@@ -33,10 +42,7 @@ function normalizeEndpoint(name: "FLARESOLVERR_URL" | "BYPARR_URL", value: strin
   if (
     !["http:", "https:"].includes(endpoint.protocol)
     || endpoint.hostname === ""
-    || endpoint.username !== ""
-    || endpoint.password !== ""
-    || endpoint.search !== ""
-    || endpoint.hash !== ""
+    || hasForbiddenEndpointComponents(endpoint)
   ) {
     throw new BrowserSolverConfigurationIssue(
       `${name} must be an absolute HTTP or HTTPS service base URL without userinfo, a query, or a fragment.`,

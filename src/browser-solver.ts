@@ -85,43 +85,46 @@ function resolveBoundedInteger(
   return parsed;
 }
 
-export function resolveBrowserSolverConfig(
-  mcpServer: McpServer,
-): BrowserSolverConfig | null {
-  let selection;
+function readEndpointSelection() {
   try {
-    selection = resolveBrowserSolverEndpoint();
+    return resolveBrowserSolverEndpoint();
   } catch (error) {
     if (error instanceof BrowserSolverConfigurationIssue) {
       throw createConfigurationError(error.message);
     }
     throw error;
   }
-  if (!selection) {
-    return null;
-  }
+}
 
-  if (selection.provider === "byparr") {
-    const timeoutSeconds = resolveBoundedInteger(
+function resolveByparrConfig(
+  mcpServer: McpServer,
+  endpoint: URL,
+): BrowserSolverConfig {
+  const timeoutSeconds = resolveBoundedInteger(
+    mcpServer,
+    "BYPARR_TIMEOUT_SECONDS",
+    DEFAULT_BYPARR_TIMEOUT_SECONDS,
+    MAX_BYPARR_TIMEOUT_SECONDS,
+  );
+  return {
+    provider: "byparr",
+    endpoint,
+    timeoutMs: timeoutSeconds * 1000,
+    wireTimeout: timeoutSeconds,
+    maxConcurrentRequests: resolveBoundedInteger(
       mcpServer,
-      "BYPARR_TIMEOUT_SECONDS",
-      DEFAULT_BYPARR_TIMEOUT_SECONDS,
-      MAX_BYPARR_TIMEOUT_SECONDS,
-    );
-    return {
-      ...selection,
-      timeoutMs: timeoutSeconds * 1000,
-      wireTimeout: timeoutSeconds,
-      maxConcurrentRequests: resolveBoundedInteger(
-        mcpServer,
-        "BYPARR_MAX_CONCURRENT_REQUESTS",
-        DEFAULT_BYPARR_CONCURRENCY,
-        MAX_BYPARR_CONCURRENCY,
-      ),
-      maxResponseBytes: MAX_BYPARR_RESPONSE_BYTES,
-    };
-  }
+      "BYPARR_MAX_CONCURRENT_REQUESTS",
+      DEFAULT_BYPARR_CONCURRENCY,
+      MAX_BYPARR_CONCURRENCY,
+    ),
+    maxResponseBytes: MAX_BYPARR_RESPONSE_BYTES,
+  };
+}
 
+function resolveFlareSolverrConfig(
+  mcpServer: McpServer,
+  endpoint: URL,
+): BrowserSolverConfig {
   const timeoutMs = resolveBoundedInteger(
     mcpServer,
     "FLARESOLVERR_TIMEOUT_MS",
@@ -129,7 +132,8 @@ export function resolveBrowserSolverConfig(
     MAX_FLARESOLVERR_TIMEOUT_MS,
   );
   return {
-    ...selection,
+    provider: "flaresolverr",
+    endpoint,
     timeoutMs,
     wireTimeout: timeoutMs,
     maxConcurrentRequests: resolveBoundedInteger(
@@ -140,6 +144,18 @@ export function resolveBrowserSolverConfig(
     ),
     maxResponseBytes: MAX_FLARESOLVERR_RESPONSE_BYTES,
   };
+}
+
+export function resolveBrowserSolverConfig(
+  mcpServer: McpServer,
+): BrowserSolverConfig | null {
+  const selection = readEndpointSelection();
+  if (!selection) {
+    return null;
+  }
+  return selection.provider === "byparr"
+    ? resolveByparrConfig(mcpServer, selection.endpoint)
+    : resolveFlareSolverrConfig(mcpServer, selection.endpoint);
 }
 
 async function readBoundedResponse(
@@ -257,6 +273,50 @@ function logDirectFallback(mcpServer: McpServer): void {
   );
 }
 
+function createSolverRequestOptions(
+  config: BrowserSolverConfig,
+  requestedUrl: URL,
+  signal: AbortSignal,
+): RequestInit {
+  const requestOptions: RequestInit = {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cmd: "request.get",
+      url: requestedUrl.href,
+      maxTimeout: config.wireTimeout,
+      returnOnlyCookies: true,
+    }),
+  };
+  applyTrustedServiceRequestConfig(requestOptions, config.endpoint.href);
+  return requestOptions;
+}
+
+function isPersistentClientError(status: number): boolean {
+  return status >= 400
+    && status < 500
+    && status !== 408
+    && status !== 429;
+}
+
+async function readSolverResponse(
+  response: Response,
+  maximumBytes: number,
+): Promise<string | null> {
+  if (isPersistentClientError(response.status)) {
+    await response.body?.cancel();
+    throw createConfigurationError(
+      "Browser solver endpoint rejected the request. Check the configured endpoint and service API compatibility.",
+    );
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    return null;
+  }
+  return await readBoundedResponse(response, maximumBytes);
+}
+
 async function requestBrowserSolverSession(
   config: BrowserSolverConfig,
   requestedUrl: URL,
@@ -268,37 +328,11 @@ async function requestBrowserSolverSession(
     : timeoutSignal;
 
   try {
-    const requestOptions: RequestInit = {
-      method: "POST",
-      signal: requestSignal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cmd: "request.get",
-        url: requestedUrl.href,
-        maxTimeout: config.wireTimeout,
-        returnOnlyCookies: true,
-      }),
-    };
-    applyTrustedServiceRequestConfig(requestOptions, config.endpoint.href);
     const response = await (undiciFetch as unknown as typeof fetch)(
       config.endpoint,
-      requestOptions,
+      createSolverRequestOptions(config, requestedUrl, requestSignal),
     );
-    const isPersistentClientError = response.status >= 400
-      && response.status < 500
-      && response.status !== 408
-      && response.status !== 429;
-    if (isPersistentClientError) {
-      await response.body?.cancel();
-      throw createConfigurationError(
-        "Browser solver endpoint rejected the request. Check the configured endpoint and service API compatibility.",
-      );
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      return null;
-    }
-    return await readBoundedResponse(response, config.maxResponseBytes);
+    return await readSolverResponse(response, config.maxResponseBytes);
   } catch (error: any) {
     if (signal?.aborted) {
       throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
@@ -321,37 +355,57 @@ function decodeSolution(responseText: string | null): BrowserSolverSolution | nu
   }
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+  }
+}
+
+function tryReserveProviderSlot(
+  mcpServer: McpServer,
+  config: BrowserSolverConfig,
+): boolean {
+  if (activeSolverRequests[config.provider] < config.maxConcurrentRequests) {
+    activeSolverRequests[config.provider]++;
+    return true;
+  }
+  logMessage(
+    mcpServer,
+    "warning",
+    "Browser solver concurrency limit reached; using the direct URL fetch path.",
+  );
+  return false;
+}
+
+function classifyAcquisition(
+  mcpServer: McpServer,
+  responseText: string | null,
+  requestedUrl: URL,
+): BrowserSolverAcquisition {
+  const solution = decodeSolution(responseText);
+  if (!solution) {
+    logDirectFallback(mcpServer);
+    return { kind: "fallback", reason: "unavailable" };
+  }
+  validateSolutionUrl(solution, requestedUrl);
+  return { kind: "solved", solution };
+}
+
 export async function acquireBrowserSolverSolution(
   mcpServer: McpServer,
   config: BrowserSolverConfig,
   requestedUrl: URL,
   signal?: AbortSignal,
 ): Promise<BrowserSolverAcquisition> {
-  if (signal?.aborted) {
-    throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
-  }
-  if (activeSolverRequests[config.provider] >= config.maxConcurrentRequests) {
-    logMessage(
-      mcpServer,
-      "warning",
-      "Browser solver concurrency limit reached; using the direct URL fetch path.",
-    );
+  throwIfAborted(signal);
+  if (!tryReserveProviderSlot(mcpServer, config)) {
     return { kind: "fallback", reason: "busy" };
   }
 
-  activeSolverRequests[config.provider]++;
   try {
     const responseText = await requestBrowserSolverSession(config, requestedUrl, signal);
-    if (signal?.aborted) {
-      throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
-    }
-    const solution = decodeSolution(responseText);
-    if (!solution) {
-      logDirectFallback(mcpServer);
-      return { kind: "fallback", reason: "unavailable" };
-    }
-    validateSolutionUrl(solution, requestedUrl);
-    return { kind: "solved", solution };
+    throwIfAborted(signal);
+    return classifyAcquisition(mcpServer, responseText, requestedUrl);
   } finally {
     activeSolverRequests[config.provider]--;
   }

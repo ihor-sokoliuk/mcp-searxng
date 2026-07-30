@@ -36,7 +36,7 @@ bound.
 
 ## 2026-07-30 real-container result
 
-At `2026-07-30T20:42:41Z`, a direct `HEAD` request to
+At `2026-07-30T21:12:40Z`, a direct `HEAD` request to
 `https://eprint.iacr.org/2025/858.pdf` returned HTTP 403 with the bounded
 `Cf-Mitigated: challenge` marker. Within the following five minutes, the built
 MCP server completed the same protected-PDF assertion through each pinned
@@ -44,8 +44,8 @@ container without a provider skip:
 
 | Provider | Local endpoint exposure | Suite elapsed | Assertion |
 |---|---|---:|---|
-| FlareSolverr 3.5.0 | loopback-only diagnostic port | 15.2 s | extracted `Encrypted Matrix-Vector Products` and `Abstract` |
-| Byparr 2.1.0 | loopback-only diagnostic port | 23.9 s | extracted `Encrypted Matrix-Vector Products` and `Abstract` |
+| FlareSolverr 3.5.0 | loopback-only diagnostic port | verified in the shared matrix run | extracted `Encrypted Matrix-Vector Products` and `Abstract` |
+| Byparr 2.1.0 | loopback-only diagnostic port | verified in the shared matrix run | extracted `Encrypted Matrix-Vector Products` and `Abstract` |
 
 The disposable diagnostic containers were removed after verification. No
 cookie, solver response body, credential, or endpoint userinfo was retained.
