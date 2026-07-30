@@ -302,6 +302,14 @@ async function runTests() {
       ),
       { "User-Agent": "SolverUA/1.0" },
     );
+    assert.deepEqual(
+      buildFlareSolverrHeaders(
+        solution,
+        new URL("https://other.example.com/a/b"),
+        2000,
+      ),
+      { "User-Agent": "SolverUA/1.0" },
+    );
   }, results);
 
   await testFunction("solver cache key uses the original requested URL", () => {
