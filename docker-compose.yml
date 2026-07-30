@@ -1,5 +1,7 @@
 services:
   mcp-searxng:
+    # Optional measured MCP-only limits: docs/deployment-profiles.md
+    # Apply them with: -f docker-compose.yml -f docker-compose.resources.yml
     image: isokoliuk/mcp-searxng:latest
     stdin_open: true
     environment:

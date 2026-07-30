@@ -48,6 +48,9 @@ For a bounded, client-neutral method to search, inspect sources, cross-check
 claims, and cite evidence, see the
 [evidence-focused research workflow](docs/research-workflow.md).
 
+For measured MCP-process CPU and memory starting points, see
+[measured deployment profiles](docs/deployment-profiles.md).
+
 ## Features
 
 - **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output (`response_format`).
