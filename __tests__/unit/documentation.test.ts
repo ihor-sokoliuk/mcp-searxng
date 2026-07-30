@@ -193,5 +193,7 @@ export async function runTests(): Promise<TestResult> {
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
-  runTests();
+  runTests().then((testResults) => {
+    process.exit(testResults.failed > 0 ? 1 : 0);
+  }).catch(console.error);
 }

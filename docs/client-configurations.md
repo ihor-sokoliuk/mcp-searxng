@@ -31,7 +31,7 @@ that the client can never support it.
 | Cline | Yes | Yes | Yes |
 | OpenCode | Yes | Yes | Yes |
 
-Claude Desktop remote connectors accept authless or OAuth servers, but a
+Claude Desktop remote connectors accept unauthenticated or OAuth servers, but a
 network-exposed `mcp-searxng` server uses its own static bearer-token hardening.
 Cursor's current remote MCP documentation likewise specifies OAuth. Because
 `mcp-searxng` does not implement MCP OAuth, this cookbook keeps both clients on
