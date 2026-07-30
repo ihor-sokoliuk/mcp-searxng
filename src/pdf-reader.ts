@@ -65,8 +65,10 @@ function isPdfWorkerResult(value: unknown): value is PdfWorkerResult {
 }
 
 function defaultPdfWorkerUrl(): URL {
-  const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
-  return new URL(`./pdf-worker.${extension}`, import.meta.url);
+  if (import.meta.url.endsWith(".ts")) {
+    return new URL("./pdf-worker-bootstrap.mjs", import.meta.url);
+  }
+  return new URL("./pdf-worker.js", import.meta.url);
 }
 
 export async function extractPdfText(
