@@ -44,6 +44,10 @@ For verified Claude Desktop, Claude Code, Codex CLI, Cursor, VS Code, Windsurf,
 Cline, and OpenCode recipes, see the
 [MCP client configuration cookbook](docs/client-configurations.md).
 
+For a bounded, client-neutral method to search, inspect sources, cross-check
+claims, and cite evidence, see the
+[evidence-focused research workflow](docs/research-workflow.md).
+
 ## Features
 
 - **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output (`response_format`).
