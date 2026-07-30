@@ -75,7 +75,7 @@ the balanced starting point:
 docker run -i --rm \
   --cpus 0.50 \
   --memory 256m \
-  -e SEARXNG_URL \
+  -e SEARXNG_URL=https://searxng.example.com \
   isokoliuk/mcp-searxng:latest
 ```
 
@@ -170,4 +170,3 @@ integration boundary and the
 [SearXNG installation documentation](https://docs.searxng.org/admin/installation.html)
 for the search service itself. This project does not bundle SearXNG, and this
 guide does not size SearXNG.
-
