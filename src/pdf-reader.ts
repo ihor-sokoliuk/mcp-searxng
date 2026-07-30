@@ -116,16 +116,17 @@ export async function extractPdfText(
       settled = true;
       clearTimeout(timeoutId);
       worker.removeAllListeners();
-      activePdfWorkers--;
-      resolve(result);
+
+      const releaseSlot = (): void => {
+        activePdfWorkers--;
+        resolve(result);
+      };
       try {
-        void worker.terminate().catch(() => {
-          // The result and concurrency slot are already settled. A failed
-          // termination cannot wedge later reads into the busy state.
-        });
+        void worker.terminate().then(releaseSlot, releaseSlot);
       } catch {
         // `terminate()` normally returns a promise, but a synchronous failure
         // must not retain the process-wide concurrency slot.
+        releaseSlot();
       }
     }
 

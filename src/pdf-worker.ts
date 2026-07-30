@@ -1,9 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { MAX_PDF_PAGES, type PdfWorkerResult } from "./pdf-reader.js";
-import {
-  ExternalFetchAttemptError,
-  installPdfNetworkGuards,
-} from "./pdf-network-guard.js";
+import { installPdfNetworkGuards } from "./pdf-network-guard.js";
 
 interface PdfWorkerInput {
   version: 1;
@@ -33,20 +30,18 @@ type PdfDocumentProxy = Awaited<
 
 function containsExternalFetchMarker(error: unknown): boolean {
   let current = error;
-  for (let depth = 0; depth < 4 && current; depth++) {
+  for (let depth = 0; depth < 4; depth++) {
+    if (!current || typeof current !== "object") {
+      return false;
+    }
+    const candidate = current as { name?: unknown; message?: unknown; cause?: unknown };
     if (
-      typeof current === "object"
-      && current !== null
-      && (
-        (current as { name?: unknown }).name === "ExternalFetchAttemptError"
-        || String((current as { message?: unknown }).message).includes("PDF_EXTERNAL_FETCH_ATTEMPT")
-      )
+      candidate.name === "ExternalFetchAttemptError"
+      || String(candidate.message).includes("PDF_EXTERNAL_FETCH_ATTEMPT")
     ) {
       return true;
     }
-    current = typeof current === "object" && current !== null
-      ? (current as { cause?: unknown }).cause
-      : undefined;
+    current = candidate.cause;
   }
   return false;
 }
@@ -67,19 +62,7 @@ function normalizeMergedText(texts: string[]): string {
 }
 
 function removeUnsafeControlCharacters(text: string): string {
-  let sanitized = "";
-  for (const character of text) {
-    const codePoint = character.codePointAt(0) ?? 0;
-    if (
-      codePoint === 0x09
-      || codePoint === 0x0a
-      || codePoint === 0x0d
-      || (codePoint >= 0x20 && codePoint !== 0x7f)
-    ) {
-      sanitized += character;
-    }
-  }
-  return sanitized;
+  return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 
 async function extract(): Promise<PdfWorkerResult> {
