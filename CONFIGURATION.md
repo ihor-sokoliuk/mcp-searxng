@@ -92,23 +92,32 @@ for trust, evaluation, and conservative-use guidance.
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | — | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
 | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. PDF input and extracted text additionally have a fixed 16 MiB ceiling. Invalid values fall back to the default. |
-| `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr or Byparr-compatible service, such as `http://flaresolverr:8191`. When set, `web_url_read` asks its `/v1` API for a browser session before each uncached URL read. |
+| `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr service, such as `http://flaresolverr:8191`. When set, `web_url_read` asks its `/v1` API for a browser session before each uncached URL read. |
 | `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
 | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent solver acquisitions per MCP process, from `1` through `16`. When all slots are occupied, the request uses the direct URL-reader path instead of waiting in a queue. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
-`FLARESOLVERR_URL` accepts either the service base URL or an already-complete
-`/v1` endpoint; the suffix is normalized idempotently.
+Verified with FlareSolverr 3.5.0 on 2026-07-30.
+Byparr has not been verified and is not currently supported. Independent
+compatibility reports are welcome.
+
+`FLARESOLVERR_URL` accepts either an absolute HTTP(S) service base URL or an
+already-complete `/v1` endpoint; the suffix is normalized idempotently. Query
+strings, fragments, and other URL schemes are rejected. The value is validated
+when `web_url_read` first uses it rather than at process startup; an invalid
+value fails every URL read, including a potential cache hit, until corrected.
 `FLARESOLVERR_TIMEOUT_MS` is sent to the solver as its browser-work budget;
 the client permits up to 5 additional seconds to receive and validate the
 solver response.
 
 With `FLARESOLVERR_URL` configured, `web_url_read` first performs its normal
-target URL security and HEAD size preflight. It then requests only the browser
-session cookies and user-agent from the solver. The actual target is fetched by
-`mcp-searxng`, so redirect validation, URL-reader proxy selection, streaming
-size limits, content-type handling, and caching remain authoritative.
+target URL security and HEAD size preflight for every uncached read. It then
+requests only the browser session cookies and user-agent from the solver.
+Every uncached URL is disclosed to the configured FlareSolverr service.
+Cache hits bypass solver acquisition. The actual target is fetched by `mcp-searxng`, so
+redirect validation, URL-reader proxy selection, streaming size limits, and
+content-type handling remain authoritative.
 Replay starts again at the originally requested URL rather than trusting a
 same-host path returned by the solver.
 
@@ -116,9 +125,11 @@ A transient solver connection, timeout, overload, HTTP 408/429/5xx response,
 malformed response, or oversized response falls back once to the direct
 URL-reader path. Invalid solver configuration, other HTTP 4xx responses, a
 solver result for a different hostname, and a non-success target status
-reported by the solver fail closed. Solver-backed cache entries are isolated
-from direct-fetch entries. When the replay response is `application/pdf`, the
-URL reader applies its bounded PDF text-extraction path.
+reported by the solver fail closed. A direct-fetch fallback result is not
+cached, so repeated reads re-fetch until solver acquisition succeeds.
+Solver-backed cache entries are isolated from direct-fetch entries. When the
+replay response is `application/pdf`, the URL reader applies its bounded PDF
+text-extraction path.
 
 Example with the official FlareSolverr image:
 
@@ -156,6 +167,11 @@ from private services and cloud metadata endpoints. See
 | `URL_READER_USER_AGENT` | No | `USER_AGENT` | User-Agent for `web_url_read` only |
 
 `SEARCH_USER_AGENT` and `URL_READER_USER_AGENT` are per-group overrides. When unset, both fall back to `USER_AGENT`. If neither the group override nor `USER_AGENT` is set, no User-Agent header is added by `mcp-searxng`.
+
+When FlareSolverr returns a solved session, its browser User-Agent replaces
+`URL_READER_USER_AGENT` / `USER_AGENT` on the replay fetch because the returned
+cookies are tied to that browser identity. The configured URL-reader User-Agent
+still applies to the pre-solve HEAD size check and to direct or fallback reads.
 
 ## Proxy
 
@@ -269,7 +285,32 @@ For direct URL-reader requests without a proxy, DNS answers are validated before
 
 When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions, so proxied deployments should rely on proxy, firewall, and egress controls.
 
-`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response body, including chunked responses and responses whose GET body is larger than the HEAD `Content-Length` value. The limit is measured after transparent response decompression. For `application/pdf`, both the downloaded input and extracted UTF-8 text are limited to the lower of this value and 16 MiB; extraction is limited to 500 pages and does not perform OCR. PDF parsing starts only after the response body is complete and has its own 30-second worker budget, so the maximum processing time is `FETCH_TIMEOUT_MS` plus up to 30 seconds.
+`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response
+body, including chunked responses and responses whose GET body is larger than
+the HEAD `Content-Length` value. The limit is measured after transparent
+response decompression.
+
+For `application/pdf`, both the downloaded input and extracted UTF-8 text are
+limited to the lower of this value and 16 MiB; extraction is limited to
+500 pages and does not perform OCR. A response declared as PDF must begin with the
+`%PDF-` signature or it returns a type-mismatch explanation without entering
+the parser.
+
+At most two PDF extractions run concurrently per MCP process. There is no
+queue; additional concurrent reads return
+`PDF text extraction is busy; try again later.` and may be retried. The
+two-worker limit is fixed and is not configurable. Each worker has a 192 MiB
+V8 old-generation ceiling and a 4 MiB stack ceiling. These are engine limits
+rather than reserved memory, a complete process-memory limit, or an
+operating-system sandbox.
+
+PDF parsing starts only after the response body is complete and has its own
+30-second worker budget. On the direct path, the HEAD checks and response body
+share the configured `FETCH_TIMEOUT_MS` network budget, after which parsing can
+take up to 30 additional seconds. With FlareSolverr enabled, add the initial
+HEAD preflight (up to 3 seconds), solver acquisition
+(`FLARESOLVERR_TIMEOUT_MS` plus up to 5 response-transfer seconds), and then the
+same replay-fetch and parser budgets.
 
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 

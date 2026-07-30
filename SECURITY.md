@@ -37,6 +37,7 @@ The primary security surface areas are:
 | Proxy credentials | Credential exposure in environment variables |
 | SearXNG credentials | Credentials in `SEARXNG_URL` userinfo or legacy `AUTH_PASSWORD` fallback |
 | Query forwarding | Search queries are forwarded verbatim to SearXNG |
+| PDF text extraction | Untrusted PDF content is processed by a third-party parser |
 
 ## Security Features
 
@@ -59,13 +60,18 @@ To allow private URL reads and private DNS-resolved targets (e.g. for internal d
 ### Delegated Browser Service
 
 Setting `FLARESOLVERR_URL` delegates challenge-page navigation to a trusted
-FlareSolverr or Byparr-compatible browser service. `mcp-searxng` validates the
-requested target before contacting the solver, accepts a solution only for the
-same hostname, filters returned cookies by domain, path, secure flag, and
-expiry, rejects cookie names or values outside the HTTP cookie character set or
-above 4096 bytes per pair, and performs the final target fetch through the
-normal URL-reader controls. Replay restarts at the originally requested URL;
-the solver-returned URL is used only for same-host integrity validation.
+FlareSolverr service. Verified with FlareSolverr 3.5.0 on 2026-07-30.
+Byparr has not been verified and is not currently supported.
+
+The configured service receives every uncached URL; cache hits bypass solver
+acquisition. `mcp-searxng` validates the requested target before contacting the
+solver, accepts a solution only for the same hostname, filters returned cookies
+by domain, path, secure flag, and expiry, rejects cookie names or values outside
+the HTTP cookie character set or above 4096 bytes per pair, and performs the
+final target fetch through the normal URL-reader controls. Replay restarts at
+the originally requested URL; the solver-returned URL is used only for
+same-host integrity validation. Every uncached URL is disclosed to the
+configured FlareSolverr service.
 
 The browser service performs its own navigation internally. `mcp-searxng`
 cannot intercept or validate every redirect the browser follows while solving a
@@ -82,6 +88,31 @@ Transient solver failures use the direct URL-reader path once. Invalid solver
 configuration and hostname-divergent solutions fail closed. The solver API
 response is capped at 256 KiB, and concurrent solver acquisitions are bounded
 by `FLARESOLVERR_MAX_CONCURRENT_REQUESTS`.
+
+### PDF Text Extraction
+
+PDF responses are untrusted parser input. The URL reader enters the parser only
+for `application/pdf` responses whose body begins with the `%PDF-` signature.
+The downloaded input and extracted UTF-8 text are each capped at the lower of
+`URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB. Documents above 500 pages are
+rejected, OCR is not performed, and each parse has a separate 30-second worker
+budget.
+
+At most two PDF extractions run concurrently per MCP process. There is no
+queue; additional concurrent reads return a retryable busy explanation. Each
+worker has a 192 MiB V8 old-generation ceiling and a 4 MiB stack ceiling.
+Parser evaluation, XFA, system fonts, font rendering, automatic fetching,
+streaming, worker fetching, WebAssembly, and external parser resource URLs are
+disabled. The worker also blocks Node fetch, HTTP(S), TCP, and TLS primitives
+while loading and running the parser. Parser and worker failures return generic
+explanations rather than internal error details.
+
+These controls are defense in depth for a third-party parser. A worker thread
+is not an operating-system sandbox or a separate security principal: it shares
+the process identity and filesystem privileges. The 192 MiB value is a V8
+old-generation ceiling, not reserved memory or a complete process-memory
+limit. Run the MCP process with least privilege and external container,
+filesystem, and egress controls appropriate for untrusted content.
 
 ### Hardened HTTP Mode
 
@@ -131,7 +162,13 @@ The `web_url_read` tool manually follows redirects (up to 5 hops). Each intermed
 
 ### URL Reader Size Limits
 
-`web_url_read` enforces `URL_READ_MAX_CONTENT_LENGTH_BYTES` while streaming the response body. The HEAD `Content-Length` check remains as a cheap early rejection path, but the streaming cap is authoritative and also applies when the server omits `Content-Length`, uses chunked transfer encoding, or sends more data than it reported. The cap is measured after undici's transparent Content-Encoding decompression, which bounds the in-memory content size used for HTML-to-Markdown conversion.
+`web_url_read` enforces `URL_READ_MAX_CONTENT_LENGTH_BYTES` while streaming the
+response body. The HEAD `Content-Length` check remains as a cheap early
+rejection path, but the streaming cap is authoritative and also applies when
+the server omits `Content-Length`, uses chunked transfer encoding, or sends
+more data than it reported. The cap is measured after undici's transparent
+Content-Encoding decompression, which bounds the body retained for conversion
+or parsing. PDF extraction has the additional fixed limits described above.
 
 ## Deployment Recommendations
 
@@ -195,6 +232,7 @@ The following are **in scope** for security reports:
 - DNS rebinding bypasses
 - CORS misconfiguration allowing unintended cross-origin access
 - Sensitive data leakage (credentials, tokens) in logs or HTTP responses
+- Realistic PDF parser code-execution, data-exfiltration, or network-guard bypasses
 - Dependency vulnerabilities with a realistic exploitation path against this server
 
 The following are **out of scope**:

@@ -5,6 +5,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **FlareSolverr-assisted URL reading:** Operators can configure `FLARESOLVERR_URL`, `FLARESOLVERR_TIMEOUT_MS` (default 60,000 ms), and `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` (default 2) to acquire a browser session before every uncached `web_url_read`, then replay its user-agent and scoped cookies through the existing bounded URL reader. Transient acquisition failures fall back once to an uncached direct read; invalid configuration, incompatible client errors, and cross-host solutions fail closed. The integration was verified with FlareSolverr 3.5.0 on 2026-07-30; Byparr has not been verified and is not currently supported.
+
+- **Bounded PDF text extraction:** `web_url_read` now extracts text-layer content from `application/pdf` responses using the new production `unpdf` dependency in a resource-limited worker. Input and output are capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB, documents above 500 pages are rejected, parsing has a separate 30-second budget, and at most two extractions run concurrently. OCR is not supported. This supersedes the v1.10.0 behavior that rejected PDF responses.
+
 ### Fixed
 
 - **HTTP rate-limit settings now honor the strict integer-validation contract:** `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` reject fractional, unit-suffixed, exponent, non-decimal, non-positive, and unsafe values instead of accepting numeric prefixes. Invalid values fall back with a raw-value-free warning. Because previously accepted numeric prefixes may have produced a different effective limit, the documented default may be looser or stricter until the operator corrects the setting.

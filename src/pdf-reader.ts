@@ -7,7 +7,7 @@ export const PDF_WORKER_RESOURCE_LIMITS = Object.freeze({
   maxOldGenerationSizeMb: 192,
   stackSizeMb: 4,
 });
-const MAX_CONCURRENT_PDF_WORKERS = 2;
+export const MAX_CONCURRENT_PDF_WORKERS = 2;
 
 export type PdfWorkerResult =
   | { version: 1; kind: "text"; text: string; totalPages: number; textBytes: number }

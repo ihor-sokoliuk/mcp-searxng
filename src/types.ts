@@ -350,7 +350,7 @@ export const LITE_INSTANCE_INFO_TOOL: Tool = {
 export const LITE_READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:
-    "Fetch URL. Converts HTML to markdown; returns explicit JSON, plain text, YAML, TOML, and XML as readable markdown; supports bounded PDF text extraction; other binary/media/archive downloads are rejected. An operator-configured FlareSolverr or Byparr service can acquire browser sessions for challenge-protected URLs.",
+    "Fetch URL. Converts HTML to markdown; returns explicit JSON, plain text, YAML, TOML, and XML as readable markdown; supports bounded PDF text extraction; other binary/media/archive downloads are rejected. An operator-configured FlareSolverr service acquires a browser session before every uncached URL read.",
   inputSchema: {
     type: "object",
     properties: { url: { type: "string", description: "URL to fetch." } },
@@ -365,7 +365,7 @@ export const READ_URL_TOOL: Tool = {
     "Content-type aware: HTML is converted to markdown; JSON is pretty-printed; plain text, YAML, TOML, and XML are returned as fenced readable text. " +
     "PDF text extraction is supported with bounded input, output, page count, time, concurrency, and memory; OCR is not supported. " +
     "Binary, media, archive, and octet-stream downloads other than PDFs are intentionally rejected instead of being returned as raw bytes. " +
-    "When the operator configures FlareSolverr or Byparr, challenge-protected URLs are solved before the normal bounded URL-reader fetch. " +
+    "When the operator configures FlareSolverr, it acquires a browser session before every uncached URL read; cache hits bypass acquisition and transient acquisition failures use an uncached direct-fetch fallback. " +
     "Three modes: " +
     "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
     "(2) Section extraction — set `section` to return content under a specific heading. " +
