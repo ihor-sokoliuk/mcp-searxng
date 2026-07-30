@@ -13,6 +13,7 @@ import {
   sanitizeErrorForTransport,
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
+import { parseStrictInteger } from "./env-int.js";
 import {
   getHttpSecurityConfig,
   isOriginAllowed,
@@ -52,7 +53,7 @@ export function resolveBindHost(envValue: string | undefined): string {
 
 /**
  * Parses a positive-integer rate-limit setting from the environment.
- * Absent/blank → fallback silently. Present-but-invalid (NaN or <= 0) →
+ * Absent/blank → fallback silently. Present-but-invalid or non-positive →
  * fallback plus a one-line console.warn so an operator typo cannot silently
  * disable rate limiting (a fail-open control). Uses console.warn, not the MCP
  * logMessage path, because makeRateLimiters runs without an McpServer in scope.
@@ -62,10 +63,10 @@ export function parseRateLimitEnv(name: string, fallback: number): number {
   if (raw === undefined || raw.trim() === "") {
     return fallback;
   }
-  const parsed = parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
+  const parsed = parseStrictInteger(raw);
+  if (parsed === undefined || parsed <= 0) {
     warnDiagnostic(
-      `⚠️  Ignoring invalid ${name}="${raw}". Expected a positive integer. Using default ${fallback}.`,
+      `⚠️  Ignoring invalid ${name}. Expected a positive integer. Using default ${fallback}.`,
     );
     return fallback;
   }

@@ -137,6 +137,32 @@ async function runTests() {
     assert.ok(res.headers['access-control-allow-origin']);
   }, results);
 
+  await testFunction('hardened mode keeps GET /health unauthenticated with fixed metadata', async () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+
+    try {
+      const app = await createHttpServer(() => createTestMcpServer(), 3000);
+      const res = await request(app)
+        .get('/health')
+        .set('Origin', 'https://unlisted.example.com')
+        .set('Host', 'unlisted.example.com');
+
+      assert.equal(res.status, 200);
+      assert.deepEqual(
+        Object.keys(res.body).sort(),
+        ['server', 'status', 'transport', 'version'],
+      );
+      assert.equal(res.body.status, 'healthy');
+      assert.equal(res.body.server, 'ihor-sokoliuk/mcp-searxng');
+      assert.equal(res.body.transport, 'http');
+      assert.equal(typeof res.body.version, 'string');
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('CORS allows expected headers', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
     const res = await request(app)
@@ -536,6 +562,27 @@ async function runTests() {
 
   // --- Rate Limiting ---
 
+  await testFunction('Rate limiting: production construction parses each configured variable once', async () => {
+    envManager.set('MCP_RATE_WINDOW_MS', '50ms');
+    envManager.set('MCP_RATE_INIT_MAX', '1e3');
+    envManager.set('MCP_RATE_SESSION_MAX', '0x10');
+
+    try {
+      const output = await captureConsoleOutput(async () => {
+        await createHttpServer(() => createTestMcpServer());
+      });
+      const warnings = output.filter(line => line.includes('Ignoring invalid MCP_RATE_'));
+
+      assert.deepEqual(warnings, [
+        '⚠️  Ignoring invalid MCP_RATE_WINDOW_MS. Expected a positive integer. Using default 60000.',
+        '⚠️  Ignoring invalid MCP_RATE_INIT_MAX. Expected a positive integer. Using default 20.',
+        '⚠️  Ignoring invalid MCP_RATE_SESSION_MAX. Expected a positive integer. Using default 300.',
+      ]);
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('Rate limiting: established-session POSTs use only the session limiter', async () => {
     envManager.set('MCP_RATE_INIT_MAX', '2');
     envManager.set('MCP_RATE_SESSION_MAX', '3');
@@ -765,19 +812,22 @@ async function runTests() {
     );
   }, results);
 
-  await testFunction('Rate limiting: RateLimit-* headers present on /health response', async () => {
-    const app = await createHttpServer(() => createTestMcpServer());
+  await testFunction('Rate limiting: /health keeps its independent fixed limit of 60', async () => {
+    envManager.set('MCP_RATE_WINDOW_MS', '120000');
+    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_SESSION_MAX', '3');
 
-    const res = await request(app).get('/health');
+    try {
+      const app = await createHttpServer(() => createTestMcpServer());
+      const res = await request(app).get('/health');
+      const limit = res.headers['ratelimit-limit'] || res.headers['x-ratelimit-limit'];
+      const remaining = res.headers['ratelimit-remaining'] || res.headers['x-ratelimit-remaining'];
 
-    assert.ok(
-      res.headers['ratelimit-limit'] || res.headers['x-ratelimit-limit'],
-      'RateLimit-Limit header should be present on /health'
-    );
-    assert.ok(
-      res.headers['ratelimit-remaining'] || res.headers['x-ratelimit-remaining'],
-      'RateLimit-Remaining header should be present on /health'
-    );
+      assert.equal(limit, '60', 'health limit must remain fixed at 60 per minute');
+      assert.ok(remaining, 'RateLimit-Remaining header should be present on /health');
+    } finally {
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('Rate limiting: trust proxy suppresses X-Forwarded-For validation warning', async () => {

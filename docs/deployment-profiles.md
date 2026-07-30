@@ -17,6 +17,12 @@ The baseline below was captured on 2026-07-29 from source commit
 - 20-result search responses and approximately 48 KiB HTML pages;
 - Docker CPU and memory sampled with `docker stats --no-stream`.
 
+This repository retains the point-in-time description and results below, but
+not the benchmark harness or raw `docker stats` output. The snapshot therefore
+cannot be independently rerun from repository artifacts alone. Treat it as
+historical starting evidence and measure the current image with your own
+representative workload before enforcing limits.
+
 Each client opened its own Streamable HTTP session. Every cycle called
 `searxng_web_search`, `web_url_read`, `searxng_search_suggestions`, and
 `searxng_instance_info`. Queries rotated across four cache keys, search pages
@@ -73,6 +79,7 @@ the balanced starting point:
 
 ```bash
 docker run -i --rm \
+  --name mcp-searxng-profile \
   --cpus 0.50 \
   --memory 256m \
   -e SEARXNG_URL=https://searxng.example.com \
@@ -84,26 +91,46 @@ values with the selected profile and watch for throttling or OOM termination.
 
 ### Standalone HTTP with Compose
 
-The optional `docker-compose.resources.yml` overlay applies balanced defaults
-without changing the base Compose service:
+The base `docker-compose.yml` remains STDIO-only. Add
+`docker-compose.http.yml` to enable a standalone hardened Streamable HTTP
+service, and optionally add `docker-compose.resources.yml` for balanced
+resource defaults.
+
+Before starting it, set `SEARXNG_URL`, `MCP_HTTP_AUTH_TOKEN`, and
+`MCP_HTTP_ALLOWED_ORIGINS` in the operator environment. Compose fails during
+interpolation, before creating a container, if either hardening value is
+missing.
 
 ```bash
-SEARXNG_URL=https://searxng.example.com \
 docker compose \
   -f docker-compose.yml \
+  -f docker-compose.http.yml \
   -f docker-compose.resources.yml \
   up -d
 ```
 
-Choose another point in the measured ranges through Compose interpolation:
+The published endpoint defaults to `127.0.0.1:3000`. Change the host-side
+address only with `MCP_SEARXNG_HTTP_BIND_ADDRESS`, and change the host-side port
+only with `MCP_SEARXNG_HTTP_PUBLISHED_PORT`. `MCP_HTTP_PORT` controls the
+container-side listener and defaults to `3000`; the overlay sets
+`MCP_HTTP_HOST=0.0.0.0` inside the container so Docker port forwarding can reach
+it.
+
+If `MCP_SEARXNG_HTTP_PUBLISHED_PORT` differs from `MCP_HTTP_PORT`, add the
+client-visible host and published port in `MCP_HTTP_ALLOWED_HOSTS`. Hardened
+mode derives its loopback defaults from the container-side `MCP_HTTP_PORT`,
+while clients send the host-side port in the `Host` header.
+
+For example, choose another point in the measured resource ranges without
+changing the loopback-only network default:
 
 ```bash
 MCP_SEARXNG_CPUS=1.50 \
 MCP_SEARXNG_MEMORY_LIMIT=768m \
 MCP_SEARXNG_MEMORY_RESERVATION=512m \
-SEARXNG_URL=https://searxng.example.com \
 docker compose \
   -f docker-compose.yml \
+  -f docker-compose.http.yml \
   -f docker-compose.resources.yml \
   up -d
 ```
@@ -116,9 +143,39 @@ reservation. See Docker's current
 [Compose service reference](https://docs.docker.com/reference/compose-file/services/)
 and [container resource guidance](https://docs.docker.com/engine/containers/resource_constraints/).
 
-HTTP deployments also need the transport and security settings in
-[Hardened HTTP Mode](../CONFIGURATION.md#hardened-http-mode). Resource limits
-do not replace authentication, host/origin validation, TLS, or rate limiting.
+When `MCP_HTTP_ALLOWED_HOSTS` is unset, hardened mode accepts the existing
+loopback hostname defaults and their configured-port forms. Setting it replaces
+those defaults, so list the exact `Host` forwarded by a reverse proxy.
+`MCP_HTTP_TRUST_PROXY` is also optional and disabled by default. Enable it only
+for a known proxy topology; otherwise clients can spoof `X-Forwarded-For` and
+therefore the IP identity used for rate limiting and logs.
+
+The overlay uses Compose pass-through syntax for those two optional variables.
+When either is absent from the operator environment, Compose passes no value for
+an optional variable. The server also treats a blank allowed-hosts value as
+unset and a blank trust-proxy value as disabled, preserving the safe defaults.
+
+To inspect the merged model before launch, supply only a disposable placeholder
+token:
+
+```bash
+MCP_HTTP_AUTH_TOKEN=compose-test-token \
+MCP_HTTP_ALLOWED_ORIGINS=https://client.example.invalid \
+SEARXNG_URL=https://searxng.example.com \
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.http.yml \
+  -f docker-compose.resources.yml \
+  config
+```
+
+`docker compose config` prints expanded environment values, including
+`MCP_HTTP_AUTH_TOKEN`. Never run or capture that command with a real production
+token in CI logs or shared output.
+
+Follow [Hardened HTTP Mode](../CONFIGURATION.md#hardened-http-mode) for exact
+Host, Origin, TLS, and reverse-proxy guidance. Resource limits do not replace
+authentication, Host/Origin validation, TLS, or rate limiting.
 
 ## Map workload to current controls
 
@@ -142,11 +199,31 @@ stays within its individual bound.
 
 ## Observe and adjust
 
-For Docker or Compose, sample the MCP container during representative traffic:
+For the named `docker run` example, sample the container during representative
+traffic:
 
 ```bash
-docker stats --no-stream mcp-searxng
-docker inspect mcp-searxng --format '{{.State.OOMKilled}} {{.RestartCount}}'
+docker stats --no-stream mcp-searxng-profile
+docker inspect mcp-searxng-profile \
+  --format '{{.State.OOMKilled}} {{.RestartCount}}'
+```
+
+For the three-file Compose HTTP profile, address the service through Compose
+instead of assuming Docker's generated container name:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.http.yml \
+  -f docker-compose.resources.yml \
+  stats --no-stream mcp-searxng
+
+container_id="$(docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.http.yml \
+  -f docker-compose.resources.yml \
+  ps -q mcp-searxng)"
+docker inspect "$container_id" --format '{{.State.OOMKilled}} {{.RestartCount}}'
 ```
 
 Record the Node version, image digest, architecture, active environment,

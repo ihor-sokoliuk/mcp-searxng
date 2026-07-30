@@ -6,6 +6,9 @@
 - **[CONFIGURATION](../CONFIGURATION.md)** — Every environment variable with defaults and examples
 - **[Operating Self-Hosted SearXNG](self-hosted-searxng.md)** — SearXNG operation and MCP integration
 - **[Using a Public SearXNG Instance](public-searxng-instances.md)** — Trust, evaluation, and conservative-use guidance
+- **[MCP Client Configuration Cookbook](client-configurations.md)** — Verified local and remote recipes for eight MCP clients
+- **[Evidence-Focused Research Workflow](research-workflow.md)** — Bounded search, source inspection, cross-checking, and citation guidance
+- **[Measured MCP Deployment Profiles](deployment-profiles.md)** — Point-in-time MCP-process measurements and resource starting ranges
 - **[SECURITY](../SECURITY.md)** — Threat model, SSRF protection, HTTP hardening, and vulnerability reporting
 
 ## Topics

@@ -66,13 +66,21 @@ MCP_HTTP_AUTH_TOKEN=<strong-random-token>
 MCP_HTTP_ALLOWED_ORIGINS=https://your-app.example.com
 ```
 
-Hardened mode enforces:
+Hardened mode protects the MCP protocol endpoint (`/mcp`) with:
 
-- **Bearer token authentication** on every request (`Authorization: Bearer <token>`)
-- **CORS origin allowlist** — requests from unlisted origins are rejected
+- **Bearer token authentication** on every `/mcp` request (`Authorization: Bearer <token>`)
+- **Origin allowlist** — `/mcp` requests from unlisted browser origins are rejected
 - **DNS rebinding protection** — the `Host` header is validated against `MCP_HTTP_ALLOWED_HOSTS`. The default allows loopback access on the configured port (`127.0.0.1`, `localhost`, `[::1]` and their `:PORT` forms). A custom list is matched exactly against `Host`: an entry matches only when it carries the same port the client or proxy sends (e.g. `app.example.com:8443`).
 
 `MCP_HTTP_HARDEN=true` will fail to start if `MCP_HTTP_AUTH_TOKEN` or `MCP_HTTP_ALLOWED_ORIGINS` are missing.
+
+`GET /health` intentionally remains unauthenticated so container orchestrators
+and load balancers can perform liveness checks. It is independently limited to
+60 requests per minute and returns only `status`, `server`, `version`, and
+`transport`; it does not return the SearXNG URL or server configuration. Public
+version metadata permits version fingerprinting, which is the accepted trade-off
+for this unauthenticated operational endpoint. Restrict the network path to the
+health endpoint when your threat model does not accept that disclosure.
 
 ### Transport Security
 

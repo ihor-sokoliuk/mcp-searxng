@@ -73,6 +73,13 @@ async function runTests() {
     assert.ok(help.includes('searxng') || help.includes('search') || help.includes('SearXNG'));
   }, results);
 
+  await testFunction('help resource names the optional MCP Streamable HTTP transport', () => {
+    const help = createHelpResource();
+
+    assert.ok(help.includes('MCP Streamable HTTP transport'));
+    assert.ok(!help.includes('RESTful HTTP transport'));
+  }, results);
+
   await testFunction('config resource advertises all registered tools', () => {
     const config = JSON.parse(createConfigResource());
 

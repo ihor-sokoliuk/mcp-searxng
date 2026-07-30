@@ -112,7 +112,7 @@ Interface-specific proxies take priority over global proxies for their respectiv
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `HTTP_PROXY` / `HTTPS_PROXY` | No | — | Global proxy for all traffic. Format: `http://[user:pass@]host:port` |
-| `SEARCH_HTTP_PROXY` / `SEARCH_HTTPS_PROXY` | No | — | Proxy for `searxng_web_search` only |
+| `SEARCH_HTTP_PROXY` / `SEARCH_HTTPS_PROXY` | No | — | Proxy for all SearXNG-bound traffic: search, suggestions, and capability discovery |
 | `URL_READER_HTTP_PROXY` / `URL_READER_HTTPS_PROXY` | No | — | Proxy for `web_url_read` only |
 | `NO_PROXY` | No | — | Comma-separated bypass list (e.g. `localhost,.internal,example.com`) |
 
@@ -169,7 +169,11 @@ HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-
 
 ## Rate Limiting (HTTP mode)
 
-Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit: POST requests with a currently live session use the session limit, other POST requests use the initialization limit, and GET/DELETE requests always use the session limit. A non-numeric or non-positive value for any `MCP_RATE_*` variable is ignored with a startup warning and the documented default is used, so a typo cannot silently disable rate limiting. (A blank or unset variable uses the default silently.)
+Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit: POST requests with a currently live session use the session limit, other POST requests use the initialization limit, and GET/DELETE requests always use the session limit.
+
+Each `MCP_RATE_*` value must be a positive decimal safe integer after JavaScript whitespace trimming. A leading `+` and leading zeros are accepted; fractions, suffixes, exponents, hexadecimal forms, non-positive values, and integers above `Number.MAX_SAFE_INTEGER` are rejected. An invalid value uses the documented default and emits one startup warning per variable without copying the raw value into diagnostics. Blank or unset variables use the default silently.
+
+Before this correction, spellings such as `20requests`, `12.5`, or `1e3` could be accepted as numeric prefixes. They now fall back to the documented default, which may be looser or stricter than the value an older process effectively used. Check startup warnings and correct the environment value rather than relying on the fallback.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -213,9 +217,9 @@ When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTP
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 
 
-## Full Example (All Options)
+## Combined Example (Representative Options)
 
-Complete MCP client configuration with every variable. Mix and match as needed — all optional variables can be used independently or together.
+This combined MCP client configuration shows the supported option groups in one place. Remove settings you do not need. Some options have dependencies: `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN`, and `MCP_HTTP_ALLOWED_ORIGINS` must be configured together; `MCP_HTTP_ALLOWED_HOSTS` and `MCP_HTTP_TRUST_PROXY` depend on the exact network and proxy topology. The representative `MCP_HTTP_TRUST_PROXY=1` value assumes exactly one trusted proxy hop. Without that trusted proxy boundary, clients can spoof `X-Forwarded-For` and influence IP-based rate limiting and logs.
 
 ```json
 {
@@ -224,7 +228,9 @@ Complete MCP client configuration with every variable. Mix and match as needed �
       "command": "npx",
       "args": ["-y", "mcp-searxng"],
       "env": {
-        "SEARXNG_URL": "https://your_username:your_password@searxng.example.com",
+        "SEARXNG_URL": "https://searxng.example.com",
+        "AUTH_USERNAME": "legacy-fallback-user",
+        "AUTH_PASSWORD": "legacy-fallback-password",
         "SEARXNG_FANOUT": "false",
         "SEARXNG_TIMEOUT_MS": "10000",
         "FETCH_TIMEOUT_MS": "10000",
@@ -253,6 +259,9 @@ Complete MCP client configuration with every variable. Mix and match as needed �
         "MCP_HTTP_PORT": "3000",
         "MCP_HTTP_HOST": "0.0.0.0",
         "MCP_HTTP_TRUST_PROXY": "1",
+        "MCP_RATE_WINDOW_MS": "60000",
+        "MCP_RATE_INIT_MAX": "20",
+        "MCP_RATE_SESSION_MAX": "300",
         "MCP_HTTP_HARDEN": "true",
         "MCP_HTTP_AUTH_TOKEN": "replace-me",
         "MCP_HTTP_ALLOWED_ORIGINS": "https://app.example.com",

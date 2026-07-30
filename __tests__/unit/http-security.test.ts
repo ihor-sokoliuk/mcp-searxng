@@ -127,6 +127,24 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('blank optional host and trust-proxy values preserve safe defaults', () => {
+    envManager.set('MCP_HTTP_ALLOWED_HOSTS', '');
+    envManager.set('MCP_HTTP_TRUST_PROXY', '');
+
+    const config = getHttpSecurityConfig(3000);
+    assert.deepEqual(config.allowedHosts, [
+      '127.0.0.1',
+      'localhost',
+      '[::1]',
+      '127.0.0.1:3000',
+      'localhost:3000',
+      '[::1]:3000',
+    ]);
+    assert.equal(config.trustProxy, false);
+
+    envManager.restore();
+  }, results);
+
   await testFunction('explicit MCP_HTTP_ALLOWED_HOSTS overrides the port-aware default exactly', () => {
     envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'app.example.com:8443, other.example.com');
 

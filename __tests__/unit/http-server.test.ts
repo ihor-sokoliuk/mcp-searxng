@@ -103,29 +103,30 @@ export async function runTests(): Promise<TestResult> {
     assert.equal(warnings.length, 0, 'blank value must not warn');
   }, results);
 
-  await testFunction('parseRateLimitEnv: non-numeric → fallback AND warns', () => {
-    envManager.set('MCP_RATE_TEST', 'abc'); // no leading digit → parseInt yields NaN (the fail-open case)
-    let result = 0;
-    const warnings = captureWarnings(() => { result = parseRateLimitEnv('MCP_RATE_TEST', 20); });
-    envManager.restore();
-    assert.equal(result, 20);
-    assert.equal(warnings.length, 1, 'invalid value must warn once');
-    assert.ok(warnings[0].includes('MCP_RATE_TEST'), 'warning names the variable');
-    assert.ok(warnings[0].includes('20'), 'warning names the default used');
-  }, results);
-
-  await testFunction('parseRateLimitEnv: zero and negative → fallback AND warns', () => {
-    for (const bad of ['0', '-5']) {
+  await testFunction('parseRateLimitEnv: malformed or unsafe values → fallback AND one raw-value-free warning', () => {
+    const expectedWarning =
+      '⚠️  Ignoring invalid MCP_RATE_TEST. Expected a positive integer. Using default 300.';
+    for (const bad of [
+      '12.5',
+      '50ms',
+      '1e3',
+      '0x10',
+      'abc',
+      '9007199254740992',
+      '0',
+      '-5',
+    ]) {
       envManager.set('MCP_RATE_TEST', bad);
       let result = 0;
       const warnings = captureWarnings(() => { result = parseRateLimitEnv('MCP_RATE_TEST', 300); });
       envManager.restore();
       assert.equal(result, 300, `${bad} → fallback`);
       assert.equal(warnings.length, 1, `${bad} must warn`);
+      assert.equal(warnings[0], expectedWarning, `${bad} must not be copied into diagnostics`);
     }
   }, results);
 
-  await testFunction('parseRateLimitEnv warnings redact configured passwords', () => {
+  await testFunction('parseRateLimitEnv warnings never emit configured invalid values', () => {
     envManager.set('MCP_RATE_TEST', 'rate-secret');
     envManager.set('AUTH_USERNAME', 'rate-user');
     envManager.set('AUTH_PASSWORD', 'rate-secret');
@@ -140,18 +141,28 @@ export async function runTests(): Promise<TestResult> {
     assert.equal(result, 20);
     assert.equal(warnings.length, 1);
     assert.ok(!warnings[0].includes('rate-secret'), warnings[0]);
-    assert.ok(warnings[0].includes('[redacted]'), warnings[0]);
+    assert.equal(
+      warnings[0],
+      '⚠️  Ignoring invalid MCP_RATE_TEST. Expected a positive integer. Using default 20.',
+    );
     resetDiagnosticSanitizerForTests();
     envManager.restore();
   }, results);
 
-  await testFunction('parseRateLimitEnv: valid positive integer is honored, no warning', () => {
-    envManager.set('MCP_RATE_TEST', '50');
-    let result = 0;
-    const warnings = captureWarnings(() => { result = parseRateLimitEnv('MCP_RATE_TEST', 20); });
-    envManager.restore();
-    assert.equal(result, 50);
-    assert.equal(warnings.length, 0, 'valid value must not warn');
+  await testFunction('parseRateLimitEnv: strict positive integer forms are honored without warnings', () => {
+    for (const [raw, expected] of [
+      ['50', 50],
+      ['+5', 5],
+      ['005', 5],
+      ['\u00a05\u00a0', 5],
+    ] as const) {
+      envManager.set('MCP_RATE_TEST', raw);
+      let result = 0;
+      const warnings = captureWarnings(() => { result = parseRateLimitEnv('MCP_RATE_TEST', 20); });
+      envManager.restore();
+      assert.equal(result, expected, `${JSON.stringify(raw)} parses strictly`);
+      assert.equal(warnings.length, 0, `${JSON.stringify(raw)} must not warn`);
+    }
   }, results);
 
   printTestSummary(results, 'HTTP Server');
