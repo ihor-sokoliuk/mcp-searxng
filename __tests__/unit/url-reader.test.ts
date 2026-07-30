@@ -22,6 +22,7 @@ import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
 import { EnvManager } from '../helpers/env-utils.js';
+import { createTextPdf } from '../helpers/pdf-fixtures.js';
 
 const results = createTestResults();
 const envManager = new EnvManager();
@@ -1321,7 +1322,6 @@ async function runTests() {
     urlCache.clear();
 
     const cases = [
-      'application/pdf',
       'application/zip',
       'image/png',
       'video/mp4',
@@ -1365,7 +1365,7 @@ async function runTests() {
         return;
       }
 
-      res.writeHead(200, { 'content-type': 'application/pdf' });
+      res.writeHead(200, { 'content-type': 'application/zip' });
       res.on('close', () => {
         responseClosed = true;
         resolveResponseClosed();
@@ -1397,6 +1397,79 @@ async function runTests() {
     } finally {
       await close();
       urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('application/pdf responses return extracted text and use the normal cache and pagination', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    let requestCount = 0;
+    const pdf = Buffer.from(createTextPdf(['Encrypted Matrix-Vector Products', 'Abstract test content']));
+    const { url, close } = await startHttpServer((req, res) => {
+      requestCount++;
+      res.writeHead(200, { 'content-type': 'application/pdf' });
+      res.end(req.method === 'HEAD' ? undefined : pdf);
+    });
+
+    try {
+      const first = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, { maxLength: 32 });
+      const second = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, { startChar: 0 });
+      assert.equal(first, 'Encrypted Matrix-Vector Products');
+      assert.ok(second.includes('Encrypted Matrix-Vector Products'));
+      assert.ok(second.includes('Abstract test content'));
+      assert.equal(requestCount, 2, 'Successful PDF text should be cached after one HEAD and GET');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('application/pdf rejects a mismatched signature without starting a parser', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'application/pdf' },
+      body: 'not a pdf',
+    });
+
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, 'Response declared application/pdf but did not contain a PDF document.');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('application/pdf reports malformed and no-text documents without caching them', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    const cases = [
+      {
+        body: Buffer.from('%PDF-not-valid'),
+        expected: 'Unable to extract text from PDF.',
+      },
+      {
+        body: Buffer.from(createTextPdf([''])),
+        expected: 'No extractable text (likely a scanned/image PDF; OCR is not supported).',
+      },
+    ];
+
+    for (const testCase of cases) {
+      let requestCount = 0;
+      const { url, close } = await startHttpServer((req, res) => {
+        requestCount++;
+        res.writeHead(200, { 'content-type': 'application/pdf' });
+        res.end(req.method === 'HEAD' ? undefined : testCase.body);
+      });
+      try {
+        assert.equal(await fetchAndConvertToMarkdown(mockServer as any, url), testCase.expected);
+        assert.equal(await fetchAndConvertToMarkdown(mockServer as any, url), testCase.expected);
+        assert.equal(requestCount, 4, 'Failed PDF extraction must not be cached');
+      } finally {
+        await close();
+        urlCache.clear();
+      }
     }
   }, results);
 
@@ -1541,7 +1614,7 @@ async function runTests() {
         return;
       }
 
-      res.writeHead(200, { 'content-type': 'application/pdf' });
+      res.writeHead(200, { 'content-type': 'application/zip' });
       res.end(Buffer.from([0, 1, 2, 3]));
     });
 

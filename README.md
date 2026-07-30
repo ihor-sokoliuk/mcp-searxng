@@ -146,8 +146,10 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - HTML (`text/html`, `application/xhtml+xml`) is converted to markdown
     - JSON (`application/json`, `*+json`) is pretty-printed in a fenced block
     - Plain text, YAML, TOML, XML, and other safe explicit `text/*` responses are returned as readable fenced text
+    - PDF (`application/pdf`) text is extracted in a resource-bounded worker for documents up to 500 pages
     - Missing or generic content types are read under the existing size cap; non-binary bodies continue through the HTML-to-markdown path for compatibility
-  - Binary, media, archive, PDF, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
+  - PDF input and extracted text are each capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB. OCR is not supported, and scanned/image-only or password-protected PDFs return a short explanation.
+  - Other binary, media, archive, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
   - When `FLARESOLVERR_URL` is configured, challenge-protected URLs are solved first and then fetched through the normal URL-reader security, redirect, proxy, and size controls
   - Inputs:
     - `url` (string): The URL to fetch and process

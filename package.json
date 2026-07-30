@@ -57,7 +57,8 @@
         "express-rate-limit": "^8.5.2",
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "^6.1.13",
-        "undici": "7.29.0"
+        "undici": "7.29.0",
+        "unpdf": "1.7.0"
     },
     "devDependencies": {
         "@types/node": "22.20.1",

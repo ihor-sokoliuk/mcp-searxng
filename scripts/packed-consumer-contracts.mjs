@@ -141,6 +141,12 @@ function assertPackFilesSafe(files) {
   }
 }
 
+function assertPdfWorkerIncluded(files) {
+  if (!files.some((file) => file?.path === 'dist/pdf-worker.js')) {
+    fail('artifact_metadata', 'dist/pdf-worker.js is missing from the packed artifact');
+  }
+}
+
 function assertInstalledPackageSafe(installedPackage) {
   if (!installedPackage || typeof installedPackage !== 'object') {
     fail('artifact_metadata', 'installed package manifest is missing');
@@ -151,8 +157,10 @@ function assertInstalledPackageSafe(installedPackage) {
 }
 
 export function assertArtifactMetadata(packReport, installedPackage) {
-  assertPackFilesSafe(requirePackFiles(packReport));
+  const files = requirePackFiles(packReport);
+  assertPackFilesSafe(files);
   assertInstalledPackageSafe(installedPackage);
+  assertPdfWorkerIncluded(files);
   return true;
 }
 

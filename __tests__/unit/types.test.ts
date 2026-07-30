@@ -319,6 +319,8 @@ async function runTests() {
     assert.ok(LITE_READ_URL_TOOL.description.includes('YAML'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('TOML'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('XML'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('PDF'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('text extraction'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('binary'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('rejected'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('FlareSolverr'), LITE_READ_URL_TOOL.description);
@@ -347,6 +349,8 @@ async function runTests() {
     assert.ok(READ_URL_TOOL.description.includes('YAML'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('TOML'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('XML'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('PDF'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('text extraction'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('Binary'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('media'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('rejected'), READ_URL_TOOL.description);
