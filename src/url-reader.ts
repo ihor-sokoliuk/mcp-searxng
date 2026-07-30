@@ -634,7 +634,6 @@ export async function fetchAndConvertToMarkdown(
 
         const nextUrl = new URL(location, currentUrl);
         assertUrlAllowed(nextUrl);
-        await cancelResponseBody(response);
         currentUrl = nextUrl;
       }
     } catch (error: any) {
