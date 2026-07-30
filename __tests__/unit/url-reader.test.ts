@@ -230,9 +230,9 @@ async function runTests() {
       const isHeadRequest = req.method === 'HEAD';
       if (!isHeadRequest) {
         targetGetCount++;
-        targetGetPath = req.url ?? '';
-        receivedUserAgent = req.headers['user-agent'] ?? '';
-        receivedCookie = req.headers.cookie ?? '';
+        targetGetPath = req.url as string;
+        receivedUserAgent = req.headers['user-agent'] as string;
+        receivedCookie = req.headers.cookie as string;
       }
       if (isHeadRequest) {
         res.writeHead(403, {
@@ -326,6 +326,7 @@ async function runTests() {
       assert.equal(solverPostCount, 1);
       assert.equal(targetGetCount, 1);
       assert.equal(targetHeadCount, 1);
+      assert.equal(urlCache.getStats().size, 0);
     } finally {
       envManager.restore();
       urlCache.clear();
