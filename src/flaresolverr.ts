@@ -321,7 +321,8 @@ export function buildFlareSolverrHeaders(
   const matches = solution.cookies
     .map((cookie, index) => ({ cookie, index, path: cookiePath(cookie) }))
     .filter(({ cookie, path }) => (
-      typeof cookie.name === "string"
+      requestHostname === solutionHostname
+      && typeof cookie.name === "string"
       && cookie.name !== ""
       && typeof cookie.value === "string"
       && domainMatches(cookie, requestHostname, solutionHostname)
