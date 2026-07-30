@@ -140,6 +140,35 @@ async function runTests() {
     );
   }, results);
 
+  await testFunction('invalid browser solver configuration fails closed during startup', () => {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', 'src/cli.ts'],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MCP_HTTP_PORT: '',
+          SEARXNG_URL: 'https://test-searx.example.com',
+          FLARESOLVERR_URL: '',
+          BYPARR_URL: 'http://operator:credential-value@byparr-secret.example',
+        },
+        encoding: 'utf8',
+        timeout: 8000,
+      }
+    );
+
+    assert.equal(result.status, 1, `expected exit code 1, got ${result.status}; stderr:\n${result.stderr}`);
+    assert.ok(
+      result.stderr.includes(
+        'BYPARR_URL must be an absolute HTTP or HTTPS service base URL without userinfo, a query, or a fragment.'
+      ),
+      `expected value-free browser solver error in stderr, got:\n${result.stderr}`
+    );
+    assert.ok(!result.stderr.includes('credential-value'));
+    assert.ok(!result.stderr.includes('byparr-secret.example'));
+  }, results);
+
   await testFunction('MCP_HTTP_PORT rejects a numeric prefix with a suffix', () => {
     const result = spawnSync(
       process.execPath,

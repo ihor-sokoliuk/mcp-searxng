@@ -3,19 +3,25 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.13.0] - 2026-07-30
 
 ### Added
 
-- **FlareSolverr-primary failover to Byparr:** Operators can configure `FLARESOLVERR_URL`, `BYPARR_URL`, or both. Dual mode always tries FlareSolverr first, advances to Byparr only for busy or transient-unavailable acquisition, and uses one uncached direct fetch only after the final provider is unavailable. Persistent 4xx, cancellation, solution-integrity failures, and solved non-2xx target status stop the chain. Provider timeouts and concurrency remain independent, cache entries use the winning provider, and canonically duplicate endpoints fail closed. Verified provider versions remain FlareSolverr 3.5.0 and Byparr 2.1.0 from 2026-07-30.
+- **FlareSolverr-primary failover to Byparr:** Operators can configure `FLARESOLVERR_URL`, `BYPARR_URL`, or both. Dual mode always tries FlareSolverr first, advances to Byparr only for busy or transient-unavailable acquisition, and uses one uncached direct fetch only after every configured provider is busy or unavailable. Persistent 4xx, cancellation, solution-integrity failures, and solved non-2xx target status stop the chain. Provider timeouts and concurrency remain independent, cache entries use the winning provider, and canonically duplicate endpoints fail closed. Verified provider versions remain FlareSolverr 3.5.0 and Byparr 2.1.0 from 2026-07-30. ([#220](https://github.com/ihor-sokoliuk/mcp-searxng/pull/220), [#223](https://github.com/ihor-sokoliuk/mcp-searxng/pull/223), [#224](https://github.com/ihor-sokoliuk/mcp-searxng/pull/224))
 
   **Migration note:** Browser-solver endpoints are now validated during startup. A `FLARESOLVERR_URL` containing userinfo, a query, a fragment, or a non-HTTP(S) scheme now prevents startup instead of failing only when a URL read first uses it.
 
-- **Bounded PDF text extraction:** `web_url_read` now extracts text-layer content from `application/pdf` responses using the new production `unpdf` dependency in a resource-limited worker. Input and output are capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB, documents above 500 pages are rejected, parsing has a separate 30-second budget, and at most two extractions run concurrently. OCR is not supported. This supersedes the v1.10.0 behavior that rejected PDF responses.
+- **Bounded PDF text extraction:** `web_url_read` now extracts text-layer content from `application/pdf` responses using the new production `unpdf` dependency in a resource-limited worker. Input and output are capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB, documents above 500 pages are rejected, parsing has a separate 30-second budget, and at most two extractions run concurrently. OCR is not supported. This supersedes the v1.10.0 behavior that rejected PDF responses. ([#221](https://github.com/ihor-sokoliuk/mcp-searxng/pull/221))
+
+- **Expanded operator and client guidance:** New documentation covers self-hosted and public SearXNG instances, MCP client configuration, evidence-focused research workflows, and measured deployment profiles. ([#214](https://github.com/ihor-sokoliuk/mcp-searxng/pull/214), [#215](https://github.com/ihor-sokoliuk/mcp-searxng/pull/215), [#216](https://github.com/ihor-sokoliuk/mcp-searxng/pull/216), [#217](https://github.com/ihor-sokoliuk/mcp-searxng/pull/217), [#218](https://github.com/ihor-sokoliuk/mcp-searxng/pull/218))
 
 ### Fixed
 
-- **HTTP rate-limit settings now honor the strict integer-validation contract:** `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` reject fractional, unit-suffixed, exponent, non-decimal, non-positive, and unsafe values instead of accepting numeric prefixes. Invalid values fall back with a raw-value-free warning. Because previously accepted numeric prefixes may have produced a different effective limit, the documented default may be looser or stricter until the operator corrects the setting.
+- **HTTP rate-limit settings now honor the strict integer-validation contract:** `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` reject fractional, unit-suffixed, exponent, non-decimal, non-positive, and unsafe values instead of accepting numeric prefixes. Invalid values fall back with a raw-value-free warning. Because previously accepted numeric prefixes may have produced a different effective limit, the documented default may be looser or stricter until the operator corrects the setting. ([#219](https://github.com/ihor-sokoliuk/mcp-searxng/pull/219))
+
+- **Solver and PDF documentation now matches runtime boundaries:** Security and deployment guidance consistently describes browser-solver disclosure, acquisition fallback, PDF parsing limits, and timeout behavior. ([#222](https://github.com/ihor-sokoliuk/mcp-searxng/pull/222))
+
+## [Unreleased]
 
 ## [1.12.1] - 2026-07-28
 

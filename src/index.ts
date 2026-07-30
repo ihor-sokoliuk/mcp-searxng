@@ -40,6 +40,7 @@ import {
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
 import { parseStrictInteger } from "./env-int.js";
+import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
 
 import { packageVersion } from "./version.js";
 
@@ -352,6 +353,11 @@ export function createMcpServer(): McpServer {
 // Main function
 export async function main() {
   initializeDiagnosticSanitizer();
+  const browserSolverIssue = validateBrowserSolverEnvironment();
+  if (browserSolverIssue) {
+    throw new Error(browserSolverIssue);
+  }
+
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
   if (httpPort) {
