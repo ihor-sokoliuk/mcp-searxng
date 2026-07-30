@@ -27,6 +27,7 @@ export const PDF_DOCUMENT_OPTIONS = Object.freeze({
 type PdfDocumentProxy = Awaited<
   ReturnType<(typeof import("unpdf"))["getDocumentProxy"]>
 >;
+type PdfPageProxy = Awaited<ReturnType<PdfDocumentProxy["getPage"]>>;
 
 function containsExternalFetchMarker(error: unknown): boolean {
   let current = error;
@@ -65,14 +66,74 @@ function removeUnsafeControlCharacters(text: string): string {
   return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 
+function isPdfWorkerInput(value: unknown): value is PdfWorkerInput {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const input = value as Partial<PdfWorkerInput>;
+  return input.version === 1
+    && input.pdfBytes instanceof ArrayBuffer
+    && Number.isSafeInteger(input.maxTextBytes)
+    && (input.maxTextBytes ?? 0) > 0;
+}
+
+function renderTextItem(item: unknown): string {
+  if (!item || typeof item !== "object" || !("str" in item) || typeof item.str !== "string") {
+    return "";
+  }
+  return item.str + ("hasEOL" in item && item.hasEOL ? "\n" : "");
+}
+
+async function readPageText(page: PdfPageProxy): Promise<string> {
+  try {
+    const content = await page.getTextContent();
+    const rawText = content.items.map(renderTextItem).join("");
+    return normalizeMergedText([removeUnsafeControlCharacters(rawText)]);
+  } finally {
+    page.cleanup();
+  }
+}
+
+async function extractDocumentText(
+  pdf: PdfDocumentProxy,
+  maxTextBytes: number,
+): Promise<PdfWorkerResult> {
+  if (pdf.numPages > MAX_PDF_PAGES) {
+    return { version: 1, kind: "too_many_pages", totalPages: pdf.numPages };
+  }
+
+  const pageTexts: string[] = [];
+  const encoder = new TextEncoder();
+  let textBytes = 0;
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const pageText = await readPageText(await pdf.getPage(pageNumber));
+    if (pageText === "") {
+      continue;
+    }
+    textBytes += encoder.encode(pageText).byteLength + (pageTexts.length > 0 ? 1 : 0);
+    if (textBytes > maxTextBytes) {
+      return { version: 1, kind: "text_too_large", bytes: textBytes };
+    }
+    pageTexts.push(pageText);
+  }
+
+  const text = pageTexts.join("\n");
+  return text === ""
+    ? { version: 1, kind: "no_text", totalPages: pdf.numPages }
+    : { version: 1, kind: "text", text, totalPages: pdf.numPages, textBytes };
+}
+
+function classifyParserError(error: unknown): PdfWorkerResult {
+  if (containsExternalFetchMarker(error)) {
+    return { version: 1, kind: "external_fetch_attempt" };
+  }
+  return isPasswordError(error)
+    ? { version: 1, kind: "password_protected" }
+    : { version: 1, kind: "parse_error" };
+}
+
 async function extract(): Promise<PdfWorkerResult> {
-  const input = workerData as PdfWorkerInput;
-  if (
-    input.version !== 1
-    || !(input.pdfBytes instanceof ArrayBuffer)
-    || !Number.isSafeInteger(input.maxTextBytes)
-    || input.maxTextBytes <= 0
-  ) {
+  if (!isPdfWorkerInput(workerData)) {
     return { version: 1, kind: "parse_error" };
   }
 
@@ -86,51 +147,10 @@ async function extract(): Promise<PdfWorkerResult> {
     // Import after the guards are active so parser dependencies cannot retain
     // unguarded references to Node network primitives during module loading.
     const { getDocumentProxy } = await import("unpdf");
-    pdf = await getDocumentProxy(new Uint8Array(input.pdfBytes), PDF_DOCUMENT_OPTIONS);
-
-    if (pdf.numPages > MAX_PDF_PAGES) {
-      return { version: 1, kind: "too_many_pages", totalPages: pdf.numPages };
-    }
-
-    const pageTexts: string[] = [];
-    const encoder = new TextEncoder();
-    let textBytes = 0;
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-      const page = await pdf.getPage(pageNumber);
-      try {
-        const content = await page.getTextContent();
-        const pageText = normalizeMergedText([removeUnsafeControlCharacters(content.items
-          .map((item) => "str" in item && typeof item.str === "string"
-            ? item.str + (item.hasEOL ? "\n" : "")
-            : "")
-          .join(""))]);
-        if (pageText !== "") {
-          const pageBytes = encoder.encode(pageText).byteLength;
-          textBytes += pageBytes + (pageTexts.length > 0 ? 1 : 0);
-          if (textBytes > input.maxTextBytes) {
-            return { version: 1, kind: "text_too_large", bytes: textBytes };
-          }
-          pageTexts.push(pageText);
-        }
-      } finally {
-        page.cleanup();
-      }
-    }
-
-    const text = pageTexts.join("\n");
-    if (text === "") {
-      return { version: 1, kind: "no_text", totalPages: pdf.numPages };
-    }
-
-    return { version: 1, kind: "text", text, totalPages: pdf.numPages, textBytes };
+    pdf = await getDocumentProxy(new Uint8Array(workerData.pdfBytes), PDF_DOCUMENT_OPTIONS);
+    return await extractDocumentText(pdf, workerData.maxTextBytes);
   } catch (error) {
-    if (containsExternalFetchMarker(error)) {
-      return { version: 1, kind: "external_fetch_attempt" };
-    }
-    if (isPasswordError(error)) {
-      return { version: 1, kind: "password_protected" };
-    }
-    return { version: 1, kind: "parse_error" };
+    return classifyParserError(error);
   } finally {
     restoreNetwork();
     try {
