@@ -92,7 +92,7 @@ for trust, evaluation, and conservative-use guidance.
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | — | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
 | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. PDF input and extracted text additionally have a fixed 16 MiB ceiling. Invalid values fall back to the default. |
-| `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr service, such as `http://flaresolverr:8191`. When set, `web_url_read` asks its `/v1` API for a browser session before each uncached URL read. |
+| `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr service, such as `http://flaresolverr:8191`. When set, `web_url_read` attempts to ask its `/v1` API for a browser session after an uncached URL passes URL validation and the HEAD size preflight. |
 | `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
 | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent solver acquisitions per MCP process, from `1` through `16`. When all slots are occupied, the request uses the direct URL-reader path instead of waiting in a queue. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
@@ -114,8 +114,10 @@ solver response.
 With `FLARESOLVERR_URL` configured, `web_url_read` first performs its normal
 target URL security and HEAD size preflight for every uncached read. It then
 requests only the browser session cookies and user-agent from the solver.
-Every uncached URL is disclosed to the configured FlareSolverr service.
-Cache hits bypass solver acquisition. The actual target is fetched by `mcp-searxng`, so
+When a solver slot is available, every uncached URL that passes URL validation
+and the HEAD size preflight is disclosed to the configured FlareSolverr service.
+Cache hits and reads made while the solver concurrency limit is full bypass
+solver acquisition. The actual target is fetched by `mcp-searxng`, so
 redirect validation, URL-reader proxy selection, streaming size limits, and
 content-type handling remain authoritative.
 Replay starts again at the originally requested URL rather than trusting a

@@ -63,15 +63,17 @@ Setting `FLARESOLVERR_URL` delegates challenge-page navigation to a trusted
 FlareSolverr service. Verified with FlareSolverr 3.5.0 on 2026-07-30.
 Byparr has not been verified and is not currently supported.
 
-The configured service receives every uncached URL; cache hits bypass solver
-acquisition. `mcp-searxng` validates the requested target before contacting the
-solver, accepts a solution only for the same hostname, filters returned cookies
-by domain, path, secure flag, and expiry, rejects cookie names or values outside
-the HTTP cookie character set or above 4096 bytes per pair, and performs the
-final target fetch through the normal URL-reader controls. Replay restarts at
-the originally requested URL; the solver-returned URL is used only for
-same-host integrity validation. Every uncached URL is disclosed to the
-configured FlareSolverr service.
+Cache hits bypass solver acquisition. For uncached reads, `mcp-searxng`
+validates the requested target and performs the HEAD size preflight before
+attempting acquisition. When a solver slot is available, every uncached URL that
+passes URL validation and the HEAD size preflight is disclosed to the configured
+FlareSolverr service. Reads made while the solver concurrency limit is full use
+the direct path without contacting it. `mcp-searxng` accepts a solution only for
+the same hostname, filters returned cookies by domain, path, secure flag, and
+expiry, rejects cookie names or values outside the HTTP cookie character set or
+above 4096 bytes per pair, and performs the final target fetch through the
+normal URL-reader controls. Replay restarts at the originally requested URL;
+the solver-returned URL is used only for same-host integrity validation.
 
 The browser service performs its own navigation internally. `mcp-searxng`
 cannot intercept or validate every redirect the browser follows while solving a
