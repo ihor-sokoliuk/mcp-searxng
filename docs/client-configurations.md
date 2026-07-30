@@ -299,8 +299,9 @@ The empty `autoApprove` list keeps tool calls subject to normal approval.
 
 ## OpenCode
 
-OpenCode V2 stores servers under `mcp.servers` in `opencode.json`. Keep one
-local entry.
+OpenCode V2 stores servers under `mcp.servers` in `opencode.json`. Keep either
+the `searxng` NPX entry or the `searxng-docker` entry and remove the one you do
+not use.
 
 ```json
 {
