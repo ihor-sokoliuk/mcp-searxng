@@ -155,27 +155,32 @@ async function readBoundedResponse(response: Response): Promise<string | null> {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
-function parseSolution(value: unknown): FlareSolverrSolution | null {
+function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
-  const envelope = value as Record<string, unknown>;
-  if (envelope.status !== "ok") {
+  return value as Record<string, unknown>;
+}
+
+function parseSolution(value: unknown): FlareSolverrSolution | null {
+  const envelope = asRecord(value);
+  if (!envelope || envelope.status !== "ok") {
     return null;
   }
-  const rawSolution = envelope.solution;
-  if (!rawSolution || typeof rawSolution !== "object" || Array.isArray(rawSolution)) {
+  const solution = asRecord(envelope.solution);
+  if (!solution) {
     return null;
   }
-  const solution = rawSolution as Record<string, unknown>;
-  if (
-    typeof solution.url !== "string"
-    || typeof solution.status !== "number"
-    || !Number.isInteger(solution.status)
-    || !Array.isArray(solution.cookies)
-    || typeof solution.userAgent !== "string"
-    || solution.userAgent.trim() === ""
-  ) {
+  if (typeof solution.url !== "string") {
+    return null;
+  }
+  if (typeof solution.status !== "number" || !Number.isInteger(solution.status)) {
+    return null;
+  }
+  if (!Array.isArray(solution.cookies)) {
+    return null;
+  }
+  if (typeof solution.userAgent !== "string" || solution.userAgent.trim() === "") {
     return null;
   }
 
@@ -213,6 +218,69 @@ function logDirectFallback(mcpServer: McpServer): void {
   );
 }
 
+async function requestFlareSolverrSession(
+  config: FlareSolverrConfig,
+  requestedUrl: URL,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    config.timeoutMs + FLARESOLVERR_RESPONSE_GRACE_MS,
+  );
+
+  try {
+    const requestOptions: RequestInit = {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cmd: "request.get",
+        url: requestedUrl.href,
+        maxTimeout: config.timeoutMs,
+        returnOnlyCookies: true,
+      }),
+    };
+    applyTrustedServiceRequestConfig(requestOptions, config.endpoint.href);
+    const response = await (undiciFetch as unknown as typeof fetch)(
+      config.endpoint,
+      requestOptions,
+    );
+    const isPersistentClientError = response.status >= 400
+      && response.status < 500
+      && response.status !== 408
+      && response.status !== 429;
+    if (isPersistentClientError) {
+      await response.body?.cancel();
+      throw createConfigurationError(
+        "FlareSolverr endpoint rejected the request. Check FLARESOLVERR_URL and service API compatibility.",
+      );
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    return await readBoundedResponse(response);
+  } catch (error: any) {
+    if (error?.name === "MCPSearXNGError") {
+      throw error;
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function decodeSolution(responseText: string | null): FlareSolverrSolution | null {
+  if (responseText === null) {
+    return null;
+  }
+  try {
+    return parseSolution(JSON.parse(responseText));
+  } catch {
+    return null;
+  }
+}
+
 export async function acquireFlareSolverrSolution(
   mcpServer: McpServer,
   config: FlareSolverrConfig,
@@ -229,71 +297,9 @@ export async function acquireFlareSolverrSolution(
 
   activeSolverRequests++;
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      config.timeoutMs + FLARESOLVERR_RESPONSE_GRACE_MS,
+    const solution = decodeSolution(
+      await requestFlareSolverrSession(config, requestedUrl),
     );
-    let responseText: string | null;
-
-    try {
-      const requestOptions: RequestInit = {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cmd: "request.get",
-          url: requestedUrl.href,
-          maxTimeout: config.timeoutMs,
-          returnOnlyCookies: true,
-        }),
-      };
-      applyTrustedServiceRequestConfig(requestOptions, config.endpoint.href);
-      const response = await (undiciFetch as unknown as typeof fetch)(
-        config.endpoint,
-        requestOptions,
-      );
-      if (
-        response.status >= 400
-        && response.status < 500
-        && response.status !== 408
-        && response.status !== 429
-      ) {
-        await response.body?.cancel();
-        throw createConfigurationError(
-          "FlareSolverr endpoint rejected the request. Check FLARESOLVERR_URL and service API compatibility.",
-        );
-      }
-      if (!response.ok) {
-        await response.body?.cancel();
-        logDirectFallback(mcpServer);
-        return { kind: "fallback", reason: "unavailable" };
-      }
-      responseText = await readBoundedResponse(response);
-    } catch (error: any) {
-      if (error?.name === "MCPSearXNGError") {
-        throw error;
-      }
-      logDirectFallback(mcpServer);
-      return { kind: "fallback", reason: "unavailable" };
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (responseText === null) {
-      logDirectFallback(mcpServer);
-      return { kind: "fallback", reason: "unavailable" };
-    }
-
-    let decoded: unknown;
-    try {
-      decoded = JSON.parse(responseText);
-    } catch {
-      logDirectFallback(mcpServer);
-      return { kind: "fallback", reason: "unavailable" };
-    }
-
-    const solution = parseSolution(decoded);
     if (!solution) {
       logDirectFallback(mcpServer);
       return { kind: "fallback", reason: "unavailable" };
@@ -353,25 +359,47 @@ function isValidCookieName(name: string): boolean {
 }
 
 function isValidCookieValue(value: string): boolean {
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (!(
-      code === 0x21
-      || (code >= 0x23 && code <= 0x2b)
-      || (code >= 0x2d && code <= 0x3a)
-      || (code >= 0x3c && code <= 0x5b)
-      || (code >= 0x5d && code <= 0x7e)
-    )) {
-      return false;
-    }
-  }
-  return true;
+  return /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$/u.test(value);
 }
 
 function isValidCookiePair(name: string, value: string): boolean {
   return isValidCookieName(name)
     && isValidCookieValue(value)
     && new TextEncoder().encode(`${name}=${value}`).byteLength <= MAX_COOKIE_PAIR_BYTES;
+}
+
+interface IndexedCookie {
+  cookie: FlareSolverrCookie;
+  index: number;
+  path: string;
+}
+
+function isUnexpired(cookie: FlareSolverrCookie, nowSeconds: number): boolean {
+  return typeof cookie.expires !== "number"
+    || !Number.isFinite(cookie.expires)
+    || cookie.expires <= 0
+    || cookie.expires > nowSeconds;
+}
+
+function cookieMatchesTarget(
+  entry: IndexedCookie,
+  targetUrl: URL,
+  requestHostname: string,
+  solutionHostname: string,
+  nowSeconds: number,
+): boolean {
+  const { cookie, path } = entry;
+  if (requestHostname !== solutionHostname) {
+    return false;
+  }
+  if (typeof cookie.name !== "string" || typeof cookie.value !== "string") {
+    return false;
+  }
+  return isValidCookiePair(cookie.name, cookie.value)
+    && domainMatches(cookie, requestHostname, solutionHostname)
+    && pathMatches(targetUrl.pathname || "/", path)
+    && (cookie.secure !== true || targetUrl.protocol === "https:")
+    && isUnexpired(cookie, nowSeconds);
 }
 
 export function buildFlareSolverrHeaders(
@@ -383,20 +411,12 @@ export function buildFlareSolverrHeaders(
   const solutionHostname = new URL(solution.url).hostname.toLowerCase();
   const matches = solution.cookies
     .map((cookie, index) => ({ cookie, index, path: cookiePath(cookie) }))
-    .filter(({ cookie, path }) => (
-      requestHostname === solutionHostname
-      && typeof cookie.name === "string"
-      && typeof cookie.value === "string"
-      && isValidCookiePair(cookie.name, cookie.value)
-      && domainMatches(cookie, requestHostname, solutionHostname)
-      && pathMatches(targetUrl.pathname || "/", path)
-      && (cookie.secure !== true || targetUrl.protocol === "https:")
-      && !(
-        typeof cookie.expires === "number"
-        && Number.isFinite(cookie.expires)
-        && cookie.expires > 0
-        && cookie.expires <= nowSeconds
-      )
+    .filter((entry) => cookieMatchesTarget(
+      entry,
+      targetUrl,
+      requestHostname,
+      solutionHostname,
+      nowSeconds,
     ))
     .sort((left, right) => right.path.length - left.path.length || left.index - right.index);
 
