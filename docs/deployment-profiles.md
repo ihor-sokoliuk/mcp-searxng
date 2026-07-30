@@ -23,6 +23,13 @@ cannot be independently rerun from repository artifacts alone. Treat it as
 historical starting evidence and measure the current image with your own
 representative workload before enforcing limits.
 
+The snapshot did not exercise FlareSolverr acquisition or PDF text extraction.
+PDF reads can use two PDF extractions concurrently per MCP process. Each parse
+accepts at most 16 MiB of input, rejects documents above 500 pages, has a
+separate 30-second budget, and runs with a 192 MiB V8 old-generation ceiling
+plus a 4 MiB stack ceiling. The 192 MiB value is not a reservation, a complete
+worker-memory bound, or a container-memory recommendation.
+
 Each client opened its own Streamable HTTP session. Every cycle called
 `searxng_web_search`, `web_url_read`, `searxng_search_suggestions`, and
 `searxng_instance_info`. Queries rotated across four cache keys, search pages
@@ -59,6 +66,11 @@ Use the upper end when pages are larger, cache keys are less reusable, TLS or
 proxy work is significant, or concurrency arrives in bursts. Treat an
 out-of-memory kill or sustained CPU throttling as evidence that the enforced
 limit is too low, not as an application retry condition.
+
+The optional 256 MiB balanced container overlay is a measured non-PDF starting
+point. It may be insufficient when representative traffic can reach the
+two-worker PDF concurrency limit. Measure PDF and FlareSolverr-enabled traffic
+before enforcing a memory ceiling.
 
 ## Apply a profile
 
@@ -183,9 +195,12 @@ authentication, Host/Origin validation, TLS, or rate limiting.
 | --- | --- | --- |
 | Results per call | `SEARXNG_MAX_RESULTS` | A lower 1-20 ceiling reduces response processing and agent context. |
 | URL timeout | `FETCH_TIMEOUT_MS` | Bounds how long a page read can occupy an in-flight request. |
+| Solver timeout | `FLARESOLVERR_TIMEOUT_MS` | Bounds browser-session acquisition separately from the target replay fetch. |
+| Solver concurrency | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | Bounds acquisitions per MCP process; excess requests use the direct path instead of queuing. |
 | Search cache | `SEARCH_CACHE_TTL_MS`, `SEARCH_CACHE_MAX_ENTRIES` | Larger or longer-lived caches trade memory for fewer upstream searches. |
 | URL output | `URL_READ_MAX_CHARS` | Sets the default returned window when the caller omits `maxLength`. |
 | URL body cap | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | Bounds decompressed bytes read before conversion; the default is 5 MiB. |
+| PDF extraction | Fixed limits | At most two PDF extractions run concurrently; each uses a 16 MiB input/output ceiling, 500-page limit, 30-second budget, 192 MiB V8 old-generation ceiling, and 4 MiB stack ceiling. |
 | URL cache | `CACHE_TTL_MS`, `CACHE_MAX_ENTRIES` | Larger or longer-lived caches trade memory for fewer page fetches. |
 | Replica mode | `SEARXNG_FANOUT` | Fan-out increases simultaneous upstream work; default failover is cheaper. |
 | HTTP window | `MCP_RATE_WINDOW_MS` | Defines the rate-limit accounting window. |

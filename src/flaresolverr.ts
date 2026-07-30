@@ -5,10 +5,10 @@ import { parseStrictInteger } from "./env-int.js";
 import { logMessage } from "./logging.js";
 import { applyTrustedServiceRequestConfig } from "./proxy.js";
 
-const DEFAULT_FLARESOLVERR_TIMEOUT_MS = 60_000;
-const MAX_FLARESOLVERR_TIMEOUT_MS = 300_000;
-const DEFAULT_FLARESOLVERR_CONCURRENCY = 2;
-const MAX_FLARESOLVERR_CONCURRENCY = 16;
+export const DEFAULT_FLARESOLVERR_TIMEOUT_MS = 60_000;
+export const MAX_FLARESOLVERR_TIMEOUT_MS = 300_000;
+export const DEFAULT_FLARESOLVERR_CONCURRENCY = 2;
+export const MAX_FLARESOLVERR_CONCURRENCY = 16;
 const MAX_FLARESOLVERR_RESPONSE_BYTES = 256 * 1024;
 const FLARESOLVERR_RESPONSE_GRACE_MS = 5_000;
 const MAX_COOKIE_PAIR_BYTES = 4_096;

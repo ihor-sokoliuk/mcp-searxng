@@ -58,8 +58,8 @@ For measured MCP-process CPU and memory starting points, see
 - **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before the result list.
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
 - **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
-- **URL Content Reading**: Content-type-aware Markdown conversion with pagination, section filtering, paragraph ranges, and heading extraction.
-- **Challenge-Page Support**: Optionally acquire a browser session from FlareSolverr or its Byparr-compatible API, then replay the returned user-agent and scoped cookies through the bounded URL reader.
+- **URL Content Reading**: Content-type-aware Markdown conversion, including bounded PDF text extraction, with pagination, section filtering, paragraph ranges, and heading extraction.
+- **FlareSolverr Support**: Optionally acquire a browser session from FlareSolverr before every uncached URL read, then replay the returned user-agent and scoped cookies through the bounded URL reader. Verified with FlareSolverr 3.5.0 on 2026-07-30. Byparr has not been verified and is not currently supported. Independent compatibility reports are welcome.
 - **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
 - **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
 - **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
@@ -149,9 +149,11 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - PDF (`application/pdf`) text is extracted in a resource-bounded worker for documents up to 500 pages
     - Missing or generic content types are read under the existing size cap; non-binary bodies continue through the HTML-to-markdown path for compatibility
   - PDF input and extracted text are each capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB. OCR is not supported, and scanned/image-only or password-protected PDFs return a short explanation.
-  - PDF parsing has a separate 30-second worker budget after the response body is downloaded, so its maximum processing time is the configured fetch budget plus up to 30 seconds
+  - A response declared as PDF must begin with the `%PDF-` signature; a mismatch usually indicates an interstitial or error page served with the wrong content type.
+  - PDF parsing has a separate 30-second worker budget after the response body is downloaded. On the direct path, the network fetch and parse take at most the configured fetch budget plus 30 seconds; configured FlareSolverr preflight and acquisition time is additional.
+  - At most two PDF extractions run concurrently per MCP process. There is no queue; additional concurrent reads return a busy message and may be retried.
   - Other binary, media, archive, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
-  - When `FLARESOLVERR_URL` is configured, challenge-protected URLs are solved first and then fetched through the normal URL-reader security, redirect, proxy, and size controls
+  - When `FLARESOLVERR_URL` is configured, FlareSolverr runs before every uncached URL read; cache hits bypass acquisition, and transient solver failures use an uncached direct-fetch fallback. Every uncached URL is disclosed to the configured FlareSolverr service.
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)
@@ -161,6 +163,8 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - `readHeadings` (boolean, optional): Return only a list of headings instead of full content
 
 ## Installation
+
+Requires Node.js 20 or later.
 
 <details>
 <summary>NPM (global install)</summary>
@@ -214,8 +218,8 @@ Image signatures can be verified with Cosign — see [SECURITY.md](SECURITY.md) 
 ```
 
 To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `env`.
-For FlareSolverr or Byparr integration, pass `FLARESOLVERR_URL` as well and make
-the service reachable from this container. See
+For FlareSolverr integration, pass `FLARESOLVERR_URL` as well and make the
+service reachable from this container. See
 [URL Reader Controls](CONFIGURATION.md#url-reader-controls) for the complete
 behavior and Docker Compose example.
 

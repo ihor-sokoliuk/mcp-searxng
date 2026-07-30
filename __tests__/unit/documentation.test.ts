@@ -9,6 +9,20 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  MAX_CONCURRENT_PDF_WORKERS,
+  MAX_PDF_BYTES,
+  MAX_PDF_PAGES,
+  PDF_PARSE_TIMEOUT_MS,
+  PDF_WORKER_RESOURCE_LIMITS,
+} from '../../src/pdf-reader.js';
+import {
+  DEFAULT_FLARESOLVERR_CONCURRENCY,
+  DEFAULT_FLARESOLVERR_TIMEOUT_MS,
+  MAX_FLARESOLVERR_CONCURRENCY,
+  MAX_FLARESOLVERR_TIMEOUT_MS,
+} from '../../src/flaresolverr.js';
+import { LITE_READ_URL_TOOL, READ_URL_TOOL } from '../../src/types.js';
 import { createTestResults, printTestSummary, TestResult, testFunction } from '../helpers/test-utils.js';
 
 const results = createTestResults();
@@ -112,15 +126,72 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('README documents bounded PDF text extraction and its limits', () => {
     const readme = readText(new URL('../../README.md', import.meta.url));
+    const maxPdfMiB = MAX_PDF_BYTES / (1024 * 1024);
+    const parseTimeoutSeconds = PDF_PARSE_TIMEOUT_MS / 1000;
+    assert.equal(MAX_CONCURRENT_PDF_WORKERS, 2);
     for (const statement of [
       'PDF (`application/pdf`) text is extracted',
-      '16 MiB',
-      '500 pages',
+      `${maxPdfMiB} MiB`,
+      `${MAX_PDF_PAGES} pages`,
+      `${parseTimeoutSeconds}-second`,
+      'At most two PDF extractions run concurrently per MCP process',
       'OCR is not supported',
       'password-protected',
     ]) {
       assert.ok(readme.includes(statement), `README must document: ${statement}`);
     }
+  }, results);
+
+  await testFunction('public solver documentation states the verified provider boundary', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const security = readText(new URL('../../SECURITY.md', import.meta.url));
+
+    for (const document of [readme, configuration, security]) {
+      assert.ok(document.includes('Verified with FlareSolverr 3.5.0 on 2026-07-30.'));
+      assert.ok(document.includes('Byparr has not been verified and is not currently supported.'));
+    }
+    for (const document of [readme, configuration]) {
+      assert.ok(document.includes('Every uncached URL is disclosed to the configured FlareSolverr service.'));
+    }
+    for (const contract of [
+      `\`FLARESOLVERR_TIMEOUT_MS\` | No | \`${DEFAULT_FLARESOLVERR_TIMEOUT_MS}\``,
+      `from \`1\` through \`${MAX_FLARESOLVERR_TIMEOUT_MS}\``,
+      `\`FLARESOLVERR_MAX_CONCURRENT_REQUESTS\` | No | \`${DEFAULT_FLARESOLVERR_CONCURRENCY}\``,
+      `from \`1\` through \`${MAX_FLARESOLVERR_CONCURRENCY}\``,
+    ]) {
+      assert.ok(configuration.includes(contract), `configuration must include: ${contract}`);
+    }
+
+    for (const tool of [LITE_READ_URL_TOOL, READ_URL_TOOL]) {
+      assert.ok(tool.description.includes('every uncached URL read'));
+      assert.ok(!tool.description.includes('Byparr'));
+    }
+  }, results);
+
+  await testFunction('public PDF guidance matches the source-backed worker limits', () => {
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const security = readText(new URL('../../SECURITY.md', import.meta.url));
+    const deployment = readText(deploymentGuideUrl);
+    const maxPdfMiB = MAX_PDF_BYTES / (1024 * 1024);
+    const parseTimeoutSeconds = PDF_PARSE_TIMEOUT_MS / 1000;
+    const workerHeapMiB = PDF_WORKER_RESOURCE_LIMITS.maxOldGenerationSizeMb;
+    const workerStackMiB = PDF_WORKER_RESOURCE_LIMITS.stackSizeMb;
+    assert.equal(MAX_CONCURRENT_PDF_WORKERS, 2);
+
+    for (const document of [configuration, security, deployment]) {
+      assert.ok(document.includes(`${maxPdfMiB} MiB`));
+      assert.ok(document.includes(`${MAX_PDF_PAGES} pages`));
+      assert.ok(document.includes(`${parseTimeoutSeconds}-second`));
+      assert.ok(document.includes(`${workerHeapMiB} MiB`));
+      assert.ok(document.includes(`${workerStackMiB} MiB`));
+      assert.ok(document.includes('two PDF extractions'));
+    }
+  }, results);
+
+  await testFunction('README states the supported Node runtime floor', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    assert.ok(readme.includes('Requires Node.js 20 or later.'));
   }, results);
 
   await testFunction('cookbook exists and README links to it', () => {
@@ -299,6 +370,8 @@ export async function runTests(): Promise<TestResult> {
     const variables = [
       'SEARXNG_MAX_RESULTS',
       'FETCH_TIMEOUT_MS',
+      'FLARESOLVERR_TIMEOUT_MS',
+      'FLARESOLVERR_MAX_CONCURRENT_REQUESTS',
       'SEARCH_CACHE_TTL_MS',
       'SEARCH_CACHE_MAX_ENTRIES',
       'URL_READ_MAX_CHARS',
