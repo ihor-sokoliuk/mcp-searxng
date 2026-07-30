@@ -59,6 +59,7 @@ For measured MCP-process CPU and memory starting points, see
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
 - **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
 - **URL Content Reading**: Content-type-aware Markdown conversion with pagination, section filtering, paragraph ranges, and heading extraction.
+- **Challenge-Page Support**: Optionally acquire a browser session from FlareSolverr or its Byparr-compatible API, then replay the returned user-agent and scoped cookies through the bounded URL reader.
 - **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
 - **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
 - **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
@@ -147,6 +148,7 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - Plain text, YAML, TOML, XML, and other safe explicit `text/*` responses are returned as readable fenced text
     - Missing or generic content types are read under the existing size cap; non-binary bodies continue through the HTML-to-markdown path for compatibility
   - Binary, media, archive, PDF, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
+  - When `FLARESOLVERR_URL` is configured, challenge-protected URLs are solved first and then fetched through the normal URL-reader security, redirect, proxy, and size controls
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)
@@ -209,6 +211,10 @@ Image signatures can be verified with Cosign — see [SECURITY.md](SECURITY.md) 
 ```
 
 To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `env`.
+For FlareSolverr or Byparr integration, pass `FLARESOLVERR_URL` as well and make
+the service reachable from this container. See
+[URL Reader Controls](CONFIGURATION.md#url-reader-controls) for the complete
+behavior and Docker Compose example.
 
 **Build locally:**
 

@@ -92,8 +92,51 @@ for trust, evaluation, and conservative-use guidance.
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | — | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
 | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. Invalid values fall back to the default. |
+| `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr or Byparr-compatible service, such as `http://flaresolverr:8191`. When set, `web_url_read` asks its `/v1` API for a browser session before each uncached URL read. |
+| `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
+| `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent solver acquisitions per MCP process, from `1` through `16`. When all slots are occupied, the request uses the direct URL-reader path instead of waiting in a queue. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
+
+With `FLARESOLVERR_URL` configured, `web_url_read` first performs its normal
+target URL security and HEAD size preflight. It then requests only the browser
+session cookies and user-agent from the solver. The actual target is fetched by
+`mcp-searxng`, so redirect validation, URL-reader proxy selection, streaming
+size limits, content-type handling, and caching remain authoritative.
+
+A transient solver connection, timeout, overload, malformed response, or
+oversized response falls back once to the direct URL-reader path. Invalid
+solver configuration, a solver result for a different hostname, and a
+non-success target status reported by the solver fail closed. Solver-backed
+cache entries are isolated from direct-fetch entries. PDFs remain unsupported
+by this feature and return the existing binary-content hint.
+
+Example with the official FlareSolverr image:
+
+```yaml
+services:
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:latest
+    stdin_open: true
+    environment:
+      - SEARXNG_URL=${SEARXNG_URL:?Set SEARXNG_URL in the environment}
+      - FLARESOLVERR_URL=http://flaresolverr:8191
+    depends_on:
+      - flaresolverr
+
+  flaresolverr:
+    image: flaresolverr/flaresolverr:v3.5.0
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+      - TZ=America/Chicago
+```
+
+The solver is an operator-trusted browser service. Keep it on a private
+container network, do not expose port 8191 publicly, and restrict its egress
+from private services and cloud metadata endpoints. See
+[SECURITY.md](SECURITY.md#delegated-browser-service) for the trust boundary.
 
 ## User-Agent
 
@@ -115,6 +158,11 @@ Interface-specific proxies take priority over global proxies for their respectiv
 | `SEARCH_HTTP_PROXY` / `SEARCH_HTTPS_PROXY` | No | — | Proxy for all SearXNG-bound traffic: search, suggestions, and capability discovery |
 | `URL_READER_HTTP_PROXY` / `URL_READER_HTTPS_PROXY` | No | — | Proxy for `web_url_read` only |
 | `NO_PROXY` | No | — | Comma-separated bypass list (e.g. `localhost,.internal,example.com`) |
+
+The solver API request uses only the global `HTTP_PROXY` / `HTTPS_PROXY` and
+`NO_PROXY` settings because `FLARESOLVERR_URL` identifies an operator-trusted
+service. The target replay continues to use the URL-reader-specific proxy
+settings first.
 
 ## TLS / Corporate CA
 
@@ -244,6 +292,9 @@ This combined MCP client configuration shows the supported option groups in one 
         "SEARXNG_HTML_FALLBACK": "false",
         "URL_READ_MAX_CHARS": "2000",
         "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
+        "FLARESOLVERR_URL": "http://flaresolverr:8191",
+        "FLARESOLVERR_TIMEOUT_MS": "60000",
+        "FLARESOLVERR_MAX_CONCURRENT_REQUESTS": "2",
         "CACHE_TTL_MS": "86400000",
         "CACHE_MAX_ENTRIES": "500",
         "USER_AGENT": "MyBot/1.0",
