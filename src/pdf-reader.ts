@@ -3,6 +3,10 @@ import { Worker } from "node:worker_threads";
 export const MAX_PDF_BYTES = 16 * 1024 * 1024;
 export const MAX_PDF_PAGES = 500;
 export const PDF_PARSE_TIMEOUT_MS = 30_000;
+export const PDF_WORKER_RESOURCE_LIMITS = Object.freeze({
+  maxOldGenerationSizeMb: 192,
+  stackSizeMb: 4,
+});
 const MAX_CONCURRENT_PDF_WORKERS = 2;
 
 export type PdfWorkerResult =
@@ -90,10 +94,7 @@ export async function extractPdfText(
           maxTextBytes,
         },
         transferList: [transferableBytes.buffer],
-        resourceLimits: {
-          maxOldGenerationSizeMb: 192,
-          stackSizeMb: 4,
-        },
+        resourceLimits: PDF_WORKER_RESOURCE_LIMITS,
       });
     } catch {
       activePdfWorkers--;
@@ -103,36 +104,41 @@ export async function extractPdfText(
 
     let settled = false;
     const timeoutId = setTimeout(() => {
-      void finish({ version: 1, kind: "timeout" });
+      finish({ version: 1, kind: "timeout" });
     }, options.timeoutMs ?? PDF_PARSE_TIMEOUT_MS);
 
-    async function finish(result: PdfExtractionResult): Promise<void> {
+    function finish(result: PdfExtractionResult): void {
       if (settled) {
         return;
       }
       settled = true;
       clearTimeout(timeoutId);
       worker.removeAllListeners();
+      activePdfWorkers--;
+      resolve(result);
       try {
-        await worker.terminate();
-      } finally {
-        activePdfWorkers--;
-        resolve(result);
+        void worker.terminate().catch(() => {
+          // The result and concurrency slot are already settled. A failed
+          // termination cannot wedge later reads into the busy state.
+        });
+      } catch {
+        // `terminate()` normally returns a promise, but a synchronous failure
+        // must not retain the process-wide concurrency slot.
       }
     }
 
     worker.once("message", (message: unknown) => {
-      void finish(
+      finish(
         isPdfWorkerResult(message)
           ? message
           : { version: 1, kind: "worker_failure" },
       );
     });
     worker.once("error", () => {
-      void finish({ version: 1, kind: "worker_failure" });
+      finish({ version: 1, kind: "worker_failure" });
     });
     worker.once("exit", () => {
-      void finish({ version: 1, kind: "worker_failure" });
+      finish({ version: 1, kind: "worker_failure" });
     });
   });
 }
