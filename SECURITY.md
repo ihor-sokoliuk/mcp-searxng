@@ -61,8 +61,9 @@ To allow private URL reads and private DNS-resolved targets (e.g. for internal d
 
 Setting `FLARESOLVERR_URL` or `BYPARR_URL` delegates challenge-page navigation
 to a trusted browser service. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified
-on 2026-07-30. Configure exactly one provider; simultaneous endpoints fail
-closed and automatic cross-provider fallback is not enabled.
+on 2026-07-30. Both endpoints may be configured; FlareSolverr is always primary
+and Byparr is the fallback only for busy or transient-unavailable acquisition.
+Canonical duplicate endpoints fail closed.
 
 The verified `linux/amd64` images came from multi-architecture manifests
 `ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
@@ -72,12 +73,14 @@ Client cancellation stops local work promptly, but a remote browser may
 continue until its configured provider timeout after the HTTP client
 disconnects.
 
-Cache hits bypass solver acquisition. For uncached reads, `mcp-searxng`
-validates the requested target and performs the HEAD size preflight before
+Static URL policy runs before cache lookup, and cache hits bypass network
+preflight and solver acquisition. For uncached reads, `mcp-searxng` validates
+the requested target and performs the HEAD size preflight before
 attempting acquisition. When a solver slot is available, every uncached URL that
-passes URL validation and the HEAD size preflight is disclosed to the configured
-browser solver. Reads made while that provider's concurrency limit is full use
-the direct path without contacting it. `mcp-searxng` accepts a solution only for
+passes URL validation and the HEAD size preflight is disclosed to that provider.
+In dual mode an allowed primary failure discloses the same URL to Byparr.
+Independent concurrency limits prevent either provider from consuming the
+other's slots. `mcp-searxng` accepts a solution only for
 the same hostname, filters returned cookies by domain, path, secure flag, and
 expiry, rejects cookie names or values outside the HTTP cookie character set or
 above 4096 bytes per pair, and performs the final target fetch through the
@@ -95,15 +98,23 @@ challenge. Treat that service as part of the trusted deployment boundary:
   workload;
 - keep the solver image updated and review its own security guidance.
 
-Transient solver failures use the direct URL-reader path once. Cancellation
+Transient or busy primary outcomes advance to Byparr; the final busy or
+unavailable outcome uses the direct URL-reader path once. Persistent provider
+4xx, hostname divergence, and solved non-2xx target status stop the chain.
+Cancellation
 does not trigger fallback and is propagated through acquisition, replay, body
-streaming, and PDF extraction. Invalid solver
-configuration and hostname-divergent solutions fail closed. The solver API
+streaming, and PDF extraction. Invalid solver configuration fails closed. The solver API
 response is capped at 256 KiB for FlareSolverr and 5 MiB for Byparr. During
 2.1.0 verification, Byparr returned rendered content alongside cookies.
 Concurrent
 acquisitions are bounded independently by the selected provider's
 `*_MAX_CONCURRENT_REQUESTS` variable.
+
+Each provider keeps its full timeout. The default dual-provider worst case is
+150 seconds across preflight, both acquisitions, and one direct GET. Repeated
+value-free `unavailable` warnings for the same provider should trigger
+operational alerting; this feature does not retain a health score or silently
+reverse provider order.
 
 ### PDF Text Extraction
 

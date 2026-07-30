@@ -17,6 +17,10 @@ import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as zlib from 'node:zlib';
 import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-reader.js';
+import {
+  createBrowserSolverCacheKey,
+  MAX_BYPARR_RESPONSE_BYTES,
+} from '../../src/browser-solver.js';
 import { createUrlReaderLookup } from '../../src/proxy.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -336,6 +340,143 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('final malformed, top-level-error, and oversized responses direct-fetch once', async () => {
+    const scenarios = [
+      { name: 'malformed', body: '{"status":' },
+      { name: 'top-level-error', body: JSON.stringify({ status: 'error' }) },
+      {
+        name: 'oversized',
+        body: JSON.stringify({
+          status: 'error',
+          response: 'x'.repeat(MAX_BYPARR_RESPONSE_BYTES + 1024),
+        }),
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      urlCache.clear();
+      let targetGets = 0;
+      let flarePosts = 0;
+      let byparrPosts = 0;
+      const target = await startHttpServer((req, res) => {
+        if (req.method === 'GET') {
+          targetGets++;
+        }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(req.method === 'HEAD' ? '' : `<h1>${scenario.name} direct</h1>`);
+      });
+      const flare = await startHttpServer((_req, res) => {
+        flarePosts++;
+        res.writeHead(503);
+        res.end();
+      });
+      const byparr = await startHttpServer((_req, res) => {
+        byparrPosts++;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(scenario.body);
+      });
+
+      try {
+        envManager.set('FLARESOLVERR_URL', flare.url);
+        envManager.set('BYPARR_URL', byparr.url);
+        envManager.set('NO_PROXY', '127.0.0.1');
+        const result = await fetchAndConvertToMarkdown(
+          createMockServer() as any,
+          target.url,
+        );
+        assert.ok(result.includes(`# ${scenario.name} direct`), scenario.name);
+        assert.equal(flarePosts, 1, scenario.name);
+        assert.equal(byparrPosts, 1, scenario.name);
+        assert.equal(targetGets, 1, scenario.name);
+        assert.equal(urlCache.getStats().size, 0, scenario.name);
+      } finally {
+        await byparr.close();
+        await flare.close();
+        await target.close();
+      }
+    }
+    envManager.restore();
+    urlCache.clear();
+  }, results);
+
+  await testFunction('dual-provider mode fails over to Byparr and caches only the winning provider', async () => {
+    urlCache.clear();
+    let targetHeadCount = 0;
+    let targetGetCount = 0;
+    let receivedUserAgent = '';
+    let receivedCookie = '';
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        targetHeadCount++;
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end();
+        return;
+      }
+      targetGetCount++;
+      receivedUserAgent = req.headers['user-agent'] ?? '';
+      receivedCookie = req.headers.cookie ?? '';
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<html><body><h1>Byparr winner</h1></body></html>');
+    });
+    let flarePosts = 0;
+    const flare = await startHttpServer((_req, res) => {
+      flarePosts++;
+      res.writeHead(503);
+      res.end();
+    });
+    let byparrPosts = 0;
+    const byparr = await startHttpServer((req, res) => {
+      byparrPosts++;
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const request = JSON.parse(body) as { url: string };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          solution: {
+            url: request.url,
+            status: 200,
+            cookies: [{ name: 'cf_clearance', value: 'byparr-cookie', domain: '127.0.0.1', path: '/' }],
+            userAgent: 'byparr-winner-agent',
+          },
+        }));
+      });
+    });
+
+    try {
+      envManager.set('FLARESOLVERR_URL', flare.url);
+      envManager.set('BYPARR_URL', byparr.url);
+      envManager.set('NO_PROXY', '127.0.0.1');
+      const first = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+      const second = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+
+      assert.ok(first.includes('# Byparr winner'));
+      assert.equal(second, first);
+      assert.equal(flarePosts, 1);
+      assert.equal(byparrPosts, 1);
+      assert.equal(targetHeadCount, 2);
+      assert.equal(targetGetCount, 1);
+      assert.equal(receivedUserAgent, 'byparr-winner-agent');
+      assert.equal(receivedCookie, 'cf_clearance=byparr-cookie');
+      assert.equal(
+        urlCache.get(createBrowserSolverCacheKey('flaresolverr', target.url)),
+        null,
+      );
+      assert.notEqual(
+        urlCache.get(createBrowserSolverCacheKey('byparr', target.url)),
+        null,
+      );
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await byparr.close();
+      await flare.close();
+      await target.close();
+    }
+  }, results);
+
   await testFunction('cancellation discards a partial solver-backed body and writes no cache entry', async () => {
     urlCache.clear();
     let targetGetCount = 0;
@@ -469,18 +610,27 @@ async function runTests() {
         },
       }));
     });
+    let byparrPostCount = 0;
+    const byparr = await startHttpServer((_req, res) => {
+      byparrPostCount++;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end();
+    });
 
     try {
       envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('BYPARR_URL', byparr.url);
       envManager.set('NO_PROXY', '127.0.0.1');
       await assert.rejects(
         fetchAndConvertToMarkdown(createMockServer() as any, target.url),
         /403/u,
       );
       assert.equal(targetGetCount, 0);
+      assert.equal(byparrPostCount, 0);
     } finally {
       envManager.restore();
       urlCache.clear();
+      await byparr.close();
       await solver.close();
       await target.close();
     }
@@ -509,18 +659,27 @@ async function runTests() {
         },
       }));
     });
+    let byparrPostCount = 0;
+    const byparr = await startHttpServer((_req, res) => {
+      byparrPostCount++;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end();
+    });
 
     try {
       envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('BYPARR_URL', byparr.url);
       envManager.set('NO_PROXY', '127.0.0.1,localhost');
       await assert.rejects(
         fetchAndConvertToMarkdown(createMockServer() as any, target.url),
         /different or unsupported hostname/iu,
       );
       assert.equal(targetGetCount, 0);
+      assert.equal(byparrPostCount, 0);
     } finally {
       envManager.restore();
       urlCache.clear();
+      await byparr.close();
       await solver.close();
       await target.close();
     }

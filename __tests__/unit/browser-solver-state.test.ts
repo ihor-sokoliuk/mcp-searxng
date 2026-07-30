@@ -6,9 +6,10 @@ import * as net from "node:net";
 import { fileURLToPath } from "node:url";
 import {
   acquireBrowserSolverSolution,
+  acquireBrowserSolverSolutionChain,
   buildBrowserSolverHeaders,
   createBrowserSolverCacheKey,
-  resolveBrowserSolverConfig,
+  resolveBrowserSolverConfigs,
   type BrowserSolverAcquisition,
   type BrowserSolverConfig,
 } from "../../src/browser-solver.js";
@@ -77,7 +78,7 @@ async function saturateFlareThenSwitch(
   process.env.FLARESOLVERR_URL = hanging.url;
   delete process.env.BYPARR_URL;
   process.env.FLARESOLVERR_MAX_CONCURRENT_REQUESTS = "1";
-  const flareConfig = resolveBrowserSolverConfig(createMockServer() as any)!;
+  const flareConfig = resolveBrowserSolverConfigs(createMockServer() as any)[0]!;
   const flarePending = acquireBrowserSolverSolution(
     createMockServer() as any,
     flareConfig,
@@ -92,7 +93,7 @@ async function saturateFlareThenSwitch(
   delete process.env.FLARESOLVERR_URL;
   process.env.BYPARR_URL = responding.url;
   process.env.BYPARR_MAX_CONCURRENT_REQUESTS = "1";
-  const byparrConfig = resolveBrowserSolverConfig(createMockServer() as any)!;
+  const byparrConfig = resolveBrowserSolverConfigs(createMockServer() as any)[0]!;
   assert.equal(
     (await acquireBrowserSolverSolution(
       createMockServer() as any,
@@ -168,6 +169,218 @@ async function runTests() {
     assertProviderCounterIsolation,
     results,
   );
+
+  await testFunction("ordered chain reaches Byparr only after a transient FlareSolverr result", async () => {
+    const target = new URL("https://example.com/paper");
+    let flareRequests = 0;
+    let byparrRequests = 0;
+    const flare = await startServer((_req, res) => {
+      flareRequests++;
+      res.writeHead(503);
+      res.end();
+    });
+    const byparr = await startServer((_req, res) => {
+      byparrRequests++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(jsonSolution(target.href, { userAgent: "ByparrUA/1.0" })));
+    });
+    const configs: BrowserSolverConfig[] = [
+      { provider: "flaresolverr", endpoint: new URL(`${flare.url}/v1`), timeoutMs: 1000, wireTimeout: 1000, maxConcurrentRequests: 1, maxResponseBytes: 256 * 1024 },
+      { provider: "byparr", endpoint: new URL(`${byparr.url}/v1`), timeoutMs: 1000, wireTimeout: 1, maxConcurrentRequests: 1, maxResponseBytes: 5 * 1024 * 1024 },
+    ];
+    try {
+      const acquisition = await acquireBrowserSolverSolutionChain(
+        createMockServer() as any,
+        configs,
+        target,
+      );
+      assert.equal(acquisition.kind, "solved");
+      if (acquisition.kind === "solved") {
+        assert.equal(acquisition.provider, "byparr");
+        assert.equal(acquisition.solution.userAgent, "ByparrUA/1.0");
+      }
+      assert.equal(flareRequests, 1);
+      assert.equal(byparrRequests, 1);
+    } finally {
+      await byparr.close();
+      await flare.close();
+    }
+  }, results);
+
+  await testFunction("busy FlareSolverr advances immediately to Byparr and releases independently", async () => {
+    const target = new URL("https://example.com/paper");
+    const pending: http.ServerResponse[] = [];
+    let byparrRequests = 0;
+    const flare = await startServer((_req, res) => pending.push(res));
+    const byparr = await startServer((_req, res) => {
+      byparrRequests++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(jsonSolution(target.href)));
+    });
+    const flareConfig: BrowserSolverConfig = {
+      provider: "flaresolverr",
+      endpoint: new URL(`${flare.url}/v1`),
+      timeoutMs: 1000,
+      wireTimeout: 1000,
+      maxConcurrentRequests: 1,
+      maxResponseBytes: 256 * 1024,
+    };
+    const heldPrimary = acquireBrowserSolverSolution(
+      createMockServer() as any,
+      flareConfig,
+      target,
+    );
+    try {
+      await waitForPending(pending, 1);
+      const acquisition = await acquireBrowserSolverSolutionChain(
+        createMockServer() as any,
+        [
+          flareConfig,
+          {
+            provider: "byparr",
+            endpoint: new URL(`${byparr.url}/v1`),
+            timeoutMs: 1000,
+            wireTimeout: 1,
+            maxConcurrentRequests: 1,
+            maxResponseBytes: 5 * 1024 * 1024,
+          },
+        ],
+        target,
+      );
+      assert.equal(acquisition.kind, "solved");
+      if (acquisition.kind === "solved") {
+        assert.equal(acquisition.provider, "byparr");
+      }
+      assert.equal(byparrRequests, 1);
+
+      pending[0].writeHead(200, { "content-type": "application/json" });
+      pending[0].end(JSON.stringify(jsonSolution(target.href)));
+      assert.equal((await heldPrimary).kind, "solved");
+    } finally {
+      for (const response of pending) {
+        if (!response.writableEnded) {
+          response.end();
+        }
+      }
+      await byparr.close();
+      await flare.close();
+    }
+  }, results);
+
+  await testFunction("primary success does not contact Byparr", async () => {
+    const target = new URL("https://example.com/paper");
+    let byparrRequests = 0;
+    const flare = await startServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(jsonSolution(target.href, { userAgent: "FlareUA/1.0" })));
+    });
+    const byparr = await startServer((_req, res) => {
+      byparrRequests++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(jsonSolution(target.href)));
+    });
+    try {
+      const acquisition = await acquireBrowserSolverSolutionChain(
+        createMockServer() as any,
+        [
+          { provider: "flaresolverr", endpoint: new URL(`${flare.url}/v1`), timeoutMs: 1000, wireTimeout: 1000, maxConcurrentRequests: 1, maxResponseBytes: 256 * 1024 },
+          { provider: "byparr", endpoint: new URL(`${byparr.url}/v1`), timeoutMs: 1000, wireTimeout: 1, maxConcurrentRequests: 1, maxResponseBytes: 5 * 1024 * 1024 },
+        ],
+        target,
+      );
+      assert.equal(acquisition.kind, "solved");
+      if (acquisition.kind === "solved") {
+        assert.equal(acquisition.provider, "flaresolverr");
+        assert.equal(acquisition.solution.userAgent, "FlareUA/1.0");
+      }
+      assert.equal(byparrRequests, 0);
+    } finally {
+      await byparr.close();
+      await flare.close();
+    }
+  }, results);
+
+  await testFunction("caller cancellation during Byparr stops the chain and releases its slot", async () => {
+    const target = new URL("https://example.com/paper");
+    let byparrRequests = 0;
+    const pending: http.ServerResponse[] = [];
+    const flare = await startServer((_req, res) => {
+      res.writeHead(503);
+      res.end();
+    });
+    const byparr = await startServer((_req, res) => {
+      byparrRequests++;
+      if (byparrRequests === 1) {
+        pending.push(res);
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(jsonSolution(target.href)));
+    });
+    const configs: BrowserSolverConfig[] = [
+      { provider: "flaresolverr", endpoint: new URL(`${flare.url}/v1`), timeoutMs: 1000, wireTimeout: 1000, maxConcurrentRequests: 1, maxResponseBytes: 256 * 1024 },
+      { provider: "byparr", endpoint: new URL(`${byparr.url}/v1`), timeoutMs: 1000, wireTimeout: 1, maxConcurrentRequests: 1, maxResponseBytes: 5 * 1024 * 1024 },
+    ];
+    const controller = new AbortController();
+    try {
+      const acquisition = acquireBrowserSolverSolutionChain(
+        createMockServer() as any,
+        configs,
+        target,
+        controller.signal,
+      );
+      await waitForPending(pending, 1);
+      controller.abort(new DOMException("cancelled", "AbortError"));
+      await assert.rejects(acquisition, /cancelled/iu);
+
+      const retry = await acquireBrowserSolverSolutionChain(
+        createMockServer() as any,
+        configs,
+        target,
+      );
+      assert.equal(retry.kind, "solved");
+      assert.equal(byparrRequests, 2);
+    } finally {
+      for (const response of pending) {
+        if (!response.writableEnded) {
+          response.end();
+        }
+      }
+      await byparr.close();
+      await flare.close();
+    }
+  }, results);
+
+  await testFunction("persistent primary 4xx stops the chain before Byparr", async () => {
+    const target = new URL("https://example.com/paper");
+    let byparrRequests = 0;
+    const flare = await startServer((_req, res) => {
+      res.writeHead(401);
+      res.end();
+    });
+    const byparr = await startServer((_req, res) => {
+      byparrRequests++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(jsonSolution(target.href)));
+    });
+    try {
+      await assert.rejects(
+        acquireBrowserSolverSolutionChain(
+          createMockServer() as any,
+          [
+            { provider: "flaresolverr", endpoint: new URL(`${flare.url}/v1`), timeoutMs: 1000, wireTimeout: 1000, maxConcurrentRequests: 1, maxResponseBytes: 256 * 1024 },
+            { provider: "byparr", endpoint: new URL(`${byparr.url}/v1`), timeoutMs: 1000, wireTimeout: 1, maxConcurrentRequests: 1, maxResponseBytes: 5 * 1024 * 1024 },
+          ],
+          target,
+        ),
+        /endpoint rejected/iu,
+      );
+      assert.equal(byparrRequests, 0);
+    } finally {
+      await byparr.close();
+      await flare.close();
+    }
+  }, results);
 
   await testFunction("solution validation never logs clearance-cookie values", async () => {
     const clearanceValue = ["clearance", "sensitive", "value"].join("-");

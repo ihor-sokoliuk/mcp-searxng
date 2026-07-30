@@ -7,10 +7,10 @@ import { urlCache } from "./cache.js";
 import { assertUrlAllowed, isUrlSecurityPolicyDnsError } from "./url-security.js";
 import { parseStrictInteger } from "./env-int.js";
 import {
-  acquireBrowserSolverSolution,
+  acquireBrowserSolverSolutionChain,
   buildBrowserSolverHeaders,
   createBrowserSolverCacheKey,
-  resolveBrowserSolverConfig,
+  resolveBrowserSolverConfigs,
   type BrowserSolverSolution,
 } from "./browser-solver.js";
 import { extractPdfText, MAX_PDF_BYTES, MAX_PDF_PAGES } from "./pdf-reader.js";
@@ -557,21 +557,6 @@ export async function fetchAndConvertToMarkdown(
   const startTime = Date.now();
   logMessage(mcpServer, "info", `Fetching URL: ${url}`);
 
-  const browserSolverConfig = resolveBrowserSolverConfig(mcpServer);
-  const configuredCacheKey = browserSolverConfig
-    ? createBrowserSolverCacheKey(browserSolverConfig.provider, url)
-    : url;
-
-  // Check cache first
-  const cachedEntry = urlCache.get(configuredCacheKey);
-  if (cachedEntry) {
-    logMessage(mcpServer, "info", `Using cached content for URL: ${url}`);
-    const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
-    const duration = Date.now() - startTime;
-    logMessage(mcpServer, "info", `Processed cached URL: ${url} (${result.length} chars in ${duration}ms)`);
-    return result;
-  }
-  
   // Validate URL format
   let parsedUrl: URL;
   try {
@@ -582,13 +567,29 @@ export async function fetchAndConvertToMarkdown(
   }
 
   assertUrlAllowed(parsedUrl);
+  const browserSolverConfigs = resolveBrowserSolverConfigs(mcpServer);
+  const configuredCacheKeys = browserSolverConfigs.length > 0
+    ? browserSolverConfigs.map(({ provider }) => createBrowserSolverCacheKey(provider, url))
+    : [url];
+
+  for (const configuredCacheKey of configuredCacheKeys) {
+    const cachedEntry = urlCache.get(configuredCacheKey);
+    if (cachedEntry) {
+      logMessage(mcpServer, "info", `Using cached content for URL: ${url}`);
+      const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
+      const duration = Date.now() - startTime;
+      logMessage(mcpServer, "info", `Processed cached URL: ${url} (${result.length} chars in ${duration}ms)`);
+      return result;
+    }
+  }
+
   const maxContentLengthBytes = getMaxContentLengthBytes(mcpServer);
 
   let browserSolverSolution: BrowserSolverSolution | null = null;
   let cacheKey = url;
   let shouldCacheResult = true;
   let skipInitialReplayHead = false;
-  if (browserSolverConfig) {
+  if (browserSolverConfigs.length > 0) {
     const preflightProxyAgent = createProxyAgent(parsedUrl.toString(), ProxyType.URL_READER);
     const preflightDispatcher = preflightProxyAgent ?? createUrlReaderAgent();
     const preflightHeaders: Record<string, string> = {};
@@ -611,9 +612,9 @@ export async function fetchAndConvertToMarkdown(
       return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
     }
 
-    const acquisition = await acquireBrowserSolverSolution(
+    const acquisition = await acquireBrowserSolverSolutionChain(
       mcpServer,
-      browserSolverConfig,
+      browserSolverConfigs,
       parsedUrl,
       signal,
     );
@@ -627,7 +628,7 @@ export async function fetchAndConvertToMarkdown(
           { url },
         );
       }
-      cacheKey = configuredCacheKey;
+      cacheKey = createBrowserSolverCacheKey(acquisition.provider, url);
     } else {
       skipInitialReplayHead = true;
       shouldCacheResult = false;
