@@ -3,7 +3,8 @@
 /**
  * E2E Tests: browser-solver-backed web_url_read through the built MCP STDIO
  * transport. The deterministic local test always runs. The real protected-PDF
- * test runs when FLARESOLVERR_URL points at an available service.
+ * test runs when either provider endpoint points at an available service, or
+ * both verification endpoints are supplied for the fail-closed matrix mode.
  */
 
 import { strict as assert } from 'node:assert';

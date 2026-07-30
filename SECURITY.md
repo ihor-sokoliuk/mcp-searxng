@@ -99,8 +99,9 @@ Transient solver failures use the direct URL-reader path once. Cancellation
 does not trigger fallback and is propagated through acquisition, replay, body
 streaming, and PDF extraction. Invalid solver
 configuration and hostname-divergent solutions fail closed. The solver API
-response is capped at 256 KiB for FlareSolverr and 5 MiB for Byparr, whose
-current API always returns rendered content alongside cookies. Concurrent
+response is capped at 256 KiB for FlareSolverr and 5 MiB for Byparr. During
+2.1.0 verification, Byparr returned rendered content alongside cookies.
+Concurrent
 acquisitions are bounded independently by the selected provider's
 `*_MAX_CONCURRENT_REQUESTS` variable.
 
