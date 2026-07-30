@@ -775,7 +775,7 @@ export async function fetchAndConvertToMarkdown(
         case "parse_error":
           return "Unable to extract text from PDF.";
         case "too_many_pages":
-          return `PDF has too many pages to extract safely (limit: ${MAX_PDF_PAGES}).`;
+          return `PDF has too many pages to extract safely (observed: ${extraction.totalPages}; limit: ${MAX_PDF_PAGES}).`;
         case "text_too_large":
           return createPdfTextTooLargeMessage(extraction.bytes, effectivePdfLimit);
         case "timeout":

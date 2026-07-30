@@ -1497,6 +1497,10 @@ async function runTests() {
         body: Buffer.from(createTextPdf([''])),
         expected: 'No extractable text (likely a scanned/image PDF; OCR is not supported).',
       },
+      {
+        body: Buffer.from(createTextPdf(Array.from({ length: 501 }, () => ''))),
+        expected: 'PDF has too many pages to extract safely (observed: 501; limit: 500).',
+      },
     ];
 
     for (const testCase of cases) {

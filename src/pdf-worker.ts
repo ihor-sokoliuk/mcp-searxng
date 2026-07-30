@@ -138,8 +138,9 @@ async function extract(): Promise<PdfWorkerResult> {
   }
 
   // The document loader receives bytes rather than a URL, so no target-derived
-  // filesystem path exists. Block the network primitives available to Node as
-  // a second layer while parsing untrusted document content.
+  // filesystem path exists. Block the Node fetch, HTTP(S), TCP, and TLS
+  // primitives used by the parser as a second layer while parsing untrusted
+  // document content.
   const restoreNetwork = installPdfNetworkGuards();
 
   let pdf: PdfDocumentProxy | undefined;
