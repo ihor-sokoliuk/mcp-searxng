@@ -40,8 +40,9 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 
 Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`). You can also provide interchangeable replicas as a semicolon-separated list, e.g. `https://one.example.com;https://two.example.com`.
 
-For verified Claude, Codex, Cursor, VS Code, Windsurf, Cline, and OpenCode
-recipes, see the [MCP client configuration cookbook](docs/client-configurations.md).
+For verified Claude Desktop, Claude Code, Codex CLI, Cursor, VS Code, Windsurf,
+Cline, and OpenCode recipes, see the
+[MCP client configuration cookbook](docs/client-configurations.md).
 
 ## Features
 
