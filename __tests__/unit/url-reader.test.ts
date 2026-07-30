@@ -220,6 +220,299 @@ async function runTests() {
 
   // ── network-error wrapping ────────────────────────────────────────────────
 
+  await testFunction('configured FlareSolverr session is replayed with its user agent and cookies', async () => {
+    urlCache.clear();
+    let targetGetCount = 0;
+    let receivedUserAgent = '';
+    let receivedCookie = '';
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') {
+        targetGetCount++;
+        receivedUserAgent = req.headers['user-agent'] ?? '';
+        receivedCookie = req.headers.cookie ?? '';
+      }
+      res.writeHead(req.method === 'HEAD' ? 403 : 200, {
+        'content-type': 'text/html; charset=utf-8',
+      });
+      res.end(req.method === 'HEAD' ? '' : '<html><body><h1>Solved page</h1></body></html>');
+    });
+    let solverRequest: Record<string, unknown> | null = null;
+    const solver = await startHttpServer((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        solverRequest = JSON.parse(body) as Record<string, unknown>;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          solution: {
+            url: target.url,
+            status: 200,
+            cookies: [{
+              name: 'cf_clearance',
+              value: 'clearance-token',
+              domain: '127.0.0.1',
+              path: '/',
+            }],
+            userAgent: 'flaresolverr-browser-agent',
+          },
+        }));
+      });
+    });
+
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('NO_PROXY', '127.0.0.1');
+      const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+
+      assert.ok(result.includes('# Solved page'));
+      assert.equal(targetGetCount, 1);
+      assert.equal(receivedUserAgent, 'flaresolverr-browser-agent');
+      assert.equal(receivedCookie, 'cf_clearance=clearance-token');
+      assert.equal(solverRequest?.cmd, 'request.get');
+      assert.equal(solverRequest?.url, `${target.url}/`);
+      assert.equal(solverRequest?.returnOnlyCookies, true);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('transient FlareSolverr failure falls back once to the direct fetch path', async () => {
+    urlCache.clear();
+    let targetGetCount = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') {
+        targetGetCount++;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(req.method === 'HEAD' ? '' : '<html><body><h1>Direct fallback</h1></body></html>');
+    });
+    let solverPostCount = 0;
+    const solver = await startHttpServer((req, res) => {
+      if (req.method === 'POST') {
+        solverPostCount++;
+      }
+      res.writeHead(503, { 'content-type': 'text/plain' });
+      res.end('unavailable');
+    });
+
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('NO_PROXY', '127.0.0.1');
+      const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+
+      assert.ok(result.includes('# Direct fallback'));
+      assert.equal(solverPostCount, 1);
+      assert.equal(targetGetCount, 1);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('solver cache entries are isolated from direct URL cache entries', async () => {
+    urlCache.clear();
+    let targetBody = '<html><body><h1>Direct version</h1></body></html>';
+    const target = await startHttpServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(req.method === 'HEAD' ? '' : targetBody);
+    });
+    let solverPostCount = 0;
+    const solver = await startHttpServer((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        solverPostCount++;
+        const request = JSON.parse(body) as { url: string };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          solution: {
+            url: request.url,
+            status: 200,
+            cookies: [],
+            userAgent: 'solver-agent',
+          },
+        }));
+      });
+    });
+
+    try {
+      envManager.delete('FLARESOLVERR_URL');
+      envManager.set('NO_PROXY', '127.0.0.1');
+      const direct = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+      assert.ok(direct.includes('# Direct version'));
+
+      targetBody = '<html><body><h1>Solver version</h1></body></html>';
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      const solved = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+      const cachedSolved = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+
+      assert.ok(solved.includes('# Solver version'));
+      assert.equal(cachedSolved, solved);
+      assert.equal(solverPostCount, 1);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('non-success solver status is surfaced without a direct replay', async () => {
+    urlCache.clear();
+    let targetGetCount = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') {
+        targetGetCount++;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end();
+    });
+    const solver = await startHttpServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        status: 'ok',
+        solution: {
+          url: target.url,
+          status: 403,
+          cookies: [],
+          userAgent: 'solver-agent',
+        },
+      }));
+    });
+
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('NO_PROXY', '127.0.0.1');
+      await assert.rejects(
+        fetchAndConvertToMarkdown(createMockServer() as any, target.url),
+        /403/u,
+      );
+      assert.equal(targetGetCount, 0);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('hostname-divergent solver solutions fail closed before replay', async () => {
+    urlCache.clear();
+    let targetGetCount = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') {
+        targetGetCount++;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end();
+    });
+    const targetPort = new URL(target.url).port;
+    const solver = await startHttpServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        status: 'ok',
+        solution: {
+          url: `http://localhost:${targetPort}/`,
+          status: 200,
+          cookies: [],
+          userAgent: 'solver-agent',
+        },
+      }));
+    });
+
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('NO_PROXY', '127.0.0.1,localhost');
+      await assert.rejects(
+        fetchAndConvertToMarkdown(createMockServer() as any, target.url),
+        /different or unsupported hostname/iu,
+      );
+      assert.equal(targetGetCount, 0);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('URL security policy blocks a target before contacting FlareSolverr', async () => {
+    urlCache.clear();
+    let solverPostCount = 0;
+    const target = await startTestServer();
+    const solver = await startHttpServer((_req, res) => {
+      solverPostCount++;
+      res.writeHead(500);
+      res.end();
+    });
+
+    try {
+      envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('NO_PROXY', '127.0.0.1');
+      await assert.rejects(
+        fetchAndConvertToMarkdown(createMockServer() as any, target.url),
+        /not allowed|security/iu,
+      );
+      assert.equal(solverPostCount, 0);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('oversized target HEAD response is rejected before contacting FlareSolverr', async () => {
+    urlCache.clear();
+    let targetGetCount = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') {
+        targetGetCount++;
+      }
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-length': '100',
+      });
+      res.end();
+    });
+    let solverPostCount = 0;
+    const solver = await startHttpServer((_req, res) => {
+      solverPostCount++;
+      res.writeHead(500);
+      res.end();
+    });
+
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', '8');
+      envManager.set('NO_PROXY', '127.0.0.1');
+      const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+
+      assert.ok(result.includes('Content too large'));
+      assert.equal(solverPostCount, 0);
+      assert.equal(targetGetCount, 0);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
   await testFunction('Network error handling', async () => {
     const mockServer = createMockServer();
     // Obtain a free port then release it — connecting right after yields ECONNREFUSED.

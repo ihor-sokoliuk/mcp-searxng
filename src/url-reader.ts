@@ -7,6 +7,13 @@ import { urlCache } from "./cache.js";
 import { assertUrlAllowed, isUrlSecurityPolicyDnsError } from "./url-security.js";
 import { parseStrictInteger } from "./env-int.js";
 import {
+  acquireFlareSolverrSolution,
+  buildFlareSolverrHeaders,
+  createFlareSolverrCacheKey,
+  resolveFlareSolverrConfig,
+  type FlareSolverrSolution,
+} from "./flaresolverr.js";
+import {
   createURLFormatError,
   createURLSecurityPolicyError,
   createNetworkError,
@@ -485,8 +492,13 @@ export async function fetchAndConvertToMarkdown(
   const startTime = Date.now();
   logMessage(mcpServer, "info", `Fetching URL: ${url}`);
 
+  const flareSolverrConfig = resolveFlareSolverrConfig(mcpServer);
+  const configuredCacheKey = flareSolverrConfig
+    ? createFlareSolverrCacheKey(url)
+    : url;
+
   // Check cache first
-  const cachedEntry = urlCache.get(url);
+  const cachedEntry = urlCache.get(configuredCacheKey);
   if (cachedEntry) {
     logMessage(mcpServer, "info", `Using cached content for URL: ${url}`);
     const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
@@ -507,6 +519,49 @@ export async function fetchAndConvertToMarkdown(
   assertUrlAllowed(parsedUrl);
   const maxContentLengthBytes = getMaxContentLengthBytes(mcpServer);
 
+  let flareSolverrSolution: FlareSolverrSolution | null = null;
+  let cacheKey = url;
+  if (flareSolverrConfig) {
+    const preflightProxyAgent = createProxyAgent(parsedUrl.toString(), ProxyType.URL_READER);
+    const preflightDispatcher = preflightProxyAgent ?? createUrlReaderAgent();
+    const preflightHeaders: Record<string, string> = {};
+    const configuredUserAgent = process.env.URL_READER_USER_AGENT || process.env.USER_AGENT;
+    if (configuredUserAgent) {
+      preflightHeaders["User-Agent"] = configuredUserAgent;
+    }
+    const contentLength = await checkContentLength(
+      mcpServer,
+      parsedUrl.toString(),
+      timeoutMs,
+      preflightDispatcher,
+      {
+        redirect: "manual",
+        headers: preflightHeaders,
+      },
+    );
+    if (contentLength !== null && contentLength > maxContentLengthBytes) {
+      return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
+    }
+
+    const acquisition = await acquireFlareSolverrSolution(
+      mcpServer,
+      flareSolverrConfig,
+      parsedUrl,
+    );
+    if (acquisition.kind === "solved") {
+      flareSolverrSolution = acquisition.solution;
+      if (flareSolverrSolution.status < 200 || flareSolverrSolution.status >= 300) {
+        throw createServerError(
+          flareSolverrSolution.status,
+          "",
+          "",
+          { url },
+        );
+      }
+      cacheKey = configuredCacheKey;
+    }
+  }
+
   // Create an AbortController instance
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -518,17 +573,18 @@ export async function fetchAndConvertToMarkdown(
       redirect: "manual",
     };
 
-    // Add User-Agent header if configured (URL_READER_USER_AGENT takes priority over USER_AGENT)
+    // Add User-Agent header if configured (URL_READER_USER_AGENT takes priority over USER_AGENT).
+    // A solved browser session replaces these headers for the replay.
     const userAgent = process.env.URL_READER_USER_AGENT || process.env.USER_AGENT;
-    if (userAgent) {
-      requestOptions.headers = {
-        ...requestOptions.headers,
-        'User-Agent': userAgent
-      };
-    }
+    const directHeaders: Record<string, string> = userAgent
+      ? { "User-Agent": userAgent }
+      : {};
 
     let response!: Response;
-    let currentUrl = parsedUrl;
+    let currentUrl = flareSolverrSolution
+      ? new URL(flareSolverrSolution.url)
+      : parsedUrl;
+    assertUrlAllowed(currentUrl);
     let usedDispatcher = false;
     try {
       for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
@@ -538,6 +594,9 @@ export async function fetchAndConvertToMarkdown(
         usedDispatcher = !!dispatcher;
         const currentRequestOptions = {
           ...requestOptions,
+          headers: flareSolverrSolution
+            ? buildFlareSolverrHeaders(flareSolverrSolution, currentUrl)
+            : directHeaders,
         };
         if (dispatcher) {
           (currentRequestOptions as any).dispatcher = dispatcher;
@@ -575,6 +634,7 @@ export async function fetchAndConvertToMarkdown(
 
         const nextUrl = new URL(location, currentUrl);
         assertUrlAllowed(nextUrl);
+        await cancelResponseBody(response);
         currentUrl = nextUrl;
       }
     } catch (error: any) {
@@ -661,7 +721,7 @@ export async function fetchAndConvertToMarkdown(
     }
 
     // Only cache successful markdown conversion
-    urlCache.set(url, markdownContent);
+    urlCache.set(cacheKey, markdownContent);
 
     // Apply pagination options
     const result = applyPaginationOptions(markdownContent, paginationOptions);
