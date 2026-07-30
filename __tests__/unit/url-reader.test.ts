@@ -1485,6 +1485,29 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('application/pdf body timeouts preserve the standard timeout error', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    const { url, close } = await startHttpServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/pdf' });
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+      res.write('%PDF-');
+    });
+
+    try {
+      await assert.rejects(
+        fetchAndConvertToMarkdown(mockServer as any, url, 100),
+        (error: any) => error.message.includes('Timeout Error'),
+      );
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
   await testFunction('application/pdf reports malformed and no-text documents without caching them', async () => {
     const mockServer = createMockServer();
     urlCache.clear();
