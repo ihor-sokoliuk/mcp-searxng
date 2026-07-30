@@ -17,6 +17,7 @@ import { runTests as runTypesTests } from './unit/types.test.js';
 import { runTests as runCacheTests } from './unit/cache.test.js';
 import { runTests as runSearchCacheTests } from './unit/search-cache.test.js';
 import { runTests as runProxyTests } from './unit/proxy.test.js';
+import { runTests as runFlareSolverrTests } from './unit/flaresolverr.test.js';
 import { runTests as runErrorHandlerTests } from './unit/error-handler.test.js';
 import { runTests as runSearxngInstancesTests } from './unit/searxng-instances.test.js';
 import { runTests as runResourcesTests } from './unit/resources.test.js';
@@ -54,6 +55,7 @@ const testSuites: TestSuite[] = [
   { name: 'Cache', category: 'unit', run: runCacheTests },
   { name: 'Search Cache', category: 'unit', run: runSearchCacheTests },
   { name: 'Proxy', category: 'unit', run: runProxyTests },
+  { name: 'FlareSolverr', category: 'unit', run: runFlareSolverrTests },
   { name: 'Error Handler', category: 'unit', run: runErrorHandlerTests },
   { name: 'SearXNG Instances', category: 'unit', run: runSearxngInstancesTests },
   { name: 'Resources', category: 'unit', run: runResourcesTests },

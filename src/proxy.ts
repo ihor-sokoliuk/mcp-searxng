@@ -358,6 +358,21 @@ export function applySearchRequestConfig(
 }
 
 /**
+ * Apply global proxy and trust-store configuration to an operator-trusted side
+ * service. Type-specific search and URL-reader proxy variables deliberately do
+ * not apply.
+ */
+export function applyTrustedServiceRequestConfig(
+  requestOptions: RequestInit,
+  targetUrl: string,
+): void {
+  const dispatcher = createProxyAgent(targetUrl) ?? createDefaultAgent();
+  if (dispatcher) {
+    (requestOptions as any).dispatcher = dispatcher;
+  }
+}
+
+/**
  * Returns a singleton undici Agent for direct `web_url_read` requests.
  *
  * Unlike the shared default agent, this is always created so the URL reader's
