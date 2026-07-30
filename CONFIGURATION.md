@@ -15,6 +15,8 @@ With `SEARXNG_FANOUT=true`, all healthy instances are queried in parallel. Resul
 
 For SearXNG setup, direct verification, and replica troubleshooting, see
 [Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
+For MCP-process capacity planning and optional Docker limits, see the
+[measured deployment profiles](docs/deployment-profiles.md).
 
 ## Authentication
 

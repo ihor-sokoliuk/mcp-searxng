@@ -14,6 +14,8 @@ import { createTestResults, printTestSummary, TestResult, testFunction } from '.
 const results = createTestResults();
 const guideUrl = new URL('../../docs/client-configurations.md', import.meta.url);
 const researchGuideUrl = new URL('../../docs/research-workflow.md', import.meta.url);
+const deploymentGuideUrl = new URL('../../docs/deployment-profiles.md', import.meta.url);
+const resourceOverlayUrl = new URL('../../docker-compose.resources.yml', import.meta.url);
 const markdownFence = String.fromCharCode(96).repeat(3);
 
 const expectedMatrixRows = [
@@ -242,6 +244,64 @@ export async function runTests(): Promise<TestResult> {
     ]) {
       assert.ok(!guide.includes(unsupportedPromise), `workflow must not promise: ${unsupportedPromise}`);
     }
+  }, results);
+
+  await testFunction('deployment profiles exist and public navigation links to them', () => {
+    const guide = readText(deploymentGuideUrl);
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const compose = readText(new URL('../../docker-compose.yml', import.meta.url));
+    assert.ok(guide.startsWith('# Measured MCP Deployment Profiles'));
+    assert.ok(readme.includes('(docs/deployment-profiles.md)'));
+    assert.ok(configuration.includes('(docs/deployment-profiles.md)'));
+    assert.ok(compose.includes('docs/deployment-profiles.md'));
+  }, results);
+
+  await testFunction('deployment measurements are traceable and recommendations remain bounded', () => {
+    const guide = readText(deploymentGuideUrl);
+    const normalizedGuide = guide.replace(/\s+/gu, ' ');
+    for (const evidence of [
+      '2026-07-29',
+      'Node 24.18.0',
+      'Docker Engine 29.6.2',
+      'linux/amd64',
+      'ecd0b7c99941d8e204d633676873058b2a07fffe',
+      '| Small | 1 | 160 | 6.03 s | 52.39-110.60 MiB | 8.72% | 11.39% |',
+      '| Balanced | 4 | 480 | 6.06 s | 53.43-139.30 MiB | 20.39% | 31.84% |',
+      '| Research-heavy | 8 | 960 | 6.06 s | 53.63-254.40 MiB | 40.80% | 65.32% |',
+      'starting range, not a universal requirement',
+      'does not size SearXNG',
+    ]) {
+      assert.ok(normalizedGuide.includes(evidence), `missing deployment evidence: ${evidence}`);
+    }
+  }, results);
+
+  await testFunction('deployment profiles use current configuration and valid MCP-only Compose fields', () => {
+    const guide = readText(deploymentGuideUrl);
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const overlay = readText(resourceOverlayUrl);
+    const variables = [
+      'SEARXNG_MAX_RESULTS',
+      'FETCH_TIMEOUT_MS',
+      'SEARCH_CACHE_TTL_MS',
+      'SEARCH_CACHE_MAX_ENTRIES',
+      'URL_READ_MAX_CHARS',
+      'URL_READ_MAX_CONTENT_LENGTH_BYTES',
+      'CACHE_TTL_MS',
+      'CACHE_MAX_ENTRIES',
+      'SEARXNG_FANOUT',
+      'MCP_RATE_WINDOW_MS',
+      'MCP_RATE_INIT_MAX',
+      'MCP_RATE_SESSION_MAX',
+    ];
+    for (const variable of variables) {
+      assert.ok(guide.includes(`\`${variable}\``), `guide must name ${variable}`);
+      assert.ok(configuration.includes(`\`${variable}\``), `configuration must still define ${variable}`);
+    }
+    assert.ok(overlay.includes('cpus: ${MCP_SEARXNG_CPUS:-0.50}'));
+    assert.ok(overlay.includes('mem_limit: ${MCP_SEARXNG_MEMORY_LIMIT:-256m}'));
+    assert.ok(overlay.includes('mem_reservation: ${MCP_SEARXNG_MEMORY_RESERVATION:-192m}'));
+    assert.ok(!overlay.includes('\n  searxng:'), 'resource overlay must not add or size SearXNG');
   }, results);
 
   printTestSummary(results, 'Public Documentation Guides');

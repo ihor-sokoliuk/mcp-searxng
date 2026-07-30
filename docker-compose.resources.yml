@@ -1,0 +1,6 @@
+services:
+  mcp-searxng:
+    cpus: ${MCP_SEARXNG_CPUS:-0.50}
+    mem_limit: ${MCP_SEARXNG_MEMORY_LIMIT:-256m}
+    mem_reservation: ${MCP_SEARXNG_MEMORY_RESERVATION:-192m}
+
