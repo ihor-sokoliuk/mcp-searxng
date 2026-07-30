@@ -15,7 +15,9 @@ const results = createTestResults();
 const guideUrl = new URL('../../docs/client-configurations.md', import.meta.url);
 const researchGuideUrl = new URL('../../docs/research-workflow.md', import.meta.url);
 const deploymentGuideUrl = new URL('../../docs/deployment-profiles.md', import.meta.url);
+const baseComposeUrl = new URL('../../docker-compose.yml', import.meta.url);
 const resourceOverlayUrl = new URL('../../docker-compose.resources.yml', import.meta.url);
+const httpOverlayUrl = new URL('../../docker-compose.http.yml', import.meta.url);
 const markdownFence = String.fromCharCode(96).repeat(3);
 
 const expectedMatrixRows = [
@@ -279,6 +281,7 @@ export async function runTests(): Promise<TestResult> {
   await testFunction('deployment profiles use current configuration and valid MCP-only Compose fields', () => {
     const guide = readText(deploymentGuideUrl);
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const baseCompose = readText(baseComposeUrl);
     const overlay = readText(resourceOverlayUrl);
     const variables = [
       'SEARXNG_MAX_RESULTS',
@@ -302,6 +305,94 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(overlay.includes('mem_limit: ${MCP_SEARXNG_MEMORY_LIMIT:-256m}'));
     assert.ok(overlay.includes('mem_reservation: ${MCP_SEARXNG_MEMORY_RESERVATION:-192m}'));
     assert.ok(!overlay.includes('\n  searxng:'), 'resource overlay must not add or size SearXNG');
+    assert.ok(!baseCompose.includes('ports:'), 'base Compose file must remain STDIO-only');
+    assert.ok(!baseCompose.includes('MCP_HTTP_'), 'base Compose file must not select HTTP transport');
+  }, results);
+
+  await testFunction('deployment HTTP Compose profile is fail-closed and service-aware', () => {
+    const guide = readText(deploymentGuideUrl);
+    const normalizedGuide = guide.replace(/\s+/gu, ' ');
+    const overlay = readText(httpOverlayUrl);
+    for (const contract of [
+      'MCP_HTTP_PORT=${MCP_HTTP_PORT:-3000}',
+      'MCP_HTTP_HOST=0.0.0.0',
+      'MCP_HTTP_HARDEN=true',
+      'MCP_HTTP_AUTH_TOKEN=${MCP_HTTP_AUTH_TOKEN:?',
+      'MCP_HTTP_ALLOWED_ORIGINS=${MCP_HTTP_ALLOWED_ORIGINS:?',
+      'MCP_HTTP_ALLOWED_HOSTS',
+      'MCP_HTTP_TRUST_PROXY',
+      '${MCP_SEARXNG_HTTP_BIND_ADDRESS:-127.0.0.1}',
+      '${MCP_SEARXNG_HTTP_PUBLISHED_PORT:-3000}',
+    ]) {
+      assert.ok(overlay.includes(contract), `HTTP overlay must include ${contract}`);
+    }
+    for (const composeFile of [
+      'docker-compose.yml',
+      'docker-compose.http.yml',
+      'docker-compose.resources.yml',
+    ]) {
+      assert.ok(guide.includes(composeFile), `guide must compose ${composeFile}`);
+    }
+    assert.match(guide, /docker compose[\s\S]+stats --no-stream mcp-searxng/u);
+    assert.match(guide, /docker compose[\s\S]+ps -q mcp-searxng/u);
+    assert.ok(guide.includes('--name mcp-searxng-profile'));
+    assert.ok(guide.includes('docker stats --no-stream mcp-searxng-profile'));
+    assert.ok(guide.includes('disposable placeholder'));
+    assert.ok(normalizedGuide.includes('passes no value for an optional variable'));
+    assert.ok(normalizedGuide.includes('replaces those defaults'));
+    assert.ok(normalizedGuide.includes('clients can spoof `X-Forwarded-For`'));
+    assert.ok(normalizedGuide.includes('prints expanded environment values'));
+    assert.ok(normalizedGuide.includes('differs from `MCP_HTTP_PORT`'));
+    assert.ok(normalizedGuide.includes('published port in `MCP_HTTP_ALLOWED_HOSTS`'));
+  }, results);
+
+  await testFunction('public documentation states current security, privacy, and configuration contracts', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const security = readText(new URL('../../SECURITY.md', import.meta.url));
+    const normalizedSecurity = security.replace(/\s+/gu, ' ');
+    const changelog = readText(new URL('../../CHANGELOG.md', import.meta.url));
+    const index = readText(new URL('../../docs/index.md', import.meta.url));
+
+    assert.ok(readme.includes('operator-controlled or trusted SearXNG instance'));
+    assert.ok(readme.includes('As of 2026-07-29'));
+    assert.ok(readme.includes('| Pagination | ✓ | ✗ | ✓ | ✓ |'));
+    assert.ok(!readme.includes('| Privacy |'));
+
+    assert.ok(configuration.includes('all SearXNG-bound traffic'));
+    assert.ok(configuration.includes('## Combined Example (Representative Options)'));
+    for (const variable of [
+      '"AUTH_USERNAME"',
+      '"AUTH_PASSWORD"',
+      '"MCP_RATE_WINDOW_MS"',
+      '"MCP_RATE_INIT_MAX"',
+      '"MCP_RATE_SESSION_MAX"',
+    ]) {
+      assert.ok(configuration.includes(variable), `representative example must include ${variable}`);
+    }
+    assert.ok(configuration.includes('must be configured together'));
+    assert.ok(configuration.includes('may be looser or stricter'));
+    assert.ok(configuration.includes('clients can spoof `X-Forwarded-For`'));
+
+    assert.ok(security.includes('Hardened mode protects the MCP protocol endpoint (`/mcp`)'));
+    assert.ok(security.includes('`GET /health` intentionally remains unauthenticated'));
+    assert.ok(security.includes('60 requests per minute'));
+    assert.ok(normalizedSecurity.includes('`status`, `server`, `version`, and `transport`'));
+    assert.ok(normalizedSecurity.includes('does not return the SearXNG URL or server configuration'));
+    assert.ok(security.includes('version fingerprinting'));
+
+    assert.ok(changelog.startsWith('# Changelog'));
+    assert.ok(changelog.includes('## [Unreleased]'));
+    assert.ok(changelog.includes('previously accepted numeric prefixes'));
+    assert.ok(changelog.includes('may be looser or stricter'));
+
+    for (const guide of [
+      'client-configurations.md',
+      'research-workflow.md',
+      'deployment-profiles.md',
+    ]) {
+      assert.ok(index.includes(guide), `documentation index must link ${guide}`);
+    }
   }, results);
 
   printTestSummary(results, 'Public Documentation Guides');

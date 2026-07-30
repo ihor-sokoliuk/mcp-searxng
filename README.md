@@ -2,7 +2,7 @@
 
 # 🔍 SearXNG MCP Server
 
-**Private web search for AI assistants — connect any SearXNG instance to Claude, Cursor, and more.**
+**Privacy-respecting web search for AI assistants — use an operator-controlled or trusted SearXNG instance with Claude, Cursor, and more.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/ihor-sokoliuk/mcp-searxng?style=flat-square&logo=github&label=stars)](https://github.com/ihor-sokoliuk/mcp-searxng/stargazers)
 [![npm version](https://img.shields.io/npm/v/mcp-searxng?style=flat-square&logo=npm)](https://www.npmjs.com/package/mcp-searxng)
@@ -68,14 +68,27 @@ For measured MCP-process CPU and memory starting points, see
 
 ## Why mcp-searxng?
 
+As of 2026-07-29, the capability comparison below reflects the official
+[Brave MCP](https://github.com/brave/brave-search-mcp-server),
+[Exa MCP](https://github.com/exa-labs/exa-mcp-server), and
+[Firecrawl MCP](https://github.com/mendableai/firecrawl-mcp-server) projects.
+“Pagination” means an exposed page or offset control. “Self-hosted” means the
+search service can run under your control. “Free / No API key” means this MCP
+server does not require a paid search-vendor API key; you still operate or
+select the underlying SearXNG instance.
+
 | | Brave MCP | Exa MCP | Firecrawl MCP | **mcp-searxng** |
 |--|:---------:|:-------:|:-------------:|:---------------:|
 | Web Search | ✓ | ✓ | ✓ | ✓ |
 | Read URL | ✗ | ✓ | ✓ | ✓ |
-| Pagination | ✗ | ✗ | ✓ | ✓ |
+| Pagination | ✓ | ✗ | ✓ | ✓ |
 | Self-hosted | ✗ | ✗ | Partial | ✓ |
-| Privacy | ✗ | ✗ | ✗ | ✓ |
 | Free / No API key | ✗ | ✗ | ✗ | ✓ |
+
+Privacy depends on the SearXNG deployment. An operator-controlled instance can
+avoid trusting a third-party search operator, while a public instance receives
+the query and may log it. SearXNG and this MCP integration do not by themselves
+provide anonymity.
 
 ## How It Works
 

@@ -3,6 +3,12 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **HTTP rate-limit settings now honor the strict integer-validation contract:** `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` reject fractional, unit-suffixed, exponent, non-decimal, non-positive, and unsafe values instead of accepting numeric prefixes. Invalid values fall back with a raw-value-free warning. Because previously accepted numeric prefixes may have produced a different effective limit, the documented default may be looser or stricter until the operator corrects the setting.
+
 ## [1.12.1] - 2026-07-28
 
 ### Fixed

@@ -190,7 +190,7 @@ Common ones are listed below (failover/fan-out, caching, timeouts, result limits
 Standard input/output transport for desktop clients like Claude Desktop.
 
 ### HTTP (Optional)
-RESTful HTTP transport for web applications. Set \`MCP_HTTP_PORT\` to enable.
+MCP Streamable HTTP transport for remote clients. Set \`MCP_HTTP_PORT\` to enable.
 
 ### Hardened HTTP Mode (Optional)
 Default behavior remains compatible for existing deployments.
