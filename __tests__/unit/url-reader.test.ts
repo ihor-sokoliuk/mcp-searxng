@@ -227,16 +227,24 @@ async function runTests() {
     let receivedUserAgent = '';
     let receivedCookie = '';
     const target = await startHttpServer((req, res) => {
-      if (req.method === 'GET') {
+      const isHeadRequest = req.method === 'HEAD';
+      if (!isHeadRequest) {
         targetGetCount++;
         targetGetPath = req.url ?? '';
         receivedUserAgent = req.headers['user-agent'] ?? '';
         receivedCookie = req.headers.cookie ?? '';
       }
-      res.writeHead(req.method === 'HEAD' ? 403 : 200, {
+      if (isHeadRequest) {
+        res.writeHead(403, {
+          'content-type': 'text/html; charset=utf-8',
+        });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
       });
-      res.end(req.method === 'HEAD' ? '' : '<html><body><h1>Solved page</h1></body></html>');
+      res.end('<html><body><h1>Solved page</h1></body></html>');
     });
     let solverRequest: Record<string, unknown> | null = null;
     const solver = await startHttpServer((req, res) => {
