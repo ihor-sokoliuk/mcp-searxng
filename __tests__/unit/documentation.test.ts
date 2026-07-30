@@ -8,10 +8,12 @@
 
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createTestResults, printTestSummary, TestResult, testFunction } from '../helpers/test-utils.js';
 
 const results = createTestResults();
 const guideUrl = new URL('../../docs/client-configurations.md', import.meta.url);
+const markdownFence = String.fromCharCode(96).repeat(3);
 
 const expectedMatrixRows = [
   '| Claude Desktop | Yes | Yes | No |',
@@ -41,9 +43,9 @@ function extractFences(markdown: string, language: string): string[] {
   let active: string[] | null = null;
 
   for (const line of markdown.split(/\r?\n/u)) {
-    if (active === null && line.trim() === `\`\`\`${language}`) {
+    if (active === null && line.trim() === markdownFence + language) {
       active = [];
-    } else if (active !== null && line.trim() === '```') {
+    } else if (active !== null && line.trim() === markdownFence) {
       blocks.push(active.join('\n'));
       active = null;
     } else if (active !== null) {
@@ -190,4 +192,6 @@ export async function runTests(): Promise<TestResult> {
   return results;
 }
 
-runTests();
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
+  runTests();
+}
