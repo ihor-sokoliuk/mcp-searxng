@@ -521,6 +521,7 @@ export async function fetchAndConvertToMarkdown(
 
   let flareSolverrSolution: FlareSolverrSolution | null = null;
   let cacheKey = url;
+  let shouldCacheResult = true;
   let skipInitialReplayHead = false;
   if (flareSolverrConfig) {
     const preflightProxyAgent = createProxyAgent(parsedUrl.toString(), ProxyType.URL_READER);
@@ -562,6 +563,7 @@ export async function fetchAndConvertToMarkdown(
       cacheKey = configuredCacheKey;
     } else {
       skipInitialReplayHead = true;
+      shouldCacheResult = false;
     }
   }
 
@@ -723,7 +725,9 @@ export async function fetchAndConvertToMarkdown(
     }
 
     // Only cache successful markdown conversion
-    urlCache.set(cacheKey, markdownContent);
+    if (shouldCacheResult) {
+      urlCache.set(cacheKey, markdownContent);
+    }
 
     // Apply pagination options
     const result = applyPaginationOptions(markdownContent, paginationOptions);

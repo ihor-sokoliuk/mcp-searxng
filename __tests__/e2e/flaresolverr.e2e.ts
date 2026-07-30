@@ -60,7 +60,7 @@ function readUrlMessages(url: string): object[] {
 }
 
 async function runTests() {
-  console.log('ðŸŒ E2E Testing: FlareSolverr URL reader\n');
+  console.log('🌐 E2E Testing: FlareSolverr URL reader\n');
 
   const skip = checkSkipConditions(false);
   if (skip) {
@@ -143,7 +143,7 @@ async function runTests() {
       assert.ok(text.includes('Unsupported content type: application/pdf'), text);
     }, results);
   } else {
-    console.log('[SKIP] FLARESOLVERR_URL not set â€” skipping real protected-PDF test');
+    console.log('[SKIP] FLARESOLVERR_URL not set — skipping real protected-PDF test');
   }
 
   printTestSummary(results, 'E2E: FlareSolverr URL Reader');

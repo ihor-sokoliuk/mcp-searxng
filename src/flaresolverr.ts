@@ -162,9 +162,20 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function isInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
 function parseSolution(value: unknown): FlareSolverrSolution | null {
   const envelope = asRecord(value);
-  if (!envelope || envelope.status !== "ok") {
+  if (!envelope) {
+    return null;
+  }
+  if (envelope.status !== "ok") {
     return null;
   }
   const solution = asRecord(envelope.solution);
@@ -174,13 +185,13 @@ function parseSolution(value: unknown): FlareSolverrSolution | null {
   if (typeof solution.url !== "string") {
     return null;
   }
-  if (typeof solution.status !== "number" || !Number.isInteger(solution.status)) {
+  if (!isInteger(solution.status)) {
     return null;
   }
   if (!Array.isArray(solution.cookies)) {
     return null;
   }
-  if (typeof solution.userAgent !== "string" || solution.userAgent.trim() === "") {
+  if (!isNonEmptyString(solution.userAgent)) {
     return null;
   }
 
@@ -222,16 +233,14 @@ async function requestFlareSolverrSession(
   config: FlareSolverrConfig,
   requestedUrl: URL,
 ): Promise<string | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () => controller.abort(),
+  const timeoutSignal = AbortSignal.timeout(
     config.timeoutMs + FLARESOLVERR_RESPONSE_GRACE_MS,
   );
 
   try {
     const requestOptions: RequestInit = {
       method: "POST",
-      signal: controller.signal,
+      signal: timeoutSignal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         cmd: "request.get",
@@ -265,8 +274,6 @@ async function requestFlareSolverrSession(
       throw error;
     }
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -381,6 +388,30 @@ function isUnexpired(cookie: FlareSolverrCookie, nowSeconds: number): boolean {
     || cookie.expires > nowSeconds;
 }
 
+interface NamedCookie extends FlareSolverrCookie {
+  name: string;
+  value: string;
+}
+
+function hasCookieIdentity(cookie: FlareSolverrCookie): cookie is NamedCookie {
+  return typeof cookie.name === "string" && typeof cookie.value === "string";
+}
+
+function cookieTransportMatches(
+  cookie: FlareSolverrCookie,
+  path: string,
+  targetUrl: URL,
+  requestHostname: string,
+  solutionHostname: string,
+  nowSeconds: number,
+): boolean {
+  const secureTransportAllowed = cookie.secure !== true || targetUrl.protocol === "https:";
+  return domainMatches(cookie, requestHostname, solutionHostname)
+    && pathMatches(targetUrl.pathname, path)
+    && secureTransportAllowed
+    && isUnexpired(cookie, nowSeconds);
+}
+
 function cookieMatchesTarget(
   entry: IndexedCookie,
   targetUrl: URL,
@@ -392,14 +423,18 @@ function cookieMatchesTarget(
   if (requestHostname !== solutionHostname) {
     return false;
   }
-  if (typeof cookie.name !== "string" || typeof cookie.value !== "string") {
+  if (!hasCookieIdentity(cookie)) {
     return false;
   }
   return isValidCookiePair(cookie.name, cookie.value)
-    && domainMatches(cookie, requestHostname, solutionHostname)
-    && pathMatches(targetUrl.pathname || "/", path)
-    && (cookie.secure !== true || targetUrl.protocol === "https:")
-    && isUnexpired(cookie, nowSeconds);
+    && cookieTransportMatches(
+      cookie,
+      path,
+      targetUrl,
+      requestHostname,
+      solutionHostname,
+      nowSeconds,
+    );
 }
 
 export function buildFlareSolverrHeaders(
