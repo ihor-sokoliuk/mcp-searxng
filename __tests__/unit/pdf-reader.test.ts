@@ -112,6 +112,26 @@ export async function runTests() {
     assert.deepEqual(result, { version: 1, kind: "external_fetch_attempt" });
   }, results);
 
+  await testFunction("does not consume a worker slot when copying input bytes fails", async () => {
+    const bytes = createTextPdf(["copy failure"]);
+    Object.defineProperty(bytes, "slice", {
+      value: () => {
+        throw new Error("simulated copy failure");
+      },
+    });
+
+    await assert.rejects(extractPdfText(bytes, 1024), /simulated copy failure/);
+
+    const workerUrl = createDelayedWorkerUrl(100);
+    const first = extractPdfText(createTextPdf(["one"]), 1024, { workerUrl });
+    const second = extractPdfText(createTextPdf(["two"]), 1024, { workerUrl });
+    const third = await extractPdfText(createTextPdf(["three"]), 1024, { workerUrl });
+
+    assert.deepEqual(third, { version: 1, kind: "busy" });
+    assert.equal((await first).kind, "text");
+    assert.equal((await second).kind, "text");
+  }, results);
+
   await testFunction("admits at most two concurrent PDF workers without queueing", async () => {
     const workerUrl = createDelayedWorkerUrl(100);
     const first = extractPdfText(createTextPdf(["one"]), 1024, { workerUrl });

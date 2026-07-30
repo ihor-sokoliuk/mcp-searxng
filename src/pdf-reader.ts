@@ -81,8 +81,8 @@ export async function extractPdfText(
     return { version: 1, kind: "busy" };
   }
 
-  activePdfWorkers++;
   const transferableBytes = bytes.slice();
+  activePdfWorkers++;
 
   return await new Promise<PdfExtractionResult>((resolve) => {
     let worker: Worker;
