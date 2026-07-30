@@ -10,6 +10,8 @@ const MAX_FLARESOLVERR_TIMEOUT_MS = 300_000;
 const DEFAULT_FLARESOLVERR_CONCURRENCY = 2;
 const MAX_FLARESOLVERR_CONCURRENCY = 16;
 const MAX_FLARESOLVERR_RESPONSE_BYTES = 256 * 1024;
+const FLARESOLVERR_RESPONSE_GRACE_MS = 5_000;
+const MAX_COOKIE_PAIR_BYTES = 4_096;
 
 export interface FlareSolverrConfig {
   endpoint: URL;
@@ -228,7 +230,10 @@ export async function acquireFlareSolverrSolution(
   activeSolverRequests++;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      config.timeoutMs + FLARESOLVERR_RESPONSE_GRACE_MS,
+    );
     let responseText: string | null;
 
     try {
@@ -328,6 +333,47 @@ function domainMatches(
   return requestHostname === domain || requestHostname.endsWith(`.${domain}`);
 }
 
+function isValidCookieName(name: string): boolean {
+  if (name === "") {
+    return false;
+  }
+  const punctuation = "!#$%&'*+-.^_`|~";
+  for (const character of name) {
+    const code = character.charCodeAt(0);
+    const isAlphaNumeric = (
+      (code >= 0x30 && code <= 0x39)
+      || (code >= 0x41 && code <= 0x5a)
+      || (code >= 0x61 && code <= 0x7a)
+    );
+    if (!isAlphaNumeric && !punctuation.includes(character)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isValidCookieValue(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (!(
+      code === 0x21
+      || (code >= 0x23 && code <= 0x2b)
+      || (code >= 0x2d && code <= 0x3a)
+      || (code >= 0x3c && code <= 0x5b)
+      || (code >= 0x5d && code <= 0x7e)
+    )) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isValidCookiePair(name: string, value: string): boolean {
+  return isValidCookieName(name)
+    && isValidCookieValue(value)
+    && new TextEncoder().encode(`${name}=${value}`).byteLength <= MAX_COOKIE_PAIR_BYTES;
+}
+
 export function buildFlareSolverrHeaders(
   solution: FlareSolverrSolution,
   targetUrl: URL,
@@ -340,8 +386,8 @@ export function buildFlareSolverrHeaders(
     .filter(({ cookie, path }) => (
       requestHostname === solutionHostname
       && typeof cookie.name === "string"
-      && cookie.name !== ""
       && typeof cookie.value === "string"
+      && isValidCookiePair(cookie.name, cookie.value)
       && domainMatches(cookie, requestHostname, solutionHostname)
       && pathMatches(targetUrl.pathname || "/", path)
       && (cookie.secure !== true || targetUrl.protocol === "https:")

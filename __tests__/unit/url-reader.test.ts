@@ -223,11 +223,13 @@ async function runTests() {
   await testFunction('configured FlareSolverr session is replayed with its user agent and cookies', async () => {
     urlCache.clear();
     let targetGetCount = 0;
+    let targetGetPath = '';
     let receivedUserAgent = '';
     let receivedCookie = '';
     const target = await startHttpServer((req, res) => {
       if (req.method === 'GET') {
         targetGetCount++;
+        targetGetPath = req.url ?? '';
         receivedUserAgent = req.headers['user-agent'] ?? '';
         receivedCookie = req.headers.cookie ?? '';
       }
@@ -249,7 +251,7 @@ async function runTests() {
         res.end(JSON.stringify({
           status: 'ok',
           solution: {
-            url: target.url,
+            url: `${target.url}/solver-final`,
             status: 200,
             cookies: [{
               name: 'cf_clearance',
@@ -266,14 +268,16 @@ async function runTests() {
     try {
       envManager.set('FLARESOLVERR_URL', solver.url);
       envManager.set('NO_PROXY', '127.0.0.1');
-      const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+      const requestedUrl = `${target.url}/original`;
+      const result = await fetchAndConvertToMarkdown(createMockServer() as any, requestedUrl);
 
       assert.ok(result.includes('# Solved page'));
       assert.equal(targetGetCount, 1);
+      assert.equal(targetGetPath, '/original');
       assert.equal(receivedUserAgent, 'flaresolverr-browser-agent');
       assert.equal(receivedCookie, 'cf_clearance=clearance-token');
       assert.equal(solverRequest?.cmd, 'request.get');
-      assert.equal(solverRequest?.url, `${target.url}/`);
+      assert.equal(solverRequest?.url, requestedUrl);
       assert.equal(solverRequest?.returnOnlyCookies, true);
     } finally {
       envManager.restore();
@@ -286,9 +290,12 @@ async function runTests() {
   await testFunction('transient FlareSolverr failure falls back once to the direct fetch path', async () => {
     urlCache.clear();
     let targetGetCount = 0;
+    let targetHeadCount = 0;
     const target = await startHttpServer((req, res) => {
       if (req.method === 'GET') {
         targetGetCount++;
+      } else if (req.method === 'HEAD') {
+        targetHeadCount++;
       }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(req.method === 'HEAD' ? '' : '<html><body><h1>Direct fallback</h1></body></html>');
@@ -310,6 +317,7 @@ async function runTests() {
       assert.ok(result.includes('# Direct fallback'));
       assert.equal(solverPostCount, 1);
       assert.equal(targetGetCount, 1);
+      assert.equal(targetHeadCount, 1);
     } finally {
       envManager.restore();
       urlCache.clear();

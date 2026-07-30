@@ -521,6 +521,7 @@ export async function fetchAndConvertToMarkdown(
 
   let flareSolverrSolution: FlareSolverrSolution | null = null;
   let cacheKey = url;
+  let skipInitialReplayHead = false;
   if (flareSolverrConfig) {
     const preflightProxyAgent = createProxyAgent(parsedUrl.toString(), ProxyType.URL_READER);
     const preflightDispatcher = preflightProxyAgent ?? createUrlReaderAgent();
@@ -559,6 +560,8 @@ export async function fetchAndConvertToMarkdown(
         );
       }
       cacheKey = configuredCacheKey;
+    } else {
+      skipInitialReplayHead = true;
     }
   }
 
@@ -581,9 +584,7 @@ export async function fetchAndConvertToMarkdown(
       : {};
 
     let response!: Response;
-    let currentUrl = flareSolverrSolution
-      ? new URL(flareSolverrSolution.url)
-      : parsedUrl;
+    let currentUrl = parsedUrl;
     assertUrlAllowed(currentUrl);
     let usedDispatcher = false;
     try {
@@ -602,15 +603,17 @@ export async function fetchAndConvertToMarkdown(
           (currentRequestOptions as any).dispatcher = dispatcher;
         }
 
-        const contentLength = await checkContentLength(
-          mcpServer,
-          currentUrl.toString(),
-          timeoutMs,
-          dispatcher,
-          currentRequestOptions,
-        );
-        if (contentLength !== null && contentLength > maxContentLengthBytes) {
-          return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
+        if (!(skipInitialReplayHead && redirects === 0)) {
+          const contentLength = await checkContentLength(
+            mcpServer,
+            currentUrl.toString(),
+            timeoutMs,
+            dispatcher,
+            currentRequestOptions,
+          );
+          if (contentLength !== null && contentLength > maxContentLengthBytes) {
+            return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
+          }
         }
 
         // Fetch the URL with the abort signal.

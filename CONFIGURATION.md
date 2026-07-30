@@ -100,12 +100,17 @@ for trust, evaluation, and conservative-use guidance.
 
 `FLARESOLVERR_URL` accepts either the service base URL or an already-complete
 `/v1` endpoint; the suffix is normalized idempotently.
+`FLARESOLVERR_TIMEOUT_MS` is sent to the solver as its browser-work budget;
+the client permits up to 5 additional seconds to receive and validate the
+solver response.
 
 With `FLARESOLVERR_URL` configured, `web_url_read` first performs its normal
 target URL security and HEAD size preflight. It then requests only the browser
 session cookies and user-agent from the solver. The actual target is fetched by
 `mcp-searxng`, so redirect validation, URL-reader proxy selection, streaming
 size limits, content-type handling, and caching remain authoritative.
+Replay starts again at the originally requested URL rather than trusting a
+same-host path returned by the solver.
 
 A transient solver connection, timeout, overload, HTTP 408/429/5xx response,
 malformed response, or oversized response falls back once to the direct
