@@ -161,7 +161,7 @@ export function createMcpServer(): McpServer {
   });
 
   // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
     logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
 
@@ -247,7 +247,13 @@ export function createMcpServer(): McpServer {
           readHeadings: args.readHeadings,
         };
 
-        const result = await fetchAndConvertToMarkdown(mcpServer, args.url, getFetchTimeoutMs(mcpServer), paginationOptions);
+        const result = await fetchAndConvertToMarkdown(
+          mcpServer,
+          args.url,
+          getFetchTimeoutMs(mcpServer),
+          paginationOptions,
+          extra.signal,
+        );
 
         return {
           content: [

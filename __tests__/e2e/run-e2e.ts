@@ -17,7 +17,7 @@ import { runTests as runSuggestionsTests } from './suggestions.e2e.js';
 import { runTests as runInstanceInfoTests } from './instance-info.e2e.js';
 import { runTests as runUrlReaderTests } from './url-reader.e2e.js';
 import { runTests as runTimeoutTests } from './timeout.e2e.js';
-import { runTests as runFlareSolverrTests } from './flaresolverr.e2e.js';
+import { runTests as runBrowserSolverTests } from './browser-solver.e2e.js';
 
 async function main() {
   console.log('🚀 MCP SearXNG — E2E Test Suite\n');
@@ -37,7 +37,7 @@ async function main() {
     { name: 'Search Suggestions (live)', run: runSuggestionsTests },
     { name: 'Instance Info (live)', run: runInstanceInfoTests },
     { name: 'URL Reader (live)', run: runUrlReaderTests },
-    { name: 'FlareSolverr URL Reader', run: runFlareSolverrTests },
+    { name: 'Browser Solver URL Reader', run: runBrowserSolverTests },
     { name: 'Timeout (local)', run: runTimeoutTests },
   ]) {
     try {

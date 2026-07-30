@@ -4,6 +4,7 @@
  */
 
 import { parseSearxngUrls, validateSearxngInstanceUrl } from "./searxng-instances.js";
+import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
 import { sanitizeErrorForTransport } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
 
@@ -197,6 +198,11 @@ export function validateEnvironment(): string | null {
     issues.push("AUTH_USERNAME set but AUTH_PASSWORD missing");
   } else if (!authUsername && authPassword) {
     issues.push("AUTH_PASSWORD set but AUTH_USERNAME missing");
+  }
+
+  const browserSolverIssue = validateBrowserSolverEnvironment();
+  if (browserSolverIssue) {
+    issues.push(browserSolverIssue);
   }
 
   if (issues.length === 0) {

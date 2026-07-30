@@ -27,6 +27,7 @@ export type PdfExtractionResult =
 interface PdfExtractionOptions {
   timeoutMs?: number;
   workerUrl?: URL;
+  signal?: AbortSignal;
 }
 
 let activePdfWorkers = 0;
@@ -77,6 +78,9 @@ export async function extractPdfText(
   maxTextBytes: number,
   options: PdfExtractionOptions = {},
 ): Promise<PdfExtractionResult> {
+  if (options.signal?.aborted) {
+    throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+  }
   if (activePdfWorkers >= MAX_CONCURRENT_PDF_WORKERS) {
     return { version: 1, kind: "busy" };
   }
@@ -84,7 +88,7 @@ export async function extractPdfText(
   const transferableBytes = bytes.slice();
   activePdfWorkers++;
 
-  return await new Promise<PdfExtractionResult>((resolve) => {
+  return await new Promise<PdfExtractionResult>((resolve, reject) => {
     let worker: Worker;
     try {
       worker = new Worker(options.workerUrl ?? defaultPdfWorkerUrl(), {
@@ -109,6 +113,12 @@ export async function extractPdfText(
     const timeoutId = setTimeout(() => {
       finish({ version: 1, kind: "timeout" });
     }, options.timeoutMs ?? PDF_PARSE_TIMEOUT_MS);
+    const abortListener = (): void => {
+      finishWithError(
+        options.signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"),
+      );
+    };
+    options.signal?.addEventListener("abort", abortListener, { once: true });
 
     function finish(result: PdfExtractionResult): void {
       if (settled) {
@@ -116,6 +126,7 @@ export async function extractPdfText(
       }
       settled = true;
       clearTimeout(timeoutId);
+      options.signal?.removeEventListener("abort", abortListener);
       worker.removeAllListeners();
 
       const releaseSlot = (): void => {
@@ -128,6 +139,26 @@ export async function extractPdfText(
         // `terminate()` normally returns a promise, but a synchronous failure
         // must not retain the process-wide concurrency slot.
         releaseSlot();
+      }
+    }
+
+    function finishWithError(error: unknown): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      options.signal?.removeEventListener("abort", abortListener);
+      worker.removeAllListeners();
+
+      const rejectAfterTerminate = (): void => {
+        activePdfWorkers--;
+        reject(error);
+      };
+      try {
+        void worker.terminate().then(rejectAfterTerminate, rejectAfterTerminate);
+      } catch {
+        rejectAfterTerminate();
       }
     }
 

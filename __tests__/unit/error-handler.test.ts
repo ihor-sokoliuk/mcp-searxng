@@ -153,6 +153,34 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('validateEnvironment rejects simultaneous browser solver providers', () => {
+    envManager.set('SEARXNG_URL', 'https://valid-url.com');
+    envManager.set('FLARESOLVERR_URL', 'http://flare-secret.example');
+    envManager.set('BYPARR_URL', 'http://byparr-secret.example');
+
+    const result = validateEnvironment();
+    assert.ok(result?.includes(
+      'Configure only one browser solver: FLARESOLVERR_URL or BYPARR_URL, not both.',
+    ));
+    assert.ok(!result?.includes('flare-secret'));
+    assert.ok(!result?.includes('byparr-secret'));
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('validateEnvironment rejects invalid browser solver endpoints without echoing them', () => {
+    envManager.set('SEARXNG_URL', 'https://valid-url.com');
+    envManager.delete('FLARESOLVERR_URL');
+    envManager.set('BYPARR_URL', 'http://user:password@byparr-secret.example');
+
+    const result = validateEnvironment();
+    assert.ok(result?.includes('BYPARR_URL'));
+    assert.ok(!result?.includes('user:password'));
+    assert.ok(!result?.includes('byparr-secret'));
+
+    envManager.restore();
+  }, results);
+
   await testFunction('validateEnvironment - missing SEARXNG_URL', () => {
     envManager.delete('SEARXNG_URL');
     

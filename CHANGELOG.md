@@ -7,7 +7,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **FlareSolverr-assisted URL reading:** Operators can configure `FLARESOLVERR_URL`, `FLARESOLVERR_TIMEOUT_MS` (default 60,000 ms), and `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` (default 2) to attempt browser-session acquisition after an uncached `web_url_read` passes URL validation and the HEAD size preflight, then replay its user-agent and scoped cookies through the existing bounded URL reader. A full concurrency limit and transient acquisition failures fall back once to an uncached direct read; invalid configuration, incompatible client errors, and cross-host solutions fail closed. The integration was verified with FlareSolverr 3.5.0 on 2026-07-30; Byparr has not been verified and is not currently supported.
+- **Explicit FlareSolverr or Byparr URL reading:** Operators can select exactly one browser solver with `FLARESOLVERR_URL` or `BYPARR_URL`. FlareSolverr retains its millisecond timeout and concurrency variables; Byparr adds `BYPARR_TIMEOUT_SECONDS` and `BYPARR_MAX_CONCURRENT_REQUESTS`. Simultaneous endpoints fail closed, provider counters remain independent, MCP cancellation now reaches solver acquisition, replay, body streaming, and PDF workers, and transient failures retain the existing one-time uncached direct fallback. Verified with FlareSolverr 3.5.0 and Byparr 2.1.0 on 2026-07-30.
+
+  **Migration note:** Browser-solver endpoints are now validated during startup. A `FLARESOLVERR_URL` containing userinfo, a query, a fragment, or a non-HTTP(S) scheme now prevents startup instead of failing only when a URL read first uses it.
 
 - **Bounded PDF text extraction:** `web_url_read` now extracts text-layer content from `application/pdf` responses using the new production `unpdf` dependency in a resource-limited worker. Input and output are capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB, documents above 500 pages are rejected, parsing has a separate 30-second budget, and at most two extractions run concurrently. OCR is not supported. This supersedes the v1.10.0 behavior that rejected PDF responses.
 

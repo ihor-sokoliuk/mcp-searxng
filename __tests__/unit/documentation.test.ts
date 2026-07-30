@@ -17,11 +17,15 @@ import {
   PDF_WORKER_RESOURCE_LIMITS,
 } from '../../src/pdf-reader.js';
 import {
+  DEFAULT_BYPARR_CONCURRENCY,
+  DEFAULT_BYPARR_TIMEOUT_SECONDS,
   DEFAULT_FLARESOLVERR_CONCURRENCY,
   DEFAULT_FLARESOLVERR_TIMEOUT_MS,
+  MAX_BYPARR_CONCURRENCY,
+  MAX_BYPARR_TIMEOUT_SECONDS,
   MAX_FLARESOLVERR_CONCURRENCY,
   MAX_FLARESOLVERR_TIMEOUT_MS,
-} from '../../src/flaresolverr.js';
+} from '../../src/browser-solver.js';
 import { LITE_READ_URL_TOOL, READ_URL_TOOL } from '../../src/types.js';
 import { createTestResults, printTestSummary, TestResult, testFunction } from '../helpers/test-utils.js';
 
@@ -148,12 +152,23 @@ export async function runTests(): Promise<TestResult> {
     const security = readText(new URL('../../SECURITY.md', import.meta.url));
 
     for (const document of [readme, configuration, security]) {
-      assert.ok(document.includes('Verified with FlareSolverr 3.5.0 on 2026-07-30.'));
-      assert.ok(document.includes('Byparr has not been verified and is not currently supported.'));
+      assert.ok(document.includes('FlareSolverr 3.5.0'));
+      assert.ok(document.includes('Byparr 2.1.0'));
+      assert.ok(document.includes('2026-07-30'));
+      assert.ok(document.includes(
+        'sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47',
+      ));
+      assert.ok(document.includes(
+        'sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0',
+      ));
+      assert.ok(document.includes('linux/amd64'));
+      assert.ok(document.includes('remote browser may'));
+      assert.ok(document.includes('HTTP client'));
+      assert.ok(document.includes('disconnects'));
     }
     for (const document of [readme, configuration, security]) {
       assert.ok(document.replace(/\s+/gu, ' ').includes(
-        'When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured FlareSolverr service.',
+        'When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured browser solver.',
       ));
     }
     for (const contract of [
@@ -161,6 +176,10 @@ export async function runTests(): Promise<TestResult> {
       `from \`1\` through \`${MAX_FLARESOLVERR_TIMEOUT_MS}\``,
       `\`FLARESOLVERR_MAX_CONCURRENT_REQUESTS\` | No | \`${DEFAULT_FLARESOLVERR_CONCURRENCY}\``,
       `from \`1\` through \`${MAX_FLARESOLVERR_CONCURRENCY}\``,
+      `\`BYPARR_TIMEOUT_SECONDS\` | No | \`${DEFAULT_BYPARR_TIMEOUT_SECONDS}\``,
+      `from \`1\` through \`${MAX_BYPARR_TIMEOUT_SECONDS}\``,
+      `\`BYPARR_MAX_CONCURRENT_REQUESTS\` | No | \`${DEFAULT_BYPARR_CONCURRENCY}\``,
+      `from \`1\` through \`${MAX_BYPARR_CONCURRENCY}\``,
     ]) {
       assert.ok(configuration.includes(contract), `configuration must include: ${contract}`);
     }
@@ -169,7 +188,7 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(tool.description.includes('attempts to acquire a browser session'));
       assert.ok(tool.description.includes('after URL validation and a HEAD size preflight'));
       assert.ok(tool.description.includes('uncached direct'));
-      assert.ok(!tool.description.includes('Byparr'));
+      assert.ok(!tool.description.includes('FlareSolverr'));
     }
   }, results);
 
@@ -376,6 +395,8 @@ export async function runTests(): Promise<TestResult> {
       'FETCH_TIMEOUT_MS',
       'FLARESOLVERR_TIMEOUT_MS',
       'FLARESOLVERR_MAX_CONCURRENT_REQUESTS',
+      'BYPARR_TIMEOUT_SECONDS',
+      'BYPARR_MAX_CONCURRENT_REQUESTS',
       'SEARCH_CACHE_TTL_MS',
       'SEARCH_CACHE_MAX_ENTRIES',
       'URL_READ_MAX_CHARS',
