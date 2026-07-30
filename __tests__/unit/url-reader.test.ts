@@ -1431,11 +1431,17 @@ async function runTests() {
     const mockServer = createMockServer();
     urlCache.clear();
     const limits = [
-      { configured: '64', bodyBytes: 65, expectedLimit: '64 bytes' },
+      {
+        configured: '64',
+        bodyBytes: 65,
+        expectedLimit: '64 bytes',
+        expectedHint: 'raise URL_READ_MAX_CONTENT_LENGTH_BYTES',
+      },
       {
         configured: String(20 * 1024 * 1024),
         bodyBytes: 16 * 1024 * 1024 + 1,
         expectedLimit: '16.00 MB (16777216 bytes)',
+        expectedHint: 'fixed PDF input ceiling',
       },
     ];
 
@@ -1451,6 +1457,10 @@ async function runTests() {
         const result = await fetchAndConvertToMarkdown(mockServer as any, url);
         assert.ok(result.startsWith('Content too large:'), result);
         assert.ok(result.includes(limit.expectedLimit), result);
+        assert.ok(result.includes(limit.expectedHint), result);
+        if (limit.expectedHint === 'fixed PDF input ceiling') {
+          assert.ok(!result.includes('raise URL_READ_MAX_CONTENT_LENGTH_BYTES'), result);
+        }
       } finally {
         await close();
         urlCache.clear();
