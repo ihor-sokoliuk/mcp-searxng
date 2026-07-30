@@ -76,6 +76,9 @@ Self-hosting SearXNG with JSON output enabled remains the recommended setup. The
 
 For the self-hosted SearXNG configuration and verification procedure, see
 [Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
+For an instance you do not control, see
+[Using a Public SearXNG Instance with mcp-searxng](docs/public-searxng-instances.md)
+for trust, evaluation, and conservative-use guidance.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|

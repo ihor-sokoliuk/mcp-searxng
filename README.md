@@ -307,6 +307,8 @@ See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable r
 
 For self-hosted SearXNG configuration, direct verification, and troubleshooting,
 see [Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
+If you do not control the instance, use the separate
+[public SearXNG instance guide](docs/public-searxng-instances.md) instead.
 
 If HTTPS requests fail behind a TLS-inspecting corporate proxy with certificate errors, see [TLS / Corporate CA](CONFIGURATION.md#tls--corporate-ca).
 
@@ -334,6 +336,9 @@ See also: [SearXNG settings docs](https://docs.searxng.org/admin/settings/settin
 ### Can't enable JSON? (HTML fallback)
 
 If you must use a public instance you don't control and it rejects `format=json` (the 403 above), set the opt-in flag instead of editing the server:
+
+Before enabling it, review the public operator's policy and the
+[public-instance usage guide](docs/public-searxng-instances.md).
 
 ```json
 {
