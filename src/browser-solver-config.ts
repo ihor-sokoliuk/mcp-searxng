@@ -1,5 +1,5 @@
-export const BROWSER_SOLVER_MUTUAL_EXCLUSION_ERROR =
-  "Configure only one browser solver: FLARESOLVERR_URL or BYPARR_URL, not both.";
+export const BROWSER_SOLVER_DUPLICATE_ENDPOINT_ERROR =
+  "FLARESOLVERR_URL and BYPARR_URL must identify different services.";
 
 export class BrowserSolverConfigurationIssue extends Error {
   constructor(message: string) {
@@ -56,31 +56,34 @@ function normalizeEndpoint(name: "FLARESOLVERR_URL" | "BYPARR_URL", value: strin
   return endpoint;
 }
 
-export function resolveBrowserSolverEndpoint(): BrowserSolverEndpointSelection | null {
+export function resolveBrowserSolverEndpoints(): BrowserSolverEndpointSelection[] {
   const flareSolverrUrl = configuredValue("FLARESOLVERR_URL");
   const byparrUrl = configuredValue("BYPARR_URL");
-
-  if (flareSolverrUrl && byparrUrl) {
-    throw new BrowserSolverConfigurationIssue(BROWSER_SOLVER_MUTUAL_EXCLUSION_ERROR);
-  }
+  const selections: BrowserSolverEndpointSelection[] = [];
   if (flareSolverrUrl) {
-    return {
+    selections.push({
       provider: "flaresolverr",
       endpoint: normalizeEndpoint("FLARESOLVERR_URL", flareSolverrUrl),
-    };
+    });
   }
   if (byparrUrl) {
-    return {
+    selections.push({
       provider: "byparr",
       endpoint: normalizeEndpoint("BYPARR_URL", byparrUrl),
-    };
+    });
   }
-  return null;
+  if (
+    selections.length === 2
+    && selections[0].endpoint.href === selections[1].endpoint.href
+  ) {
+    throw new BrowserSolverConfigurationIssue(BROWSER_SOLVER_DUPLICATE_ENDPOINT_ERROR);
+  }
+  return selections;
 }
 
 export function validateBrowserSolverEnvironment(): string | null {
   try {
-    resolveBrowserSolverEndpoint();
+    resolveBrowserSolverEndpoints();
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : "Invalid browser solver configuration.";

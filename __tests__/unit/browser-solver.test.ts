@@ -6,13 +6,17 @@ import * as net from "node:net";
 import { fileURLToPath } from "node:url";
 import {
   acquireBrowserSolverSolution,
-  resolveBrowserSolverConfig,
+  resolveBrowserSolverConfigs,
   type BrowserSolverConfig,
 } from "../../src/browser-solver.js";
 import { createMockServer, createMockServerWithTracking } from "../helpers/mock-server.js";
 import { createTestResults, printTestSummary, testFunction } from "../helpers/test-utils.js";
 
 const results = createTestResults();
+
+function resolveFirstBrowserSolverConfig(mcpServer: any): BrowserSolverConfig | null {
+  return resolveBrowserSolverConfigs(mcpServer)[0] ?? null;
+}
 
 interface TestServer {
   url: string;
@@ -73,9 +77,9 @@ async function runTests() {
   await testFunction("unset and blank FLARESOLVERR_URL disable the solver", () => {
     const server = createMockServer();
     delete process.env.FLARESOLVERR_URL;
-    assert.equal(resolveBrowserSolverConfig(server as any), null);
+    assert.equal(resolveFirstBrowserSolverConfig(server as any), null);
     process.env.FLARESOLVERR_URL = "   ";
-    assert.equal(resolveBrowserSolverConfig(server as any), null);
+    assert.equal(resolveFirstBrowserSolverConfig(server as any), null);
   }, results);
 
   await testFunction("configuration normalizes a base path and bounded defaults", () => {
@@ -83,14 +87,14 @@ async function runTests() {
     delete process.env.FLARESOLVERR_TIMEOUT_MS;
     delete process.env.FLARESOLVERR_MAX_CONCURRENT_REQUESTS;
 
-    const config = resolveBrowserSolverConfig(createMockServer() as any);
+    const config = resolveFirstBrowserSolverConfig(createMockServer() as any);
     assert.equal(config?.endpoint.href, "http://solver.example/base/v1");
     assert.equal(config?.timeoutMs, 60000);
     assert.equal(config?.maxConcurrentRequests, 2);
 
     process.env.FLARESOLVERR_URL = "http://solver.example/base/v1/";
     assert.equal(
-      resolveBrowserSolverConfig(createMockServer() as any)?.endpoint.href,
+      resolveFirstBrowserSolverConfig(createMockServer() as any)?.endpoint.href,
       "http://solver.example/base/v1",
     );
   }, results);
@@ -101,7 +105,7 @@ async function runTests() {
     process.env.FLARESOLVERR_MAX_CONCURRENT_REQUESTS = "17";
     const { server, getLoggingCalls } = createMockServerWithTracking();
 
-    const config = resolveBrowserSolverConfig(server as any);
+    const config = resolveFirstBrowserSolverConfig(server as any);
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(config?.timeoutMs, 60000);
@@ -114,13 +118,13 @@ async function runTests() {
   await testFunction("invalid FLARESOLVERR_URL fails closed", () => {
     process.env.FLARESOLVERR_URL = "file:///tmp/solver";
     assert.throws(
-      () => resolveBrowserSolverConfig(createMockServer() as any),
+      () => resolveFirstBrowserSolverConfig(createMockServer() as any),
       /FLARESOLVERR_URL.*http.*https/iu,
     );
 
     process.env.FLARESOLVERR_URL = "http://solver.example/path?query=1";
     assert.throws(
-      () => resolveBrowserSolverConfig(createMockServer() as any),
+      () => resolveFirstBrowserSolverConfig(createMockServer() as any),
       /FLARESOLVERR_URL/u,
     );
   }, results);
@@ -131,7 +135,7 @@ async function runTests() {
     delete process.env.BYPARR_TIMEOUT_SECONDS;
     delete process.env.BYPARR_MAX_CONCURRENT_REQUESTS;
 
-    assert.deepEqual(resolveBrowserSolverConfig(createMockServer() as any), {
+    assert.deepEqual(resolveFirstBrowserSolverConfig(createMockServer() as any), {
       provider: "byparr",
       endpoint: new URL("http://byparr.example/api/v1"),
       timeoutMs: 60_000,
@@ -142,7 +146,7 @@ async function runTests() {
 
     process.env.BYPARR_TIMEOUT_SECONDS = "300";
     process.env.BYPARR_MAX_CONCURRENT_REQUESTS = "16";
-    const bounded = resolveBrowserSolverConfig(createMockServer() as any);
+    const bounded = resolveFirstBrowserSolverConfig(createMockServer() as any);
     assert.equal(bounded?.timeoutMs, 300_000);
     assert.equal(bounded?.wireTimeout, 300);
     assert.equal(bounded?.maxConcurrentRequests, 16);
@@ -155,7 +159,7 @@ async function runTests() {
     process.env.BYPARR_MAX_CONCURRENT_REQUESTS = "17";
     const { server, getLoggingCalls } = createMockServerWithTracking();
 
-    const config = resolveBrowserSolverConfig(server as any);
+    const config = resolveFirstBrowserSolverConfig(server as any);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(config?.timeoutMs, 60_000);
     assert.equal(config?.maxConcurrentRequests, 2);
@@ -165,15 +169,25 @@ async function runTests() {
     assert.ok(!diagnostics.includes("1.5"));
   }, results);
 
-  await testFunction("both providers and credential-bearing endpoints fail closed without values", () => {
+  await testFunction("both providers resolve in fixed order and canonical duplicates fail closed", () => {
     process.env.FLARESOLVERR_URL = "http://flare-secret.example";
     process.env.BYPARR_URL = "http://byparr-secret.example";
+    const configs = resolveBrowserSolverConfigs(createMockServer() as any);
+    assert.deepEqual(
+      configs.map(({ provider, endpoint }) => ({ provider, endpoint: endpoint.href })),
+      [
+        { provider: "flaresolverr", endpoint: "http://flare-secret.example/v1" },
+        { provider: "byparr", endpoint: "http://byparr-secret.example/v1" },
+      ],
+    );
+
+    process.env.FLARESOLVERR_URL = "http://solver.example/base";
+    process.env.BYPARR_URL = "http://SOLVER.EXAMPLE:80/base/v1/";
     assert.throws(
-      () => resolveBrowserSolverConfig(createMockServer() as any),
+      () => resolveBrowserSolverConfigs(createMockServer() as any),
       (error: Error) => (
-        error.message.includes("Configure only one browser solver")
-        && !error.message.includes("flare-secret")
-        && !error.message.includes("byparr-secret")
+        error.message.includes("different services")
+        && !error.message.includes("solver.example")
       ),
     );
 
@@ -181,7 +195,7 @@ async function runTests() {
     const sensitiveUserinfo = ["operator", "credential-value"].join(":");
     process.env.BYPARR_URL = `http://${sensitiveUserinfo}@byparr-secret.example`;
     assert.throws(
-      () => resolveBrowserSolverConfig(createMockServer() as any),
+      () => resolveBrowserSolverConfigs(createMockServer() as any),
       (error: Error) => (
         error.message.includes("BYPARR_URL")
         && !error.message.includes(sensitiveUserinfo)

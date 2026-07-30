@@ -94,17 +94,18 @@ for trust, evaluation, and conservative-use guidance.
 | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. PDF input and extracted text additionally have a fixed 16 MiB ceiling. Invalid values fall back to the default. |
 | `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr service, such as `http://flaresolverr:8191`. When set, `web_url_read` attempts to ask its `/v1` API for a browser session after an uncached URL passes URL validation and the HEAD size preflight. |
 | `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
-| `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent solver acquisitions per MCP process, from `1` through `16`. When all slots are occupied, the request uses the direct URL-reader path instead of waiting in a queue. |
-| `BYPARR_URL` | No | — | Base URL of a trusted Byparr service, such as `http://byparr:8191`. It is mutually exclusive with `FLARESOLVERR_URL`. |
+| `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent FlareSolverr acquisitions per MCP process, from `1` through `16`. In dual mode, a full primary limit advances to Byparr instead of waiting in a queue. |
+| `BYPARR_URL` | No | — | Base URL of a trusted Byparr service, such as `http://byparr:8191`. It may be configured alone or with `FLARESOLVERR_URL`; dual mode always tries FlareSolverr first. |
 | `BYPARR_TIMEOUT_SECONDS` | No | `60` | Maximum Byparr session-acquisition time in whole seconds, from `1` through `300`. Invalid values use the default. |
 | `BYPARR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent Byparr acquisitions per MCP process, from `1` through `16`. It is independent from the FlareSolverr counter. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
 FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30. Configure
-either provider or neither provider. If both endpoint variables are non-blank,
-startup fails closed. This release does not automatically fall back between
-providers.
+either provider, both providers, or neither provider. With both endpoints,
+FlareSolverr is always primary and Byparr is the secondary; ordering is not
+configurable and automatic reverse failover is not performed. Canonically
+identical endpoints fail startup without echoing either configured value.
 
 The verified `linux/amd64` images came from multi-architecture manifests
 `ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
@@ -125,23 +126,26 @@ scheme now prevents startup until corrected.
 `BYPARR_TIMEOUT_SECONDS` is sent in seconds. The client permits up to 5
 additional seconds to receive and validate either solver response.
 
-With one browser-solver endpoint configured, `web_url_read` first performs its normal
+With at least one browser-solver endpoint configured, `web_url_read` first performs its normal
 target URL security and HEAD size preflight for every uncached read. It then
 requests a browser session and uses only its cookies and user-agent. Byparr
 2.1.0 also returns rendered content; that field is discarded after a bounded
 parse.
 When a solver slot is available, every uncached URL that passes URL validation
-and the HEAD size preflight is disclosed to the configured browser solver.
-Cache hits and reads made while the solver concurrency limit is full bypass
-solver acquisition. The actual target is fetched by `mcp-searxng`, so
+and the HEAD size preflight is disclosed to that provider. In dual mode the
+same original URL can therefore be disclosed first to FlareSolverr and then to
+Byparr after an allowed primary failure. The providers have independent
+concurrency counters. Cache hits bypass acquisition. The actual target is
+fetched by `mcp-searxng`, so
 redirect validation, URL-reader proxy selection, streaming size limits, and
 content-type handling remain authoritative.
 Replay starts again at the originally requested URL rather than trusting a
 same-host path returned by the solver.
 
 A transient solver connection, timeout, overload, HTTP 408/429/5xx response,
-malformed response, or oversized response falls back once to the direct
-URL-reader path. Invalid solver configuration, other HTTP 4xx responses, a
+malformed response, or oversized response advances to the next configured
+provider. If the final provider is busy or unavailable, one uncached direct
+URL-reader fetch runs. Invalid solver configuration, other HTTP 4xx responses, a
 solver result for a different hostname, and a non-success target status
 reported by the solver fail closed. A direct-fetch fallback result is not
 cached, so repeated reads re-fetch until solver acquisition succeeds.
@@ -149,6 +153,13 @@ Solver-backed cache entries are isolated by provider and from direct-fetch
 entries. Cancellation never falls back or writes a cache entry. When the
 replay response is `application/pdf`, the URL reader applies its bounded PDF
 text-extraction path.
+
+There is no shared solver timeout. At defaults, the additive maximum is 150
+seconds: up to 10 seconds for the initial HEAD preflight, 65 seconds for each
+provider including response grace, and 10 seconds for the final direct GET.
+MCP cancellation stops the chain immediately when the client propagates it.
+Repeated value-free `unavailable` warnings for one provider should be monitored
+as persistent degradation.
 
 Example with the official FlareSolverr image:
 
@@ -186,6 +197,32 @@ services:
       - BYPARR_MAX_CONCURRENT_REQUESTS=2
     depends_on:
       - byparr
+
+  byparr:
+    image: ghcr.io/thephaseless/byparr:2.1.0
+```
+
+For dual-provider mode, combine both services and set both endpoint variables:
+
+```yaml
+services:
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:latest
+    stdin_open: true
+    environment:
+      - SEARXNG_URL=${SEARXNG_URL:?Set SEARXNG_URL in the environment}
+      - FLARESOLVERR_URL=http://flaresolverr:8191
+      - BYPARR_URL=http://byparr:8191
+    depends_on:
+      - flaresolverr
+      - byparr
+
+  flaresolverr:
+    image: flaresolverr/flaresolverr:v3.5.0
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
 
   byparr:
     image: ghcr.io/thephaseless/byparr:2.1.0

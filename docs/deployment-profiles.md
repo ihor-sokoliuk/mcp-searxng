@@ -23,7 +23,8 @@ cannot be independently rerun from repository artifacts alone. Treat it as
 historical starting evidence and measure the current image with your own
 representative workload before enforcing limits.
 
-The snapshot did not exercise FlareSolverr acquisition or PDF text extraction.
+The snapshot did not exercise browser-solver acquisition, dual-provider
+failover, or PDF text extraction.
 PDF reads can use two PDF extractions concurrently per MCP process. Each parse
 accepts at most 16 MiB of input, rejects documents above 500 pages, has a
 separate 30-second budget, and runs with a 192 MiB V8 old-generation ceiling
@@ -69,7 +70,7 @@ limit is too low, not as an application retry condition.
 
 The optional 256 MiB balanced container overlay is a measured non-PDF starting
 point. It may be insufficient when representative traffic can reach the
-two-worker PDF concurrency limit. Measure PDF and FlareSolverr-enabled traffic
+two-worker PDF concurrency limit. Measure PDF and browser-solver-enabled traffic
 before enforcing a memory ceiling.
 
 ## Apply a profile

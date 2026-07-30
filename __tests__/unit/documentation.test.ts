@@ -167,10 +167,14 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(document.includes('disconnects'));
     }
     for (const document of [readme, configuration, security]) {
-      assert.ok(document.replace(/\s+/gu, ' ').includes(
-        'When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured browser solver.',
-      ));
+      const normalized = document.replace(/\s+/gu, ' ');
+      assert.ok(normalized.includes('FlareSolverr is always primary'));
+      assert.ok(normalized.includes('150 seconds'));
+      assert.ok(normalized.includes('unavailable'));
     }
+    assert.ok(readme.includes('no automatic reverse failover'));
+    assert.ok(configuration.includes('automatic reverse failover is not performed'));
+    assert.ok(security.includes('does not retain a health score'));
     for (const contract of [
       `\`FLARESOLVERR_TIMEOUT_MS\` | No | \`${DEFAULT_FLARESOLVERR_TIMEOUT_MS}\``,
       `from \`1\` through \`${MAX_FLARESOLVERR_TIMEOUT_MS}\``,
@@ -185,10 +189,9 @@ export async function runTests(): Promise<TestResult> {
     }
 
     for (const tool of [LITE_READ_URL_TOOL, READ_URL_TOOL]) {
-      assert.ok(tool.description.includes('attempts to acquire a browser session'));
-      assert.ok(tool.description.includes('after URL validation and a HEAD size preflight'));
+      assert.ok(tool.description.includes('FlareSolverr first'));
+      assert.ok(tool.description.includes('Byparr'));
       assert.ok(tool.description.includes('uncached direct'));
-      assert.ok(!tool.description.includes('FlareSolverr'));
     }
   }, results);
 

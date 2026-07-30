@@ -73,6 +73,7 @@ async function runTests() {
   await testFunction('built MCP server replays a solved browser session', async () => {
     let replayUserAgent = '';
     let replayCookie = '';
+    let byparrRequests = 0;
     const target = await startServer((req, res) => {
       if (req.method === 'GET') {
         replayUserAgent = req.headers['user-agent'] ?? '';
@@ -108,6 +109,12 @@ async function runTests() {
         }));
       });
     });
+    const byparr = await startServer((req, res) => {
+      byparrRequests++;
+      req.resume();
+      res.writeHead(503);
+      res.end();
+    });
 
     try {
       const responses = await spawnWithMessagesAsync(
@@ -116,7 +123,7 @@ async function runTests() {
         15_000,
         {
           FLARESOLVERR_URL: solver.url,
-          BYPARR_URL: undefined,
+          BYPARR_URL: byparr.url,
           MCP_HTTP_ALLOW_PRIVATE_URLS: 'true',
           NO_PROXY: '127.0.0.1',
         },
@@ -127,7 +134,9 @@ async function runTests() {
       assert.ok(text.includes('Solver PDF E2E'), text);
       assert.equal(replayUserAgent, 'flaresolverr-e2e-agent');
       assert.equal(replayCookie, 'cf_clearance=e2e-token');
+      assert.equal(byparrRequests, 0);
     } finally {
+      await byparr.close();
       await solver.close();
       await target.close();
     }
@@ -190,7 +199,130 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('built MCP server fails over from FlareSolverr to Byparr', async () => {
+    const solverOrder: string[] = [];
+    let replayUserAgent = '';
+    const target = await startServer((req, res) => {
+      if (req.method === 'GET') {
+        replayUserAgent = req.headers['user-agent'] ?? '';
+      }
+      res.writeHead(req.method === 'HEAD' ? 403 : 200, {
+        'content-type': 'text/html',
+      });
+      res.end(req.method === 'HEAD' ? '' : '<main>Dual provider E2E</main>');
+    });
+    const flare = await startServer((req, res) => {
+      solverOrder.push('flaresolverr');
+      req.resume();
+      res.writeHead(503, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'error' }));
+    });
+    const byparr = await startServer((req, res) => {
+      solverOrder.push('byparr');
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        const request = JSON.parse(body) as { url: string; maxTimeout: number };
+        assert.equal(request.maxTimeout, 60);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          solution: {
+            url: request.url,
+            status: 200,
+            cookies: [],
+            userAgent: 'byparr-failover-e2e-agent',
+          },
+        }));
+      });
+    });
+    try {
+      const responses = await spawnWithMessagesAsync(
+        readUrlMessages(target.url),
+        'https://test-searx.example.com',
+        15_000,
+        {
+          FLARESOLVERR_URL: flare.url,
+          BYPARR_URL: byparr.url,
+          MCP_HTTP_ALLOW_PRIVATE_URLS: 'true',
+          NO_PROXY: '127.0.0.1',
+        },
+      );
+      const response = responses[2];
+      assert.ok(response && !response.error, JSON.stringify(response?.error));
+      const text: string = response.result?.content?.[0]?.text ?? '';
+      assert.ok(text.includes('Dual provider E2E'), text);
+      assert.deepEqual(solverOrder, ['flaresolverr', 'byparr']);
+      assert.equal(replayUserAgent, 'byparr-failover-e2e-agent');
+    } finally {
+      await byparr.close();
+      await flare.close();
+      await target.close();
+    }
+  }, results);
+
+  await testFunction('built MCP server performs one direct fetch after both providers fail', async () => {
+    const solverOrder: string[] = [];
+    let targetGets = 0;
+    const target = await startServer((req, res) => {
+      if (req.method === 'GET') {
+        targetGets++;
+      }
+      res.writeHead(req.method === 'HEAD' ? 403 : 200, {
+        'content-type': 'text/html',
+      });
+      res.end(req.method === 'HEAD' ? '' : '<main>Direct after dual failure</main>');
+    });
+    const flare = await startServer((req, res) => {
+      solverOrder.push('flaresolverr');
+      req.resume();
+      res.writeHead(503);
+      res.end();
+    });
+    const byparr = await startServer((req, res) => {
+      solverOrder.push('byparr');
+      req.resume();
+      res.writeHead(429);
+      res.end();
+    });
+
+    try {
+      const responses = await spawnWithMessagesAsync(
+        readUrlMessages(target.url),
+        'https://test-searx.example.com',
+        15_000,
+        {
+          FLARESOLVERR_URL: flare.url,
+          BYPARR_URL: byparr.url,
+          MCP_HTTP_ALLOW_PRIVATE_URLS: 'true',
+          NO_PROXY: '127.0.0.1',
+        },
+      );
+      const response = responses[2];
+      assert.ok(response && !response.error, JSON.stringify(response?.error));
+      const text: string = response.result?.content?.[0]?.text ?? '';
+      assert.ok(text.includes('Direct after dual failure'), text);
+      assert.deepEqual(solverOrder, ['flaresolverr', 'byparr']);
+      assert.equal(targetGets, 1);
+    } finally {
+      await byparr.close();
+      await flare.close();
+      await target.close();
+    }
+  }, results);
+
   const matrixRequested = process.env.BROWSER_SOLVER_REAL_MATRIX === 'true';
+  const failoverRequested = process.env.BROWSER_SOLVER_REAL_FAILOVER === 'true';
+  if (matrixRequested && failoverRequested) {
+    await testFunction('real browser-solver modes are unambiguous', () => {
+      assert.fail(
+        'BROWSER_SOLVER_REAL_MATRIX and BROWSER_SOLVER_REAL_FAILOVER cannot both be true',
+      );
+    }, results);
+  }
   const realProviders = matrixRequested
     ? [
         {
@@ -221,7 +353,60 @@ async function runTests() {
           : []),
       ];
 
-  if (matrixRequested && realProviders.some(({ endpoint }) => !endpoint)) {
+  if (failoverRequested) {
+    const flareEndpoint = process.env.VERIFY_FLARESOLVERR_URL;
+    const byparrEndpoint = process.env.VERIFY_BYPARR_URL;
+    if (!flareEndpoint || !byparrEndpoint) {
+      await testFunction('real browser-solver failover has both provider endpoints', () => {
+        assert.fail(
+          'BROWSER_SOLVER_REAL_FAILOVER=true requires VERIFY_FLARESOLVERR_URL and VERIFY_BYPARR_URL',
+        );
+      }, results);
+    } else {
+      await testFunction(
+        'real protected PDF fails over from unavailable FlareSolverr to Byparr',
+        async () => {
+          let primaryReachable = false;
+          try {
+            await fetch(new URL('/v1', flareEndpoint), {
+              method: 'GET',
+              signal: AbortSignal.timeout(1000),
+            });
+            primaryReachable = true;
+          } catch {
+            // The failover gate deliberately leaves the primary endpoint unavailable.
+          }
+          assert.equal(primaryReachable, false, 'FlareSolverr endpoint must be unavailable');
+
+          const challenge = await fetch(PROTECTED_PDF_URL, {
+            method: 'HEAD',
+            redirect: 'manual',
+            signal: AbortSignal.timeout(15_000),
+          });
+          assert.equal(challenge.status, 403);
+          assert.equal(challenge.headers.get('cf-mitigated'), 'challenge');
+
+          const responses = await spawnWithMessagesAsync(
+            readUrlMessages(PROTECTED_PDF_URL),
+            'https://test-searx.example.com',
+            90_000,
+            {
+              FLARESOLVERR_URL: flareEndpoint,
+              BYPARR_URL: byparrEndpoint,
+              FLARESOLVERR_TIMEOUT_MS: '1000',
+            },
+          );
+          const response = responses[2];
+          assert.ok(response && !response.error, JSON.stringify(response?.error));
+          const text: string = response.result?.content?.[0]?.text ?? '';
+          assert.ok(text.includes('Encrypted Matrix-Vector Products'), text);
+          assert.ok(text.includes('Abstract'), text);
+          assert.ok(!text.includes('Unsupported content type'), text);
+        },
+        results,
+      );
+    }
+  } else if (matrixRequested && realProviders.some(({ endpoint }) => !endpoint)) {
     await testFunction('real browser-solver matrix has both provider endpoints', () => {
       assert.fail(
         'BROWSER_SOLVER_REAL_MATRIX=true requires VERIFY_FLARESOLVERR_URL and VERIFY_BYPARR_URL',

@@ -3,7 +3,7 @@ import { fetch as undiciFetch } from "undici";
 import { createConfigurationError, createContentError } from "./error-handler.js";
 import {
   BrowserSolverConfigurationIssue,
-  resolveBrowserSolverEndpoint,
+  resolveBrowserSolverEndpoints,
   type BrowserSolverProvider,
 } from "./browser-solver-config.js";
 import { parseStrictInteger } from "./env-int.js";
@@ -52,6 +52,10 @@ export type BrowserSolverAcquisition =
   | { kind: "solved"; solution: BrowserSolverSolution }
   | { kind: "fallback"; reason: "busy" | "unavailable" };
 
+export type BrowserSolverChainAcquisition =
+  | { kind: "solved"; provider: BrowserSolverProvider; solution: BrowserSolverSolution }
+  | { kind: "fallback"; reason: "busy" | "unavailable" };
+
 const activeSolverRequests: Record<BrowserSolverProvider, number> = {
   flaresolverr: 0,
   byparr: 0,
@@ -85,9 +89,9 @@ function resolveBoundedInteger(
   return parsed;
 }
 
-function readEndpointSelection() {
+function readEndpointSelections() {
   try {
-    return resolveBrowserSolverEndpoint();
+    return resolveBrowserSolverEndpoints();
   } catch (error) {
     if (error instanceof BrowserSolverConfigurationIssue) {
       throw createConfigurationError(error.message);
@@ -146,16 +150,14 @@ function resolveFlareSolverrConfig(
   };
 }
 
-export function resolveBrowserSolverConfig(
+export function resolveBrowserSolverConfigs(
   mcpServer: McpServer,
-): BrowserSolverConfig | null {
-  const selection = readEndpointSelection();
-  if (!selection) {
-    return null;
-  }
-  return selection.provider === "byparr"
-    ? resolveByparrConfig(mcpServer, selection.endpoint)
-    : resolveFlareSolverrConfig(mcpServer, selection.endpoint);
+): BrowserSolverConfig[] {
+  return readEndpointSelections().map((selection) => (
+    selection.provider === "byparr"
+      ? resolveByparrConfig(mcpServer, selection.endpoint)
+      : resolveFlareSolverrConfig(mcpServer, selection.endpoint)
+  ));
 }
 
 async function readBoundedResponse(
@@ -362,29 +364,21 @@ function throwIfAborted(signal?: AbortSignal): void {
 }
 
 function tryReserveProviderSlot(
-  mcpServer: McpServer,
   config: BrowserSolverConfig,
 ): boolean {
   if (activeSolverRequests[config.provider] < config.maxConcurrentRequests) {
     activeSolverRequests[config.provider]++;
     return true;
   }
-  logMessage(
-    mcpServer,
-    "warning",
-    "Browser solver concurrency limit reached; using the direct URL fetch path.",
-  );
   return false;
 }
 
 function classifyAcquisition(
-  mcpServer: McpServer,
   responseText: string | null,
   requestedUrl: URL,
 ): BrowserSolverAcquisition {
   const solution = decodeSolution(responseText);
   if (!solution) {
-    logDirectFallback(mcpServer);
     return { kind: "fallback", reason: "unavailable" };
   }
   validateSolutionUrl(solution, requestedUrl);
@@ -396,19 +390,70 @@ export async function acquireBrowserSolverSolution(
   config: BrowserSolverConfig,
   requestedUrl: URL,
   signal?: AbortSignal,
+  logFallback: boolean = true,
 ): Promise<BrowserSolverAcquisition> {
   throwIfAborted(signal);
-  if (!tryReserveProviderSlot(mcpServer, config)) {
+  if (!tryReserveProviderSlot(config)) {
+    if (logFallback) {
+      logDirectFallback(mcpServer);
+    }
     return { kind: "fallback", reason: "busy" };
   }
 
   try {
     const responseText = await requestBrowserSolverSession(config, requestedUrl, signal);
     throwIfAborted(signal);
-    return classifyAcquisition(mcpServer, responseText, requestedUrl);
+    const acquisition = classifyAcquisition(responseText, requestedUrl);
+    if (logFallback && acquisition.kind === "fallback") {
+      logDirectFallback(mcpServer);
+    }
+    return acquisition;
   } finally {
     activeSolverRequests[config.provider]--;
   }
+}
+
+function logProviderOutcome(
+  mcpServer: McpServer,
+  provider: BrowserSolverProvider,
+  reason: "busy" | "unavailable",
+): void {
+  logMessage(
+    mcpServer,
+    "warning",
+    "Browser solver provider did not produce a session.",
+    { provider, classification: reason },
+  );
+}
+
+export async function acquireBrowserSolverSolutionChain(
+  mcpServer: McpServer,
+  configs: readonly BrowserSolverConfig[],
+  requestedUrl: URL,
+  signal?: AbortSignal,
+): Promise<BrowserSolverChainAcquisition> {
+  let finalReason: "busy" | "unavailable" = "unavailable";
+  for (const config of configs) {
+    throwIfAborted(signal);
+    const acquisition = await acquireBrowserSolverSolution(
+      mcpServer,
+      config,
+      requestedUrl,
+      signal,
+      false,
+    );
+    if (acquisition.kind === "solved") {
+      return {
+        kind: "solved",
+        provider: config.provider,
+        solution: acquisition.solution,
+      };
+    }
+    finalReason = acquisition.reason;
+    logProviderOutcome(mcpServer, config.provider, acquisition.reason);
+  }
+  logDirectFallback(mcpServer);
+  return { kind: "fallback", reason: finalReason };
 }
 
 function cookiePath(cookie: BrowserSolverCookie): string {

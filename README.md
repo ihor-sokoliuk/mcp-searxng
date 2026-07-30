@@ -59,7 +59,7 @@ For measured MCP-process CPU and memory starting points, see
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
 - **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
 - **URL Content Reading**: Content-type-aware Markdown conversion, including bounded PDF text extraction, with pagination, section filtering, paragraph ranges, and heading extraction.
-- **Browser Solver Support**: For each uncached URL that passes URL validation and the HEAD size preflight, optionally acquire a browser session from either FlareSolverr or Byparr, then replay the returned user-agent and scoped cookies through the bounded URL reader. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30. Configure exactly one provider; automatic cross-provider fallback is not enabled.
+- **Browser Solver Support**: For each uncached URL that passes static URL validation and the HEAD size preflight, optionally acquire a browser session from FlareSolverr, Byparr, or both, then replay the returned user-agent and scoped cookies through the bounded URL reader. In dual-provider mode FlareSolverr is always primary and Byparr is attempted only after a busy or transient-unavailable primary. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30.
 - **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
 - **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
 - **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
@@ -161,7 +161,8 @@ For SearXNG deployment, configuration, and troubleshooting, see
   - PDF parsing has a separate 30-second worker budget after the response body is downloaded. On the direct path, the network fetch and parse take at most the configured fetch budget plus 30 seconds; configured browser-solver preflight and acquisition time is additional.
   - At most two PDF extractions run concurrently per MCP process. There is no queue; additional concurrent reads return a busy message and may be retried.
   - Other binary, media, archive, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
-  - When `FLARESOLVERR_URL` or `BYPARR_URL` is configured, an uncached URL is validated and checked by the HEAD size preflight before `mcp-searxng` attempts browser-session acquisition. Cache hits bypass acquisition; a full provider-specific concurrency limit and transient solver failures use an uncached direct-fetch fallback. When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured browser solver.
+  - When `FLARESOLVERR_URL` or `BYPARR_URL` is configured, an uncached URL is validated and checked by the HEAD size preflight before `mcp-searxng` attempts browser-session acquisition. With both set, FlareSolverr is attempted first and Byparr is attempted only after a busy slot, network/timeout failure, HTTP 408/429/5xx, or malformed/oversized response. Persistent provider 4xx, cancellation, solution-host validation failure, and solved non-2xx target status stop the chain. If every configured provider is busy or unavailable, one uncached direct fetch runs. Each attempted provider receives the original target URL; challenge success is not guaranteed.
+  - At default limits, dual-provider mode has an additive maximum of 150 seconds across the initial HEAD preflight, both solver attempts (including response grace), and the final direct fetch.
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)
@@ -226,8 +227,9 @@ Image signatures can be verified with Cosign — see [SECURITY.md](SECURITY.md) 
 ```
 
 To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `env`.
-For browser-solver integration, pass either `FLARESOLVERR_URL` or `BYPARR_URL`
-and make that service reachable from this container. See
+For browser-solver integration, pass `FLARESOLVERR_URL`, `BYPARR_URL`, or both
+and make the configured services reachable from this container. Dual mode has
+a fixed FlareSolverr-first order and no automatic reverse failover. See
 [URL Reader Controls](CONFIGURATION.md#url-reader-controls) for the complete
 behavior and Docker Compose example.
 

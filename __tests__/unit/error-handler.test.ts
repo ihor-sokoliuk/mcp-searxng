@@ -153,17 +153,25 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('validateEnvironment rejects simultaneous browser solver providers', () => {
+  await testFunction('validateEnvironment accepts distinct simultaneous browser solver providers', () => {
     envManager.set('SEARXNG_URL', 'https://valid-url.com');
     envManager.set('FLARESOLVERR_URL', 'http://flare-secret.example');
     envManager.set('BYPARR_URL', 'http://byparr-secret.example');
 
     const result = validateEnvironment();
-    assert.ok(result?.includes(
-      'Configure only one browser solver: FLARESOLVERR_URL or BYPARR_URL, not both.',
-    ));
-    assert.ok(!result?.includes('flare-secret'));
-    assert.ok(!result?.includes('byparr-secret'));
+    assert.equal(result, null);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('validateEnvironment rejects duplicate browser solver endpoints without values', () => {
+    envManager.set('SEARXNG_URL', 'https://valid-url.com');
+    envManager.set('FLARESOLVERR_URL', 'http://solver-secret.example/base');
+    envManager.set('BYPARR_URL', 'http://SOLVER-SECRET.EXAMPLE:80/base/v1/');
+
+    const result = validateEnvironment();
+    assert.ok(result?.includes('different services'));
+    assert.ok(!result?.includes('solver-secret'));
 
     envManager.restore();
   }, results);

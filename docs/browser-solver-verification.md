@@ -13,6 +13,12 @@ adapter and authoritative target replay. FlareSolverr returns a cookie-only
 response when requested. Byparr 2.1.0 ignores `returnOnlyCookies`, so the client
 accepts a bounded 5 MiB envelope and discards rendered content after parsing.
 
+When both providers are configured, FlareSolverr is always attempted first.
+Byparr is attempted only after a busy or transient-unavailable acquisition;
+persistent 4xx, cancellation, solution-integrity failure, and solved non-2xx
+target status stop the chain. There is no automatic reverse failover.
+Provider timeouts and concurrency remain independent.
+
 The real-container gate requires a directly observed anti-bot response no more
 than 30 minutes before each solved request. Record the UTC timestamp, public
 target, direct HTTP status or bounded anti-bot marker name, elapsed time,
@@ -22,8 +28,8 @@ credentials, endpoint userinfo, or response bodies containing secrets.
 The E2E runner enforces the two-provider matrix in one invocation when
 `BROWSER_SOLVER_REAL_MATRIX=true`, `VERIFY_FLARESOLVERR_URL`, and
 `VERIFY_BYPARR_URL` are set. Missing either verification endpoint makes the
-matrix test fail; the runner starts two separate MCP child processes so the
-production mutual-exclusion rule remains intact.
+matrix test fail; the runner starts one provider-specific MCP child process per
+matrix row so each adapter is verified independently.
 
 Preferred deployment keeps the selected solver on the same private container
 network as `mcp-searxng` with no published host port. A loopback-only port may
@@ -49,3 +55,22 @@ container without a provider skip:
 
 The disposable diagnostic containers were removed after verification. No
 cookie, solver response body, credential, or endpoint userinfo was retained.
+
+## Dual-provider failover gate
+
+The real failover check starts both pinned images and confirms they are ready.
+It then stops the FlareSolverr container while leaving its loopback endpoint
+configured, producing a bounded connection-refused `unavailable` outcome. A
+single built-MCP request with both endpoints must extract the freshly
+challenge-confirmed PDF through Byparr with no provider skip. Disposable
+containers are removed afterward. The runner itself fails unless the configured
+FlareSolverr endpoint is unreachable and a fresh direct HEAD returns HTTP 403
+with `Cf-Mitigated: challenge` before the solved request.
+
+At `2026-07-30T22:00:41Z`, a direct `HEAD` request to the protected PDF
+returned HTTP 403 with `Cf-Mitigated: challenge`. The FlareSolverr 3.5.0
+container was then stopped while its loopback endpoint remained configured.
+The same built-MCP request contacted that unavailable primary, failed over to
+the pinned Byparr 2.1.0 container, and extracted `Encrypted Matrix-Vector
+Products` and `Abstract`. The E2E suite reported 16 passed and 0 failed, and
+both disposable containers were verified absent afterward.

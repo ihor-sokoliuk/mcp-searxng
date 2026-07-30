@@ -7,7 +7,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Explicit FlareSolverr or Byparr URL reading:** Operators can select exactly one browser solver with `FLARESOLVERR_URL` or `BYPARR_URL`. FlareSolverr retains its millisecond timeout and concurrency variables; Byparr adds `BYPARR_TIMEOUT_SECONDS` and `BYPARR_MAX_CONCURRENT_REQUESTS`. Simultaneous endpoints fail closed, provider counters remain independent, MCP cancellation now reaches solver acquisition, replay, body streaming, and PDF workers, and transient failures retain the existing one-time uncached direct fallback. Verified with FlareSolverr 3.5.0 and Byparr 2.1.0 on 2026-07-30.
+- **FlareSolverr-primary failover to Byparr:** Operators can configure `FLARESOLVERR_URL`, `BYPARR_URL`, or both. Dual mode always tries FlareSolverr first, advances to Byparr only for busy or transient-unavailable acquisition, and uses one uncached direct fetch only after the final provider is unavailable. Persistent 4xx, cancellation, solution-integrity failures, and solved non-2xx target status stop the chain. Provider timeouts and concurrency remain independent, cache entries use the winning provider, and canonically duplicate endpoints fail closed. Verified provider versions remain FlareSolverr 3.5.0 and Byparr 2.1.0 from 2026-07-30.
 
   **Migration note:** Browser-solver endpoints are now validated during startup. A `FLARESOLVERR_URL` containing userinfo, a query, a fragment, or a non-HTTP(S) scheme now prevents startup instead of failing only when a URL read first uses it.
 
