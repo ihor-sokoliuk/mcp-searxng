@@ -131,7 +131,7 @@ async function runTests() {
   }, results);
 
   if (process.env.FLARESOLVERR_URL) {
-    await testFunction('real Cloudflare-protected IACR PDF is pulled through FlareSolverr', async () => {
+    await testFunction('real Cloudflare-protected IACR PDF text is extracted through FlareSolverr', async () => {
       const responses = await spawnWithMessagesAsync(
         readUrlMessages(PROTECTED_PDF_URL),
         'https://test-searx.example.com',
@@ -140,7 +140,9 @@ async function runTests() {
       const response = responses[2];
       assert.ok(response && !response.error, JSON.stringify(response?.error));
       const text: string = response.result?.content?.[0]?.text ?? '';
-      assert.ok(text.includes('Unsupported content type: application/pdf'), text);
+      assert.ok(text.includes('Encrypted Matrix-Vector Products'), text);
+      assert.ok(text.includes('Abstract'), text);
+      assert.ok(!text.includes('Unsupported content type'), text);
     }, results);
   } else {
     console.log('[SKIP] FLARESOLVERR_URL not set — skipping real protected-PDF test');

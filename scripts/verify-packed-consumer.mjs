@@ -148,6 +148,21 @@ function mcpSmokeInput() {
   ].map((message) => JSON.stringify(message)).join('\n') + '\n';
 }
 
+function packedPdfSmokeScript() {
+  const fixture =
+    'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA0IDAgUiA+PiA+PiAvQ29udGVudHMgNSAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago1IDAgb2JqCjw8IC9MZW5ndGggNDggPj4Kc3RyZWFtCkJUIC9GMSAxMiBUZiA3MiA3MjAgVGQgKFBhY2tlZCBQREYgd29ya2VyKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzExIDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNiAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKNDA5CiUlRU9GCg==';
+  return [
+    "import path from 'node:path';",
+    "import { pathToFileURL } from 'node:url';",
+    "const moduleUrl = pathToFileURL(path.resolve('node_modules/mcp-searxng/dist/pdf-reader.js')).href;",
+    "const { extractPdfText } = await import(moduleUrl);",
+    `const bytes = new Uint8Array(Buffer.from('${fixture}', 'base64'));`,
+    "const result = await extractPdfText(bytes, 1024);",
+    "if (result.kind !== 'text' || !result.text.includes('Packed PDF worker')) process.exit(1);",
+    "process.stdout.write('packed-pdf-ok\\n');",
+  ].join('\n');
+}
+
 function copyVerifiedArtifact(artifactPath, artifactOutput) {
   try {
     copyFileSync(artifactPath, path.resolve(artifactOutput));
@@ -277,6 +292,31 @@ export function verifyPackedConsumer({
       fail('artifact_metadata', 'installed package manifest is unreadable');
     }
     assertArtifactMetadata(packedArtifacts[0], installedPackage);
+
+    const installedPdfWorkerPath = path.join(
+      consumerDirectory,
+      'node_modules',
+      'mcp-searxng',
+      'dist',
+      'pdf-worker.js',
+    );
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is fixed beneath the verifier-created consumer
+    if (!existsSync(installedPdfWorkerPath) && spawn === spawnSync) {
+      fail('artifact_metadata', 'installed PDF worker is missing');
+    }
+    const pdfSmokeOutput = runCheckedCommand(
+      process.execPath,
+      ['--input-type=module', '--eval', packedPdfSmokeScript()],
+      {
+        cwd: consumerDirectory,
+        env: allowlistedProcessEnvironment(),
+        timeoutMs: 30_000,
+        spawn,
+      },
+    );
+    if (pdfSmokeOutput.trim() !== 'packed-pdf-ok') {
+      fail('artifact_runtime', 'installed PDF worker did not extract fixture text');
+    }
 
     const treeInvocation = npmInvocation(
       ['ls', '--all', '--json'],

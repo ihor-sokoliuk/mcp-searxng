@@ -91,7 +91,7 @@ for trust, evaluation, and conservative-use guidance.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `URL_READ_MAX_CHARS` | No | — | Default maximum characters returned by `web_url_read` when the caller omits `maxLength`. Explicit `maxLength` always wins. Invalid values are ignored. |
-| `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. Invalid values fall back to the default. |
+| `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. PDF input and extracted text additionally have a fixed 16 MiB ceiling. Invalid values fall back to the default. |
 | `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr or Byparr-compatible service, such as `http://flaresolverr:8191`. When set, `web_url_read` asks its `/v1` API for a browser session before each uncached URL read. |
 | `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
 | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent solver acquisitions per MCP process, from `1` through `16`. When all slots are occupied, the request uses the direct URL-reader path instead of waiting in a queue. |
@@ -117,8 +117,8 @@ malformed response, or oversized response falls back once to the direct
 URL-reader path. Invalid solver configuration, other HTTP 4xx responses, a
 solver result for a different hostname, and a non-success target status
 reported by the solver fail closed. Solver-backed cache entries are isolated
-from direct-fetch entries. PDFs remain unsupported by this feature and return
-the existing binary-content hint.
+from direct-fetch entries. When the replay response is `application/pdf`, the
+URL reader applies its bounded PDF text-extraction path.
 
 Example with the official FlareSolverr image:
 
@@ -269,7 +269,7 @@ For direct URL-reader requests without a proxy, DNS answers are validated before
 
 When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions, so proxied deployments should rely on proxy, firewall, and egress controls.
 
-`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response body, including chunked responses and responses whose GET body is larger than the HEAD `Content-Length` value. The limit is measured after transparent response decompression.
+`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response body, including chunked responses and responses whose GET body is larger than the HEAD `Content-Length` value. The limit is measured after transparent response decompression. For `application/pdf`, both the downloaded input and extracted UTF-8 text are limited to the lower of this value and 16 MiB; extraction is limited to 500 pages and does not perform OCR.
 
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 

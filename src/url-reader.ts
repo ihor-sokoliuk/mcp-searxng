@@ -13,6 +13,7 @@ import {
   resolveFlareSolverrConfig,
   type FlareSolverrSolution,
 } from "./flaresolverr.js";
+import { extractPdfText, MAX_PDF_BYTES, MAX_PDF_PAGES } from "./pdf-reader.js";
 import {
   createURLFormatError,
   createURLSecurityPolicyError,
@@ -38,6 +39,10 @@ type BoundedBodyReadResult =
   | { exceeded: false; text: string; bytesRead: number; hasNulInPrefix: boolean }
   | { exceeded: true; bytesRead: number };
 
+type BoundedByteReadResult =
+  | { exceeded: false; bytes: Uint8Array; bytesRead: number; hasNulInPrefix: boolean }
+  | { exceeded: true; bytesRead: number };
+
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
@@ -47,6 +52,7 @@ const BINARY_SNIFF_PREFIX_BYTES = 1024;
 type ContentTypeClassification =
   | { kind: "html"; mediaType: string; language: "html" }
   | { kind: "json"; mediaType: string; language: "json" }
+  | { kind: "pdf"; mediaType: "application/pdf" }
   | { kind: "text"; mediaType: string; language: "text" | "yaml" | "toml" | "xml" }
   | { kind: "binary"; mediaType: string | null }
   | { kind: "generic"; mediaType: string | null };
@@ -55,6 +61,7 @@ const EXACT_READABLE_CONTENT_TYPES = new Map<string, (mediaType: string) => Cont
   ["text/html", (mediaType) => ({ kind: "html", mediaType, language: "html" })],
   ["application/xhtml+xml", (mediaType) => ({ kind: "html", mediaType, language: "html" })],
   ["application/json", (mediaType) => ({ kind: "json", mediaType, language: "json" })],
+  ["application/pdf", () => ({ kind: "pdf", mediaType: "application/pdf" })],
   ["application/xml", (mediaType) => ({ kind: "text", mediaType, language: "xml" })],
   ["text/xml", (mediaType) => ({ kind: "text", mediaType, language: "xml" })],
   ["application/yaml", (mediaType) => ({ kind: "text", mediaType, language: "yaml" })],
@@ -67,7 +74,6 @@ const EXACT_READABLE_CONTENT_TYPES = new Map<string, (mediaType: string) => Cont
 ]);
 
 const EXACT_BINARY_CONTENT_TYPES = new Set([
-  "application/pdf",
   "application/octet-stream",
   "binary/octet-stream",
   "application/zip",
@@ -290,6 +296,13 @@ function createContentTooLargeMessage(contentLength: number, maxBytes: number): 
   );
 }
 
+function createPdfTextTooLargeMessage(textBytes: number, maxBytes: number): string {
+  return (
+    `Extracted PDF text exceeds the safe byte limit: ${formatByteSize(textBytes)} ` +
+    `exceeds ${formatByteSize(maxBytes)}.`
+  );
+}
+
 function normalizeMediaType(contentType: string | null): string | null {
   if (!contentType) {
     return null;
@@ -341,7 +354,7 @@ function createUnsupportedContentTypeMessage(classification: ContentTypeClassifi
   const reasonText = reason ? ` ${reason}` : "";
   return (
     `Unsupported content type: ${contentType}.${reasonText} ` +
-    "Binary, media, archive, and PDF downloads are intentionally not read by web_url_read."
+    "Binary, media, and archive downloads are intentionally not read by web_url_read."
   );
 }
 
@@ -349,7 +362,7 @@ function createNulRejectedContentMessage(classification: ContentTypeClassificati
   if (classification.kind !== "generic" && classification.mediaType !== null) {
     return (
       `Body was declared ${classification.mediaType} but appears binary (NUL byte in first 1KB); not read. ` +
-      "Binary, media, archive, and PDF downloads are intentionally not read by web_url_read."
+      "Binary, media, and archive downloads are intentionally not read by web_url_read."
     );
   }
 
@@ -427,9 +440,9 @@ function evaluateChunkLimits(
   maxBytes: number,
   hasNulInPrefix: boolean,
   abortOnNulInPrefix: boolean,
-): BoundedBodyReadResult | null {
+): BoundedByteReadResult | null {
   if (hasNulInPrefix && abortOnNulInPrefix) {
-    return { exceeded: false, text: "", bytesRead, hasNulInPrefix };
+    return { exceeded: false, bytes: new Uint8Array(), bytesRead, hasNulInPrefix };
   }
   if (bytesRead > maxBytes) {
     return { exceeded: true, bytesRead };
@@ -437,13 +450,13 @@ function evaluateChunkLimits(
   return null;
 }
 
-async function readResponseBodyWithLimit(
+async function readResponseBytesWithLimit(
   response: Response,
   maxBytes: number,
   abortOnNulInPrefix: boolean = false,
-): Promise<BoundedBodyReadResult> {
+): Promise<BoundedByteReadResult> {
   if (response.body === null) {
-    return { exceeded: false, text: "", bytesRead: 0, hasNulInPrefix: false };
+    return { exceeded: false, bytes: new Uint8Array(), bytesRead: 0, hasNulInPrefix: false };
   }
 
   const reader = response.body.getReader();
@@ -479,8 +492,38 @@ async function readResponseBodyWithLimit(
     reader.releaseLock();
   }
 
-  const bodyBytes = concatenateChunks(chunks, bytesRead);
-  return { exceeded: false, text: new TextDecoder("utf-8").decode(bodyBytes), bytesRead, hasNulInPrefix };
+  return {
+    exceeded: false,
+    bytes: concatenateChunks(chunks, bytesRead),
+    bytesRead,
+    hasNulInPrefix,
+  };
+}
+
+async function readResponseBodyWithLimit(
+  response: Response,
+  maxBytes: number,
+  abortOnNulInPrefix: boolean = false,
+): Promise<BoundedBodyReadResult> {
+  const result = await readResponseBytesWithLimit(response, maxBytes, abortOnNulInPrefix);
+  if (result.exceeded) {
+    return result;
+  }
+  return {
+    exceeded: false,
+    text: new TextDecoder("utf-8").decode(result.bytes),
+    bytesRead: result.bytesRead,
+    hasNulInPrefix: result.hasNulInPrefix,
+  };
+}
+
+function hasPdfSignature(bytes: Uint8Array): boolean {
+  return bytes.byteLength >= 5
+    && bytes[0] === 0x25
+    && bytes[1] === 0x50
+    && bytes[2] === 0x44
+    && bytes[3] === 0x46
+    && bytes[4] === 0x2d;
 }
 
 export async function fetchAndConvertToMarkdown(
@@ -679,42 +722,89 @@ export async function fetchAndConvertToMarkdown(
       return createUnsupportedContentTypeMessage(contentType);
     }
 
-    // Retrieve readable content
-    let rawContent: string;
-    let hasNulInPrefix = false;
-    try {
-      const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes, true);
-      if (bodyRead.exceeded) {
-        return createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes);
-      }
-      rawContent = bodyRead.text;
-      hasNulInPrefix = bodyRead.hasNulInPrefix;
-    } catch (error: any) {
-      throw createContentError(
-        `Failed to read website content: ${error.message || 'Unknown error reading content'}`,
-        url
-      );
-    }
-
-    if (hasNulInPrefix) {
-      return createNulRejectedContentMessage(contentType);
-    }
-
-    if (!rawContent || rawContent.trim().length === 0) {
-      throw createContentError("Website returned empty content.", url);
-    }
-
-    // Convert readable content to Markdown
     let markdownContent: string;
-    if (contentType.kind === "json") {
-      markdownContent = renderJsonMarkdown(rawContent);
-    } else if (contentType.kind === "text") {
-      markdownContent = renderFencedMarkdown(contentType.language, rawContent);
-    } else {
+    if (contentType.kind === "pdf") {
+      const effectivePdfLimit = Math.min(maxContentLengthBytes, MAX_PDF_BYTES);
+      let bodyRead: BoundedByteReadResult;
       try {
-        markdownContent = NodeHtmlMarkdown.translate(rawContent);
-      } catch {
-        throw createConversionError(url);
+        bodyRead = await readResponseBytesWithLimit(response, effectivePdfLimit);
+      } catch (error: any) {
+        throw createContentError(
+          `Failed to read PDF content: ${error.message || "Unknown error reading content"}`,
+          url,
+        );
+      }
+      if (bodyRead.exceeded) {
+        return createContentTooLargeMessage(bodyRead.bytesRead, effectivePdfLimit);
+      }
+
+      // The network phase is complete. PDF parsing has its own independent,
+      // bounded worker timeout rather than sharing the fetch budget.
+      clearTimeout(timeoutId);
+      if (!hasPdfSignature(bodyRead.bytes)) {
+        return "Response declared application/pdf but did not contain a PDF document.";
+      }
+
+      const extraction = await extractPdfText(bodyRead.bytes, effectivePdfLimit);
+      switch (extraction.kind) {
+        case "text":
+          markdownContent = extraction.text;
+          break;
+        case "no_text":
+          return "No extractable text (likely a scanned/image PDF; OCR is not supported).";
+        case "password_protected":
+          return "Password-protected PDF cannot be read.";
+        case "parse_error":
+          return "Unable to extract text from PDF.";
+        case "too_many_pages":
+          return `PDF has too many pages to extract safely (limit: ${MAX_PDF_PAGES}).`;
+        case "text_too_large":
+          return createPdfTextTooLargeMessage(extraction.bytes, effectivePdfLimit);
+        case "timeout":
+          return "PDF text extraction timed out.";
+        case "busy":
+          return "PDF text extraction is busy; try again later.";
+        case "external_fetch_attempt":
+          return "PDF attempted an external resource fetch and was blocked.";
+        case "worker_failure":
+          return "PDF text extraction worker failed.";
+      }
+    } else {
+      // Retrieve readable text content.
+      let rawContent: string;
+      let hasNulInPrefix = false;
+      try {
+        const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes, true);
+        if (bodyRead.exceeded) {
+          return createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes);
+        }
+        rawContent = bodyRead.text;
+        hasNulInPrefix = bodyRead.hasNulInPrefix;
+      } catch (error: any) {
+        throw createContentError(
+          `Failed to read website content: ${error.message || "Unknown error reading content"}`,
+          url,
+        );
+      }
+
+      if (hasNulInPrefix) {
+        return createNulRejectedContentMessage(contentType);
+      }
+
+      if (!rawContent || rawContent.trim().length === 0) {
+        throw createContentError("Website returned empty content.", url);
+      }
+
+      if (contentType.kind === "json") {
+        markdownContent = renderJsonMarkdown(rawContent);
+      } else if (contentType.kind === "text") {
+        markdownContent = renderFencedMarkdown(contentType.language, rawContent);
+      } else {
+        try {
+          markdownContent = NodeHtmlMarkdown.translate(rawContent);
+        } catch {
+          throw createConversionError(url);
+        }
       }
     }
 

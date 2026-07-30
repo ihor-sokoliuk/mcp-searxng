@@ -227,6 +227,7 @@ async function runWorkflowContractTests(): Promise<void> {
           files: [
             { path: 'package.json' },
             { path: 'dist/cli.js' },
+            { path: 'dist/pdf-worker.js' },
           ],
         },
         {
@@ -255,7 +256,7 @@ async function runWorkflowContractTests(): Promise<void> {
       () => assertArtifactMetadata(
         {
           filename: 'mcp-searxng-1.12.0.tgz',
-          files: [{ path: 'package.json' }],
+          files: [{ path: 'package.json' }, { path: 'dist/pdf-worker.js' }],
         },
         {
           name: 'mcp-searxng',
@@ -270,6 +271,16 @@ async function runWorkflowContractTests(): Promise<void> {
         { name: 'mcp-searxng', dependencies: {} },
       ),
       /artifact_metadata:.*file entry/,
+    );
+    assert.throws(
+      () => assertArtifactMetadata(
+        {
+          filename: 'mcp-searxng-1.12.0.tgz',
+          files: [{ path: 'package.json' }, { path: 'dist/cli.js' }],
+        },
+        { name: 'mcp-searxng', dependencies: {} },
+      ),
+      /artifact_metadata:.*pdf-worker\.js/,
     );
   }, results);
 
@@ -311,6 +322,7 @@ async function runOrchestrationTests(): Promise<void> {
             files: [
               { path: 'package.json' },
               { path: 'dist/cli.js' },
+              { path: 'dist/pdf-worker.js' },
             ],
           }]),
           stderr: '',
@@ -354,6 +366,9 @@ async function runOrchestrationTests(): Promise<void> {
           stderr: '',
         };
       }
+      if (args.includes('--input-type=module')) {
+        return { status: 0, signal: null, stdout: 'packed-pdf-ok\n', stderr: '' };
+      }
       return {
         status: 0,
         signal: null,
@@ -387,7 +402,7 @@ async function runOrchestrationTests(): Promise<void> {
         args.find((argument) => ['pack', 'install', 'ls', 'audit'].includes(argument))
         ?? args[0]
       )),
-      ['pack', 'install', 'ls', 'audit', path.join('node_modules', 'mcp-searxng', 'dist', 'cli.js')],
+      ['pack', 'install', '--input-type=module', 'ls', 'audit', path.join('node_modules', 'mcp-searxng', 'dist', 'cli.js')],
     );
     const installCall = calls[1];
     assert.ok(installCall.args.includes('--ignore-scripts'));
@@ -428,6 +443,7 @@ async function runOrchestrationTests(): Promise<void> {
             files: [
               { path: 'package.json' },
               { path: 'dist/cli.js' },
+              { path: 'dist/pdf-worker.js' },
             ],
           }]),
           stderr: '',
@@ -445,6 +461,9 @@ async function runOrchestrationTests(): Promise<void> {
             dependencies: { '@modelcontextprotocol/sdk': '1.30.0' },
           }),
         );
+      }
+      if (args.includes('--input-type=module')) {
+        return { status: 0, signal: null, stdout: 'packed-pdf-ok\n', stderr: '' };
       }
       if (args.includes('ls')) {
         return {

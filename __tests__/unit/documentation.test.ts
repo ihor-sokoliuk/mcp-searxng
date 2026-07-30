@@ -110,6 +110,19 @@ function collectJsonServers(config: Record<string, unknown>): Record<string, unk
 export async function runTests(): Promise<TestResult> {
   console.log('Testing: public documentation guides\n');
 
+  await testFunction('README documents bounded PDF text extraction and its limits', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    for (const statement of [
+      'PDF (`application/pdf`) text is extracted',
+      '16 MiB',
+      '500 pages',
+      'OCR is not supported',
+      'password-protected',
+    ]) {
+      assert.ok(readme.includes(statement), `README must document: ${statement}`);
+    }
+  }, results);
+
   await testFunction('cookbook exists and README links to it', () => {
     const guide = readText(guideUrl);
     const readme = readText(new URL('../../README.md', import.meta.url));
