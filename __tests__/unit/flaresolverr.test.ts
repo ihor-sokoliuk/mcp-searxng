@@ -186,6 +186,27 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction("solver response transfer has grace beyond the browser timeout", async () => {
+    const target = new URL("https://example.com/paper");
+    const solver = await startServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(jsonSolution(target.href)));
+      }, 35);
+    });
+
+    try {
+      const acquisition = await acquireFlareSolverrSolution(
+        createMockServer() as any,
+        { endpoint: new URL(`${solver.url}/v1`), timeoutMs: 20, maxConcurrentRequests: 2 },
+        target,
+      );
+      assert.equal(acquisition.kind, "solved");
+    } finally {
+      await solver.close();
+    }
+  }, results);
+
   await testFunction("persistent solver HTTP 4xx fails closed while transient statuses fall back", async () => {
     const target = new URL("https://example.com/paper");
     for (const status of [400, 404]) {
@@ -323,6 +344,9 @@ async function runTests() {
         { name: "wrong-domain", value: "x", domain: ".other.example", path: "/" },
         { name: "wrong-path", value: "x", domain: ".example.com", path: "/other" },
         { name: "secure-http", value: "x", domain: ".example.com", path: "/", secure: true },
+        { name: "bad\nname", value: "x", domain: ".example.com", path: "/" },
+        { name: "bad-value", value: "x;y", domain: ".example.com", path: "/" },
+        { name: "oversized", value: "x".repeat(5000), domain: ".example.com", path: "/" },
         { name: "", value: "x", domain: ".example.com", path: "/" },
       ],
     };

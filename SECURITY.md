@@ -62,8 +62,10 @@ Setting `FLARESOLVERR_URL` delegates challenge-page navigation to a trusted
 FlareSolverr or Byparr-compatible browser service. `mcp-searxng` validates the
 requested target before contacting the solver, accepts a solution only for the
 same hostname, filters returned cookies by domain, path, secure flag, and
-expiry, and performs the final target fetch through the normal URL-reader
-controls.
+expiry, rejects cookie names or values outside the HTTP cookie character set or
+above 4096 bytes per pair, and performs the final target fetch through the
+normal URL-reader controls. Replay restarts at the originally requested URL;
+the solver-returned URL is used only for same-host integrity validation.
 
 The browser service performs its own navigation internally. `mcp-searxng`
 cannot intercept or validate every redirect the browser follows while solving a
