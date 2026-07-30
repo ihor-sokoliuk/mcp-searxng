@@ -537,6 +537,35 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('trusted solver endpoint ignores URL-reader-only proxy configuration', () => {
+    envManager.delete('HTTP_PROXY');
+    envManager.delete('HTTPS_PROXY');
+    envManager.delete('http_proxy');
+    envManager.delete('https_proxy');
+    envManager.set('URL_READER_HTTP_PROXY', 'http://reader-proxy:8080');
+
+    assert.equal(createProxyAgent('http://flaresolverr:8191'), undefined);
+    envManager.restore();
+  }, results);
+
+  await testFunction('trusted solver endpoint uses global proxy configuration', () => {
+    envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
+
+    assert.equal(
+      createProxyAgent('http://flaresolverr:8191')?.constructor.name,
+      'ProxyAgent',
+    );
+    envManager.restore();
+  }, results);
+
+  await testFunction('trusted solver endpoint honors NO_PROXY', () => {
+    envManager.set('HTTP_PROXY', 'http://global-proxy:8080');
+    envManager.set('NO_PROXY', 'flaresolverr');
+
+    assert.equal(createProxyAgent('http://flaresolverr:8191'), undefined);
+    envManager.restore();
+  }, results);
+
   printTestSummary(results, 'Proxy Module');
   return results;
 }
