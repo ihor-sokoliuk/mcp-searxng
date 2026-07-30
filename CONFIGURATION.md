@@ -98,18 +98,22 @@ for trust, evaluation, and conservative-use guidance.
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
+`FLARESOLVERR_URL` accepts either the service base URL or an already-complete
+`/v1` endpoint; the suffix is normalized idempotently.
+
 With `FLARESOLVERR_URL` configured, `web_url_read` first performs its normal
 target URL security and HEAD size preflight. It then requests only the browser
 session cookies and user-agent from the solver. The actual target is fetched by
 `mcp-searxng`, so redirect validation, URL-reader proxy selection, streaming
 size limits, content-type handling, and caching remain authoritative.
 
-A transient solver connection, timeout, overload, malformed response, or
-oversized response falls back once to the direct URL-reader path. Invalid
-solver configuration, a solver result for a different hostname, and a
-non-success target status reported by the solver fail closed. Solver-backed
-cache entries are isolated from direct-fetch entries. PDFs remain unsupported
-by this feature and return the existing binary-content hint.
+A transient solver connection, timeout, overload, HTTP 408/429/5xx response,
+malformed response, or oversized response falls back once to the direct
+URL-reader path. Invalid solver configuration, other HTTP 4xx responses, a
+solver result for a different hostname, and a non-success target status
+reported by the solver fail closed. Solver-backed cache entries are isolated
+from direct-fetch entries. PDFs remain unsupported by this feature and return
+the existing binary-content hint.
 
 Example with the official FlareSolverr image:
 
