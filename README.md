@@ -40,6 +40,9 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 
 Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`). You can also provide interchangeable replicas as a semicolon-separated list, e.g. `https://one.example.com;https://two.example.com`.
 
+For verified Claude, Codex, Cursor, VS Code, Windsurf, Cline, and OpenCode
+recipes, see the [MCP client configuration cookbook](docs/client-configurations.md).
+
 ## Features
 
 - **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output (`response_format`).
