@@ -59,13 +59,21 @@ For measured MCP-process CPU and memory starting points, see
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
 - **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
 - **URL Content Reading**: Content-type-aware Markdown conversion, including bounded PDF text extraction, with pagination, section filtering, paragraph ranges, and heading extraction.
-- **FlareSolverr Support**: For each uncached URL that passes URL validation and the HEAD size preflight, optionally attempt to acquire a browser session from FlareSolverr, then replay the returned user-agent and scoped cookies through the bounded URL reader. Verified with FlareSolverr 3.5.0 on 2026-07-30. Byparr has not been verified and is not currently supported. Independent compatibility reports are welcome.
+- **Browser Solver Support**: For each uncached URL that passes URL validation and the HEAD size preflight, optionally acquire a browser session from either FlareSolverr or Byparr, then replay the returned user-agent and scoped cookies through the bounded URL reader. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30. Configure exactly one provider; automatic cross-provider fallback is not enabled.
 - **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
 - **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
 - **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
 - **HTML Fallback**: Optionally parse results from the HTML page for public instances that reject `format=json`.
 - **Lite Tools Mode**: Minimal tool schemas for local models with small context windows.
 - **Proxy Support**: Global or per-tool HTTP/HTTPS proxies for search and URL-reader traffic.
+
+The verified `linux/amd64` images came from multi-architecture manifests
+`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
+and
+`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
+Client cancellation stops local work promptly, but a remote browser may
+continue until its configured provider timeout after the HTTP client
+disconnects. See [browser solver verification](docs/browser-solver-verification.md).
 
 ## Why mcp-searxng?
 
@@ -150,10 +158,10 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - Missing or generic content types are read under the existing size cap; non-binary bodies continue through the HTML-to-markdown path for compatibility
   - PDF input and extracted text are each capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB. OCR is not supported, and scanned/image-only or password-protected PDFs return a short explanation.
   - A response declared as PDF must begin with the `%PDF-` signature; a mismatch usually indicates an interstitial or error page served with the wrong content type.
-  - PDF parsing has a separate 30-second worker budget after the response body is downloaded. On the direct path, the network fetch and parse take at most the configured fetch budget plus 30 seconds; configured FlareSolverr preflight and acquisition time is additional.
+  - PDF parsing has a separate 30-second worker budget after the response body is downloaded. On the direct path, the network fetch and parse take at most the configured fetch budget plus 30 seconds; configured browser-solver preflight and acquisition time is additional.
   - At most two PDF extractions run concurrently per MCP process. There is no queue; additional concurrent reads return a busy message and may be retried.
   - Other binary, media, archive, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
-  - When `FLARESOLVERR_URL` is configured, an uncached URL is validated and checked by the HEAD size preflight before `mcp-searxng` attempts FlareSolverr acquisition. Cache hits bypass acquisition; a full solver concurrency limit and transient solver failures use an uncached direct-fetch fallback. When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured FlareSolverr service.
+  - When `FLARESOLVERR_URL` or `BYPARR_URL` is configured, an uncached URL is validated and checked by the HEAD size preflight before `mcp-searxng` attempts browser-session acquisition. Cache hits bypass acquisition; a full provider-specific concurrency limit and transient solver failures use an uncached direct-fetch fallback. When a solver slot is available, every uncached URL that passes URL validation and the HEAD size preflight is disclosed to the configured browser solver.
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)
@@ -218,8 +226,8 @@ Image signatures can be verified with Cosign — see [SECURITY.md](SECURITY.md) 
 ```
 
 To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `env`.
-For FlareSolverr integration, pass `FLARESOLVERR_URL` as well and make the
-service reachable from this container. See
+For browser-solver integration, pass either `FLARESOLVERR_URL` or `BYPARR_URL`
+and make that service reachable from this container. See
 [URL Reader Controls](CONFIGURATION.md#url-reader-controls) for the complete
 behavior and Docker Compose example.
 

@@ -95,27 +95,43 @@ for trust, evaluation, and conservative-use guidance.
 | `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr service, such as `http://flaresolverr:8191`. When set, `web_url_read` attempts to ask its `/v1` API for a browser session after an uncached URL passes URL validation and the HEAD size preflight. |
 | `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
 | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent solver acquisitions per MCP process, from `1` through `16`. When all slots are occupied, the request uses the direct URL-reader path instead of waiting in a queue. |
+| `BYPARR_URL` | No | — | Base URL of a trusted Byparr service, such as `http://byparr:8191`. It is mutually exclusive with `FLARESOLVERR_URL`. |
+| `BYPARR_TIMEOUT_SECONDS` | No | `60` | Maximum Byparr session-acquisition time in whole seconds, from `1` through `300`. Invalid values use the default. |
+| `BYPARR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent Byparr acquisitions per MCP process, from `1` through `16`. It is independent from the FlareSolverr counter. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
-Verified with FlareSolverr 3.5.0 on 2026-07-30.
-Byparr has not been verified and is not currently supported. Independent
-compatibility reports are welcome.
+FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30. Configure
+either provider or neither provider. If both endpoint variables are non-blank,
+startup fails closed. This release does not automatically fall back between
+providers.
 
-`FLARESOLVERR_URL` accepts either an absolute HTTP(S) service base URL or an
+The verified `linux/amd64` images came from multi-architecture manifests
+`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
+and
+`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
+Client cancellation stops local work promptly, but a remote browser may
+continue until its configured provider timeout after the HTTP client
+disconnects. See [browser solver verification](docs/browser-solver-verification.md).
+
+Each provider URL accepts either an absolute HTTP(S) service base URL or an
 already-complete `/v1` endpoint; the suffix is normalized idempotently. Query
-strings, fragments, and other URL schemes are rejected. The value is validated
-when `web_url_read` first uses it rather than at process startup; an invalid
-value fails every URL read, including a potential cache hit, until corrected.
+strings, fragments, userinfo, and other URL schemes are rejected at startup and
+again during request resolution without echoing the configured value.
+This is stricter than the previous per-read validation: an existing
+`FLARESOLVERR_URL` containing userinfo, a query, a fragment, or an invalid
+scheme now prevents startup until corrected.
 `FLARESOLVERR_TIMEOUT_MS` is sent to the solver as its browser-work budget;
-the client permits up to 5 additional seconds to receive and validate the
-solver response.
+`BYPARR_TIMEOUT_SECONDS` is sent in seconds. The client permits up to 5
+additional seconds to receive and validate either solver response.
 
-With `FLARESOLVERR_URL` configured, `web_url_read` first performs its normal
+With one browser-solver endpoint configured, `web_url_read` first performs its normal
 target URL security and HEAD size preflight for every uncached read. It then
-requests only the browser session cookies and user-agent from the solver.
+requests a browser session and uses only its cookies and user-agent. Byparr
+2.1.0 also returns rendered content; that field is discarded after a bounded
+parse.
 When a solver slot is available, every uncached URL that passes URL validation
-and the HEAD size preflight is disclosed to the configured FlareSolverr service.
+and the HEAD size preflight is disclosed to the configured browser solver.
 Cache hits and reads made while the solver concurrency limit is full bypass
 solver acquisition. The actual target is fetched by `mcp-searxng`, so
 redirect validation, URL-reader proxy selection, streaming size limits, and
@@ -129,7 +145,8 @@ URL-reader path. Invalid solver configuration, other HTTP 4xx responses, a
 solver result for a different hostname, and a non-success target status
 reported by the solver fail closed. A direct-fetch fallback result is not
 cached, so repeated reads re-fetch until solver acquisition succeeds.
-Solver-backed cache entries are isolated from direct-fetch entries. When the
+Solver-backed cache entries are isolated by provider and from direct-fetch
+entries. Cancellation never falls back or writes a cache entry. When the
 replay response is `application/pdf`, the URL reader applies its bounded PDF
 text-extraction path.
 
@@ -155,6 +172,25 @@ services:
       - TZ=America/Chicago
 ```
 
+Equivalent Byparr configuration (use this block instead of FlareSolverr):
+
+```yaml
+services:
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:latest
+    stdin_open: true
+    environment:
+      - SEARXNG_URL=${SEARXNG_URL:?Set SEARXNG_URL in the environment}
+      - BYPARR_URL=http://byparr:8191
+      - BYPARR_TIMEOUT_SECONDS=60
+      - BYPARR_MAX_CONCURRENT_REQUESTS=2
+    depends_on:
+      - byparr
+
+  byparr:
+    image: ghcr.io/thephaseless/byparr:2.1.0
+```
+
 The solver is an operator-trusted browser service. Keep it on a private
 container network, do not expose port 8191 publicly, and restrict its egress
 from private services and cloud metadata endpoints. See
@@ -170,7 +206,7 @@ from private services and cloud metadata endpoints. See
 
 `SEARCH_USER_AGENT` and `URL_READER_USER_AGENT` are per-group overrides. When unset, both fall back to `USER_AGENT`. If neither the group override nor `USER_AGENT` is set, no User-Agent header is added by `mcp-searxng`.
 
-When FlareSolverr returns a solved session, its browser User-Agent replaces
+When a browser solver returns a solved session, its browser User-Agent replaces
 `URL_READER_USER_AGENT` / `USER_AGENT` on the replay fetch because the returned
 cookies are tied to that browser identity. The configured URL-reader User-Agent
 still applies to the pre-solve HEAD size check and to direct or fallback reads.
@@ -187,7 +223,7 @@ Interface-specific proxies take priority over global proxies for their respectiv
 | `NO_PROXY` | No | — | Comma-separated bypass list (e.g. `localhost,.internal,example.com`) |
 
 The solver API request uses only the global `HTTP_PROXY` / `HTTPS_PROXY` and
-`NO_PROXY` settings because `FLARESOLVERR_URL` identifies an operator-trusted
+`NO_PROXY` settings because the selected endpoint identifies an operator-trusted
 service. The target replay continues to use the URL-reader-specific proxy
 settings first.
 
@@ -309,10 +345,10 @@ operating-system sandbox.
 PDF parsing starts only after the response body is complete and has its own
 30-second worker budget. On the direct path, the HEAD checks and response body
 share the configured `FETCH_TIMEOUT_MS` network budget, after which parsing can
-take up to 30 additional seconds. With FlareSolverr enabled, add the initial
-HEAD preflight (up to 3 seconds), solver acquisition
-(`FLARESOLVERR_TIMEOUT_MS` plus up to 5 response-transfer seconds), and then the
-same replay-fetch and parser budgets.
+take up to 30 additional seconds. With a browser solver enabled, add the initial
+HEAD preflight (up to 3 seconds), solver acquisition (the selected provider
+timeout plus up to 5 response-transfer seconds), and then the same replay-fetch
+and parser budgets.
 
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 

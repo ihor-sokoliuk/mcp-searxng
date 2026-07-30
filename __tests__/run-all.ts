@@ -17,7 +17,7 @@ import { runTests as runTypesTests } from './unit/types.test.js';
 import { runTests as runCacheTests } from './unit/cache.test.js';
 import { runTests as runSearchCacheTests } from './unit/search-cache.test.js';
 import { runTests as runProxyTests } from './unit/proxy.test.js';
-import { runTests as runFlareSolverrTests } from './unit/flaresolverr.test.js';
+import { runTests as runBrowserSolverTests } from './unit/browser-solver.test.js';
 import { runTests as runPdfReaderTests } from './unit/pdf-reader.test.js';
 import { runTests as runPdfNetworkGuardTests } from './unit/pdf-network-guard.test.js';
 import { runTests as runErrorHandlerTests } from './unit/error-handler.test.js';
@@ -57,7 +57,7 @@ const testSuites: TestSuite[] = [
   { name: 'Cache', category: 'unit', run: runCacheTests },
   { name: 'Search Cache', category: 'unit', run: runSearchCacheTests },
   { name: 'Proxy', category: 'unit', run: runProxyTests },
-  { name: 'FlareSolverr', category: 'unit', run: runFlareSolverrTests },
+  { name: 'Browser Solver', category: 'unit', run: runBrowserSolverTests },
   { name: 'PDF Reader', category: 'unit', run: runPdfReaderTests },
   { name: 'PDF Network Guard', category: 'unit', run: runPdfNetworkGuardTests },
   { name: 'Error Handler', category: 'unit', run: runErrorHandlerTests },

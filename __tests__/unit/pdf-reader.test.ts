@@ -102,6 +102,23 @@ export async function runTests() {
     assert.deepEqual(result, { version: 1, kind: "timeout" });
   }, results);
 
+  await testFunction("cancellation terminates the worker and promptly releases its slot", async () => {
+    const controller = new AbortController();
+    const workerUrl = createDelayedWorkerUrl(10_000);
+    const pending = extractPdfText(createTextPdf(["cancel"]), 1024, {
+      workerUrl,
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const started = Date.now();
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    await assert.rejects(pending, /cancelled/u);
+    assert.ok(Date.now() - started < 1000);
+
+    const next = await extractPdfText(createTextPdf(["after"]), 1024);
+    assert.equal(next.kind, "text");
+  }, results);
+
   await testFunction("accepts the worker external-fetch sentinel without leaking details", async () => {
     const source =
       `import { parentPort } from "node:worker_threads";` +

@@ -7,12 +7,12 @@ import { urlCache } from "./cache.js";
 import { assertUrlAllowed, isUrlSecurityPolicyDnsError } from "./url-security.js";
 import { parseStrictInteger } from "./env-int.js";
 import {
-  acquireFlareSolverrSolution,
-  buildFlareSolverrHeaders,
-  createFlareSolverrCacheKey,
-  resolveFlareSolverrConfig,
-  type FlareSolverrSolution,
-} from "./flaresolverr.js";
+  acquireBrowserSolverSolution,
+  buildBrowserSolverHeaders,
+  createBrowserSolverCacheKey,
+  resolveBrowserSolverConfig,
+  type BrowserSolverSolution,
+} from "./browser-solver.js";
 import { extractPdfText, MAX_PDF_BYTES, MAX_PDF_PAGES } from "./pdf-reader.js";
 import {
   createURLFormatError,
@@ -224,12 +224,16 @@ export async function checkContentLength(
 ): Promise<number | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), Math.min(timeoutMs, HEAD_TIMEOUT_CAP_MS));
+  const callerSignal = baseRequestOptions.signal ?? undefined;
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, controller.signal])
+    : controller.signal;
 
   try {
     const requestOptions: RequestInit = {
       ...baseRequestOptions,
       method: "HEAD",
-      signal: controller.signal,
+      signal,
       redirect: "manual",
     };
 
@@ -246,6 +250,9 @@ export async function checkContentLength(
     const parsed = parseInt(contentLength, 10);
     return Number.isNaN(parsed) || parsed < 0 ? null : parsed;
   } catch (error: any) {
+    if (callerSignal?.aborted) {
+      throw callerSignal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    }
     if (isUrlSecurityPolicyDnsError(error)) {
       throw createURLSecurityPolicyError(url);
     }
@@ -544,14 +551,15 @@ export async function fetchAndConvertToMarkdown(
   mcpServer: McpServer,
   url: string,
   timeoutMs: number = 10000,
-  paginationOptions: PaginationOptions = {}
+  paginationOptions: PaginationOptions = {},
+  signal?: AbortSignal,
 ) {
   const startTime = Date.now();
   logMessage(mcpServer, "info", `Fetching URL: ${url}`);
 
-  const flareSolverrConfig = resolveFlareSolverrConfig(mcpServer);
-  const configuredCacheKey = flareSolverrConfig
-    ? createFlareSolverrCacheKey(url)
+  const browserSolverConfig = resolveBrowserSolverConfig(mcpServer);
+  const configuredCacheKey = browserSolverConfig
+    ? createBrowserSolverCacheKey(browserSolverConfig.provider, url)
     : url;
 
   // Check cache first
@@ -576,11 +584,11 @@ export async function fetchAndConvertToMarkdown(
   assertUrlAllowed(parsedUrl);
   const maxContentLengthBytes = getMaxContentLengthBytes(mcpServer);
 
-  let flareSolverrSolution: FlareSolverrSolution | null = null;
+  let browserSolverSolution: BrowserSolverSolution | null = null;
   let cacheKey = url;
   let shouldCacheResult = true;
   let skipInitialReplayHead = false;
-  if (flareSolverrConfig) {
+  if (browserSolverConfig) {
     const preflightProxyAgent = createProxyAgent(parsedUrl.toString(), ProxyType.URL_READER);
     const preflightDispatcher = preflightProxyAgent ?? createUrlReaderAgent();
     const preflightHeaders: Record<string, string> = {};
@@ -596,22 +604,24 @@ export async function fetchAndConvertToMarkdown(
       {
         redirect: "manual",
         headers: preflightHeaders,
+        signal,
       },
     );
     if (contentLength !== null && contentLength > maxContentLengthBytes) {
       return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
     }
 
-    const acquisition = await acquireFlareSolverrSolution(
+    const acquisition = await acquireBrowserSolverSolution(
       mcpServer,
-      flareSolverrConfig,
+      browserSolverConfig,
       parsedUrl,
+      signal,
     );
     if (acquisition.kind === "solved") {
-      flareSolverrSolution = acquisition.solution;
-      if (flareSolverrSolution.status < 200 || flareSolverrSolution.status >= 300) {
+      browserSolverSolution = acquisition.solution;
+      if (browserSolverSolution.status < 200 || browserSolverSolution.status >= 300) {
         throw createServerError(
-          flareSolverrSolution.status,
+          browserSolverSolution.status,
           "",
           "",
           { url },
@@ -627,11 +637,14 @@ export async function fetchAndConvertToMarkdown(
   // Create an AbortController instance
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const requestSignal = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
 
   try {
     // Prepare base request options with proxy support
     const requestOptions: RequestInit = {
-      signal: controller.signal,
+      signal: requestSignal,
       redirect: "manual",
     };
 
@@ -654,8 +667,8 @@ export async function fetchAndConvertToMarkdown(
         usedDispatcher = !!dispatcher;
         const currentRequestOptions = {
           ...requestOptions,
-          headers: flareSolverrSolution
-            ? buildFlareSolverrHeaders(flareSolverrSolution, currentUrl)
+          headers: browserSolverSolution
+            ? buildBrowserSolverHeaders(browserSolverSolution, currentUrl)
             : directHeaders,
         };
         if (dispatcher) {
@@ -766,7 +779,11 @@ export async function fetchAndConvertToMarkdown(
         return "Response declared application/pdf but did not contain a PDF document.";
       }
 
-      const extraction = await extractPdfText(bodyRead.bytes, effectivePdfLimit);
+      const extraction = await extractPdfText(
+        bodyRead.bytes,
+        effectivePdfLimit,
+        { signal },
+      );
       switch (extraction.kind) {
         case "text":
           markdownContent = renderFencedMarkdown("text", extraction.text);
@@ -847,6 +864,9 @@ export async function fetchAndConvertToMarkdown(
     logMessage(mcpServer, "info", `Successfully fetched and converted URL: ${url} (${result.length} chars in ${duration}ms)`);
     return result;
   } catch (error: any) {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    }
     if (error.name === "AbortError") {
       logMessage(mcpServer, "error", `Timeout fetching URL: ${url} (${timeoutMs}ms)`);
       throw createTimeoutError(timeoutMs, url);

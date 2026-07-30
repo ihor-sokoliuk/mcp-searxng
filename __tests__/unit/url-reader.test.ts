@@ -336,6 +336,65 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('cancellation discards a partial solver-backed body and writes no cache entry', async () => {
+    urlCache.clear();
+    let targetGetCount = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end();
+        return;
+      }
+      targetGetCount++;
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.write('<html><body><h1>partial');
+    });
+    const solver = await startHttpServer((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        const request = JSON.parse(body) as { url: string };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          solution: {
+            url: request.url,
+            status: 200,
+            cookies: [],
+            userAgent: 'solver-agent',
+          },
+        }));
+      });
+    });
+    const controller = new AbortController();
+
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('NO_PROXY', '127.0.0.1');
+      const pending = fetchAndConvertToMarkdown(
+        createMockServer() as any,
+        target.url,
+        10_000,
+        {},
+        controller.signal,
+      );
+      while (targetGetCount < 1) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      controller.abort(new DOMException('cancelled body', 'AbortError'));
+      await assert.rejects(pending, /cancelled body/u);
+      assert.equal(urlCache.getStats().size, 0);
+    } finally {
+      envManager.restore();
+      urlCache.clear();
+      await solver.close();
+      await target.close();
+    }
+  }, results);
+
   await testFunction('solver cache entries are isolated from direct URL cache entries', async () => {
     urlCache.clear();
     let targetBody = '<html><body><h1>Direct version</h1></body></html>';

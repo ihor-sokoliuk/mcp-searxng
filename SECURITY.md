@@ -59,15 +59,24 @@ To allow private URL reads and private DNS-resolved targets (e.g. for internal d
 
 ### Delegated Browser Service
 
-Setting `FLARESOLVERR_URL` delegates challenge-page navigation to a trusted
-FlareSolverr service. Verified with FlareSolverr 3.5.0 on 2026-07-30.
-Byparr has not been verified and is not currently supported.
+Setting `FLARESOLVERR_URL` or `BYPARR_URL` delegates challenge-page navigation
+to a trusted browser service. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified
+on 2026-07-30. Configure exactly one provider; simultaneous endpoints fail
+closed and automatic cross-provider fallback is not enabled.
+
+The verified `linux/amd64` images came from multi-architecture manifests
+`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
+and
+`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
+Client cancellation stops local work promptly, but a remote browser may
+continue until its configured provider timeout after the HTTP client
+disconnects.
 
 Cache hits bypass solver acquisition. For uncached reads, `mcp-searxng`
 validates the requested target and performs the HEAD size preflight before
 attempting acquisition. When a solver slot is available, every uncached URL that
 passes URL validation and the HEAD size preflight is disclosed to the configured
-FlareSolverr service. Reads made while the solver concurrency limit is full use
+browser solver. Reads made while that provider's concurrency limit is full use
 the direct path without contacting it. `mcp-searxng` accepts a solution only for
 the same hostname, filters returned cookies by domain, path, secure flag, and
 expiry, rejects cookie names or values outside the HTTP cookie character set or
@@ -86,10 +95,14 @@ challenge. Treat that service as part of the trusted deployment boundary:
   workload;
 - keep the solver image updated and review its own security guidance.
 
-Transient solver failures use the direct URL-reader path once. Invalid solver
+Transient solver failures use the direct URL-reader path once. Cancellation
+does not trigger fallback and is propagated through acquisition, replay, body
+streaming, and PDF extraction. Invalid solver
 configuration and hostname-divergent solutions fail closed. The solver API
-response is capped at 256 KiB, and concurrent solver acquisitions are bounded
-by `FLARESOLVERR_MAX_CONCURRENT_REQUESTS`.
+response is capped at 256 KiB for FlareSolverr and 5 MiB for Byparr, whose
+current API always returns rendered content alongside cookies. Concurrent
+acquisitions are bounded independently by the selected provider's
+`*_MAX_CONCURRENT_REQUESTS` variable.
 
 ### PDF Text Extraction
 

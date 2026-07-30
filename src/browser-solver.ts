@@ -1,6 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { fetch as undiciFetch } from "undici";
 import { createConfigurationError, createContentError } from "./error-handler.js";
+import {
+  BrowserSolverConfigurationIssue,
+  resolveBrowserSolverEndpoint,
+  type BrowserSolverProvider,
+} from "./browser-solver-config.js";
 import { parseStrictInteger } from "./env-int.js";
 import { logMessage } from "./logging.js";
 import { applyTrustedServiceRequestConfig } from "./proxy.js";
@@ -9,17 +14,25 @@ export const DEFAULT_FLARESOLVERR_TIMEOUT_MS = 60_000;
 export const MAX_FLARESOLVERR_TIMEOUT_MS = 300_000;
 export const DEFAULT_FLARESOLVERR_CONCURRENCY = 2;
 export const MAX_FLARESOLVERR_CONCURRENCY = 16;
-const MAX_FLARESOLVERR_RESPONSE_BYTES = 256 * 1024;
-const FLARESOLVERR_RESPONSE_GRACE_MS = 5_000;
+export const DEFAULT_BYPARR_TIMEOUT_SECONDS = 60;
+export const MAX_BYPARR_TIMEOUT_SECONDS = 300;
+export const DEFAULT_BYPARR_CONCURRENCY = 2;
+export const MAX_BYPARR_CONCURRENCY = 16;
+export const MAX_FLARESOLVERR_RESPONSE_BYTES = 256 * 1024;
+export const MAX_BYPARR_RESPONSE_BYTES = 5 * 1024 * 1024;
+const BROWSER_SOLVER_RESPONSE_GRACE_MS = 5_000;
 const MAX_COOKIE_PAIR_BYTES = 4_096;
 
-export interface FlareSolverrConfig {
+export interface BrowserSolverConfig {
+  provider: BrowserSolverProvider;
   endpoint: URL;
   timeoutMs: number;
+  wireTimeout: number;
   maxConcurrentRequests: number;
+  maxResponseBytes: number;
 }
 
-export interface FlareSolverrCookie {
+export interface BrowserSolverCookie {
   name?: unknown;
   value?: unknown;
   domain?: unknown;
@@ -28,22 +41,29 @@ export interface FlareSolverrCookie {
   expires?: unknown;
 }
 
-export interface FlareSolverrSolution {
+export interface BrowserSolverSolution {
   url: string;
   status: number;
-  cookies: FlareSolverrCookie[];
+  cookies: BrowserSolverCookie[];
   userAgent: string;
 }
 
-export type FlareSolverrAcquisition =
-  | { kind: "solved"; solution: FlareSolverrSolution }
+export type BrowserSolverAcquisition =
+  | { kind: "solved"; solution: BrowserSolverSolution }
   | { kind: "fallback"; reason: "busy" | "unavailable" };
 
-let activeSolverRequests = 0;
+const activeSolverRequests: Record<BrowserSolverProvider, number> = {
+  flaresolverr: 0,
+  byparr: 0,
+};
 
 function resolveBoundedInteger(
   mcpServer: McpServer,
-  name: "FLARESOLVERR_TIMEOUT_MS" | "FLARESOLVERR_MAX_CONCURRENT_REQUESTS",
+  name:
+    | "FLARESOLVERR_TIMEOUT_MS"
+    | "FLARESOLVERR_MAX_CONCURRENT_REQUESTS"
+    | "BYPARR_TIMEOUT_SECONDS"
+    | "BYPARR_MAX_CONCURRENT_REQUESTS",
   fallback: number,
   maximum: number,
 ): number {
@@ -65,59 +85,67 @@ function resolveBoundedInteger(
   return parsed;
 }
 
-function normalizeSolverEndpoint(rawValue: string): URL {
-  let endpoint: URL;
-  try {
-    endpoint = new URL(rawValue.trim());
-  } catch {
-    throw createConfigurationError(
-      "FLARESOLVERR_URL must be an absolute HTTP or HTTPS service base URL.",
-    );
-  }
-
-  if (
-    !["http:", "https:"].includes(endpoint.protocol)
-    || endpoint.search !== ""
-    || endpoint.hash !== ""
-  ) {
-    throw createConfigurationError(
-      "FLARESOLVERR_URL must be an absolute HTTP or HTTPS service base URL without a query or fragment.",
-    );
-  }
-
-  const pathWithoutTrailingSlash = endpoint.pathname.replace(/\/+$/u, "");
-  endpoint.pathname = pathWithoutTrailingSlash.endsWith("/v1")
-    ? pathWithoutTrailingSlash
-    : `${pathWithoutTrailingSlash}/v1`;
-  return endpoint;
-}
-
-export function resolveFlareSolverrConfig(
+export function resolveBrowserSolverConfig(
   mcpServer: McpServer,
-): FlareSolverrConfig | null {
-  const rawUrl = process.env.FLARESOLVERR_URL;
-  if (rawUrl === undefined || rawUrl.trim() === "") {
+): BrowserSolverConfig | null {
+  let selection;
+  try {
+    selection = resolveBrowserSolverEndpoint();
+  } catch (error) {
+    if (error instanceof BrowserSolverConfigurationIssue) {
+      throw createConfigurationError(error.message);
+    }
+    throw error;
+  }
+  if (!selection) {
     return null;
   }
 
-  return {
-    endpoint: normalizeSolverEndpoint(rawUrl),
-    timeoutMs: resolveBoundedInteger(
+  if (selection.provider === "byparr") {
+    const timeoutSeconds = resolveBoundedInteger(
       mcpServer,
-      "FLARESOLVERR_TIMEOUT_MS",
-      DEFAULT_FLARESOLVERR_TIMEOUT_MS,
-      MAX_FLARESOLVERR_TIMEOUT_MS,
-    ),
+      "BYPARR_TIMEOUT_SECONDS",
+      DEFAULT_BYPARR_TIMEOUT_SECONDS,
+      MAX_BYPARR_TIMEOUT_SECONDS,
+    );
+    return {
+      ...selection,
+      timeoutMs: timeoutSeconds * 1000,
+      wireTimeout: timeoutSeconds,
+      maxConcurrentRequests: resolveBoundedInteger(
+        mcpServer,
+        "BYPARR_MAX_CONCURRENT_REQUESTS",
+        DEFAULT_BYPARR_CONCURRENCY,
+        MAX_BYPARR_CONCURRENCY,
+      ),
+      maxResponseBytes: MAX_BYPARR_RESPONSE_BYTES,
+    };
+  }
+
+  const timeoutMs = resolveBoundedInteger(
+    mcpServer,
+    "FLARESOLVERR_TIMEOUT_MS",
+    DEFAULT_FLARESOLVERR_TIMEOUT_MS,
+    MAX_FLARESOLVERR_TIMEOUT_MS,
+  );
+  return {
+    ...selection,
+    timeoutMs,
+    wireTimeout: timeoutMs,
     maxConcurrentRequests: resolveBoundedInteger(
       mcpServer,
       "FLARESOLVERR_MAX_CONCURRENT_REQUESTS",
       DEFAULT_FLARESOLVERR_CONCURRENCY,
       MAX_FLARESOLVERR_CONCURRENCY,
     ),
+    maxResponseBytes: MAX_FLARESOLVERR_RESPONSE_BYTES,
   };
 }
 
-async function readBoundedResponse(response: Response): Promise<string | null> {
+async function readBoundedResponse(
+  response: Response,
+  maximumBytes: number,
+): Promise<string | null> {
   if (response.body === null) {
     return "";
   }
@@ -136,7 +164,7 @@ async function readBoundedResponse(response: Response): Promise<string | null> {
         continue;
       }
       bytesRead += value.byteLength;
-      if (bytesRead > MAX_FLARESOLVERR_RESPONSE_BYTES) {
+      if (bytesRead > maximumBytes) {
         await reader.cancel();
         return null;
       }
@@ -170,7 +198,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-function parseSolution(value: unknown): FlareSolverrSolution | null {
+function parseSolution(value: unknown): BrowserSolverSolution | null {
   const envelope = asRecord(value);
   if (!envelope) {
     return null;
@@ -198,24 +226,24 @@ function parseSolution(value: unknown): FlareSolverrSolution | null {
   return {
     url: solution.url,
     status: solution.status,
-    cookies: solution.cookies as FlareSolverrCookie[],
+    cookies: solution.cookies as BrowserSolverCookie[],
     userAgent: solution.userAgent,
   };
 }
 
-function validateSolutionUrl(solution: FlareSolverrSolution, requestedUrl: URL): void {
+function validateSolutionUrl(solution: BrowserSolverSolution, requestedUrl: URL): void {
   let solvedUrl: URL;
   try {
     solvedUrl = new URL(solution.url);
   } catch {
-    throw createContentError("FlareSolverr returned an invalid solution URL.", requestedUrl.href);
+    throw createContentError("Browser solver returned an invalid solution URL.", requestedUrl.href);
   }
   if (
     !["http:", "https:"].includes(solvedUrl.protocol)
     || solvedUrl.hostname.toLowerCase() !== requestedUrl.hostname.toLowerCase()
   ) {
     throw createContentError(
-      "FlareSolverr returned a solution URL on a different or unsupported hostname.",
+      "Browser solver returned a solution URL on a different or unsupported hostname.",
       requestedUrl.href,
     );
   }
@@ -225,27 +253,29 @@ function logDirectFallback(mcpServer: McpServer): void {
   logMessage(
     mcpServer,
     "warning",
-    "FlareSolverr session acquisition failed; using the direct URL fetch path.",
+    "Browser solver session acquisition failed; using the direct URL fetch path.",
   );
 }
 
-async function requestFlareSolverrSession(
-  config: FlareSolverrConfig,
+async function requestBrowserSolverSession(
+  config: BrowserSolverConfig,
   requestedUrl: URL,
+  signal?: AbortSignal,
 ): Promise<string | null> {
-  const timeoutSignal = AbortSignal.timeout(
-    config.timeoutMs + FLARESOLVERR_RESPONSE_GRACE_MS,
-  );
+  const timeoutSignal = AbortSignal.timeout(config.timeoutMs + BROWSER_SOLVER_RESPONSE_GRACE_MS);
+  const requestSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
 
   try {
     const requestOptions: RequestInit = {
       method: "POST",
-      signal: timeoutSignal,
+      signal: requestSignal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         cmd: "request.get",
         url: requestedUrl.href,
-        maxTimeout: config.timeoutMs,
+        maxTimeout: config.wireTimeout,
         returnOnlyCookies: true,
       }),
     };
@@ -261,15 +291,18 @@ async function requestFlareSolverrSession(
     if (isPersistentClientError) {
       await response.body?.cancel();
       throw createConfigurationError(
-        "FlareSolverr endpoint rejected the request. Check FLARESOLVERR_URL and service API compatibility.",
+        "Browser solver endpoint rejected the request. Check the configured endpoint and service API compatibility.",
       );
     }
     if (!response.ok) {
       await response.body?.cancel();
       return null;
     }
-    return await readBoundedResponse(response);
+    return await readBoundedResponse(response, config.maxResponseBytes);
   } catch (error: any) {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    }
     if (error?.name === "MCPSearXNGError") {
       throw error;
     }
@@ -277,7 +310,7 @@ async function requestFlareSolverrSession(
   }
 }
 
-function decodeSolution(responseText: string | null): FlareSolverrSolution | null {
+function decodeSolution(responseText: string | null): BrowserSolverSolution | null {
   if (responseText === null) {
     return null;
   }
@@ -288,25 +321,31 @@ function decodeSolution(responseText: string | null): FlareSolverrSolution | nul
   }
 }
 
-export async function acquireFlareSolverrSolution(
+export async function acquireBrowserSolverSolution(
   mcpServer: McpServer,
-  config: FlareSolverrConfig,
+  config: BrowserSolverConfig,
   requestedUrl: URL,
-): Promise<FlareSolverrAcquisition> {
-  if (activeSolverRequests >= config.maxConcurrentRequests) {
+  signal?: AbortSignal,
+): Promise<BrowserSolverAcquisition> {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+  }
+  if (activeSolverRequests[config.provider] >= config.maxConcurrentRequests) {
     logMessage(
       mcpServer,
       "warning",
-      "FlareSolverr concurrency limit reached; using the direct URL fetch path.",
+      "Browser solver concurrency limit reached; using the direct URL fetch path.",
     );
     return { kind: "fallback", reason: "busy" };
   }
 
-  activeSolverRequests++;
+  activeSolverRequests[config.provider]++;
   try {
-    const solution = decodeSolution(
-      await requestFlareSolverrSession(config, requestedUrl),
-    );
+    const responseText = await requestBrowserSolverSession(config, requestedUrl, signal);
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    }
+    const solution = decodeSolution(responseText);
     if (!solution) {
       logDirectFallback(mcpServer);
       return { kind: "fallback", reason: "unavailable" };
@@ -314,11 +353,11 @@ export async function acquireFlareSolverrSolution(
     validateSolutionUrl(solution, requestedUrl);
     return { kind: "solved", solution };
   } finally {
-    activeSolverRequests--;
+    activeSolverRequests[config.provider]--;
   }
 }
 
-function cookiePath(cookie: FlareSolverrCookie): string {
+function cookiePath(cookie: BrowserSolverCookie): string {
   return typeof cookie.path === "string" && cookie.path.startsWith("/")
     ? cookie.path
     : "/";
@@ -335,7 +374,7 @@ function pathMatches(requestPath: string, candidate: string): boolean {
 }
 
 function domainMatches(
-  cookie: FlareSolverrCookie,
+  cookie: BrowserSolverCookie,
   requestHostname: string,
   solutionHostname: string,
 ): boolean {
@@ -376,29 +415,29 @@ function isValidCookiePair(name: string, value: string): boolean {
 }
 
 interface IndexedCookie {
-  cookie: FlareSolverrCookie;
+  cookie: BrowserSolverCookie;
   index: number;
   path: string;
 }
 
-function isUnexpired(cookie: FlareSolverrCookie, nowSeconds: number): boolean {
+function isUnexpired(cookie: BrowserSolverCookie, nowSeconds: number): boolean {
   return typeof cookie.expires !== "number"
     || !Number.isFinite(cookie.expires)
     || cookie.expires <= 0
     || cookie.expires > nowSeconds;
 }
 
-interface NamedCookie extends FlareSolverrCookie {
+interface NamedCookie extends BrowserSolverCookie {
   name: string;
   value: string;
 }
 
-function hasCookieIdentity(cookie: FlareSolverrCookie): cookie is NamedCookie {
+function hasCookieIdentity(cookie: BrowserSolverCookie): cookie is NamedCookie {
   return typeof cookie.name === "string" && typeof cookie.value === "string";
 }
 
 function cookieTransportMatches(
-  cookie: FlareSolverrCookie,
+  cookie: BrowserSolverCookie,
   path: string,
   targetUrl: URL,
   requestHostname: string,
@@ -437,8 +476,8 @@ function cookieMatchesTarget(
     );
 }
 
-export function buildFlareSolverrHeaders(
-  solution: FlareSolverrSolution,
+export function buildBrowserSolverHeaders(
+  solution: BrowserSolverSolution,
   targetUrl: URL,
   nowSeconds: number = Date.now() / 1000,
 ): Record<string, string> {
@@ -473,6 +512,9 @@ export function buildFlareSolverrHeaders(
   return headers;
 }
 
-export function createFlareSolverrCacheKey(requestedUrl: string): string {
-  return `solver:${requestedUrl}`;
+export function createBrowserSolverCacheKey(
+  provider: BrowserSolverProvider,
+  requestedUrl: string,
+): string {
+  return `solver:${provider}:${requestedUrl}`;
 }
