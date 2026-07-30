@@ -303,6 +303,20 @@ function createPdfTextTooLargeMessage(textBytes: number, maxBytes: number): stri
   );
 }
 
+function createPdfInputTooLargeMessage(
+  contentLength: number,
+  effectiveLimit: number,
+  configuredLimit: number,
+): string {
+  if (configuredLimit < MAX_PDF_BYTES) {
+    return createContentTooLargeMessage(contentLength, effectiveLimit);
+  }
+  return (
+    `Content too large: ${formatByteSize(contentLength)} exceeds the ${formatByteSize(effectiveLimit)} limit. ` +
+    `This is the fixed PDF input ceiling and cannot be raised with URL_READ_MAX_CONTENT_LENGTH_BYTES.`
+  );
+}
+
 function normalizeMediaType(contentType: string | null): string | null {
   if (!contentType) {
     return null;
@@ -735,7 +749,11 @@ export async function fetchAndConvertToMarkdown(
         );
       }
       if (bodyRead.exceeded) {
-        return createContentTooLargeMessage(bodyRead.bytesRead, effectivePdfLimit);
+        return createPdfInputTooLargeMessage(
+          bodyRead.bytesRead,
+          effectivePdfLimit,
+          maxContentLengthBytes,
+        );
       }
 
       // The network phase is complete. PDF parsing has its own independent,
