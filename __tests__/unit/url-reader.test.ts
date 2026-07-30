@@ -1414,13 +1414,47 @@ async function runTests() {
     try {
       const first = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, { maxLength: 32 });
       const second = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, { startChar: 0 });
-      assert.equal(first, 'Encrypted Matrix-Vector Products');
+      assert.equal(first.length, 32);
+      assert.ok(first.startsWith('```text\nEncrypted Matrix-'));
       assert.ok(second.includes('Encrypted Matrix-Vector Products'));
       assert.ok(second.includes('Abstract test content'));
+      assert.ok(second.startsWith('```text\n'));
+      assert.ok(second.endsWith('\n```'));
       assert.equal(requestCount, 2, 'Successful PDF text should be cached after one HEAD and GET');
     } finally {
       await close();
       urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('application/pdf enforces both configured and fixed input byte ceilings', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+    const limits = [
+      { configured: '64', bodyBytes: 65, expectedLimit: '64 bytes' },
+      {
+        configured: String(20 * 1024 * 1024),
+        bodyBytes: 16 * 1024 * 1024 + 1,
+        expectedLimit: '16.00 MB (16777216 bytes)',
+      },
+    ];
+
+    for (const limit of limits) {
+      envManager.set('URL_READ_MAX_CONTENT_LENGTH_BYTES', limit.configured);
+      const body = Buffer.alloc(limit.bodyBytes);
+      body.write('%PDF-', 0, 'ascii');
+      const { url, close } = await startHttpServer((req, res) => {
+        res.writeHead(200, { 'content-type': 'application/pdf' });
+        res.end(req.method === 'HEAD' ? undefined : body);
+      });
+      try {
+        const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+        assert.ok(result.startsWith('Content too large:'), result);
+        assert.ok(result.includes(limit.expectedLimit), result);
+      } finally {
+        await close();
+        urlCache.clear();
+      }
     }
   }, results);
 
