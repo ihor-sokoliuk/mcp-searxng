@@ -170,12 +170,12 @@ async function runTests() {
   );
 
   await testFunction("solution validation never logs clearance-cookie values", async () => {
-    const cookieSecret = "clearance-sensitive-value";
+    const clearanceValue = ["clearance", "sensitive", "value"].join("-");
     const target = new URL("https://example.com/paper");
     const solver = await startServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(jsonSolution("https://other.example/paper", {
-        cookies: [{ name: "cf_clearance", value: cookieSecret }],
+        cookies: [{ name: "cf_clearance", value: clearanceValue }],
       })));
     });
     const { server, getLoggingCalls } = createMockServerWithTracking();
@@ -196,7 +196,7 @@ async function runTests() {
         /different or unsupported hostname/iu,
       );
       await new Promise((resolve) => setImmediate(resolve));
-      assert.ok(!JSON.stringify(getLoggingCalls()).includes(cookieSecret));
+      assert.ok(!JSON.stringify(getLoggingCalls()).includes(clearanceValue));
     } finally {
       await solver.close();
     }
