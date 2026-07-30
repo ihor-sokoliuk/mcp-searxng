@@ -166,12 +166,16 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(document.includes('HTTP client'));
       assert.ok(document.includes('disconnects'));
     }
-    for (const document of [readme, configuration, security]) {
+    for (const document of [readme, configuration]) {
       const normalized = document.replace(/\s+/gu, ' ');
       assert.ok(normalized.includes('FlareSolverr is always primary'));
       assert.ok(normalized.includes('150 seconds'));
       assert.ok(normalized.includes('unavailable'));
     }
+    const normalizedSecurity = security.replace(/\s+/gu, ' ');
+    assert.ok(normalizedSecurity.includes('FlareSolverr as the fixed primary'));
+    assert.ok(normalizedSecurity.includes('150 seconds'));
+    assert.ok(normalizedSecurity.includes('unavailable'));
     assert.ok(readme.includes('no automatic reverse failover'));
     assert.ok(configuration.includes('automatic reverse failover is not performed'));
     assert.ok(security.includes('does not retain a health score'));

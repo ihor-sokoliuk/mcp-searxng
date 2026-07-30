@@ -363,7 +363,7 @@ async function runTests() {
           targetGets++;
         }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(req.method === 'HEAD' ? '' : `<h1>${scenario.name} direct</h1>`);
+        res.end(req.method === 'HEAD' ? '' : '<h1>Dual direct fallback</h1>');
       });
       const flare = await startHttpServer((_req, res) => {
         flarePosts++;
@@ -384,7 +384,7 @@ async function runTests() {
           createMockServer() as any,
           target.url,
         );
-        assert.ok(result.includes(`# ${scenario.name} direct`), scenario.name);
+        assert.ok(result.includes('# Dual direct fallback'), scenario.name);
         assert.equal(flarePosts, 1, scenario.name);
         assert.equal(byparrPosts, 1, scenario.name);
         assert.equal(targetGets, 1, scenario.name);

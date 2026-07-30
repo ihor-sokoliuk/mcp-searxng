@@ -61,8 +61,9 @@ To allow private URL reads and private DNS-resolved targets (e.g. for internal d
 
 Setting `FLARESOLVERR_URL` or `BYPARR_URL` delegates challenge-page navigation
 to a trusted browser service. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified
-on 2026-07-30. Both endpoints may be configured; FlareSolverr is always primary
-and Byparr is the fallback only for busy or transient-unavailable acquisition.
+on 2026-07-30. When both endpoints are configured, this release uses
+FlareSolverr as the fixed primary and Byparr as the fallback only for busy or
+transient-unavailable acquisition.
 Canonical duplicate endpoints fail closed.
 
 The verified `linux/amd64` images came from multi-architecture manifests

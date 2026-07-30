@@ -55,6 +55,21 @@ function jsonSolution(url: string, extra: Record<string, unknown> = {}) {
   };
 }
 
+function createProviderConfig(
+  provider: "flaresolverr" | "byparr",
+  endpoint: string,
+): BrowserSolverConfig {
+  const byparr = provider === "byparr";
+  return {
+    provider,
+    endpoint: new URL(`${endpoint}/v1`),
+    timeoutMs: 1000,
+    wireTimeout: byparr ? 1 : 1000,
+    maxConcurrentRequests: 1,
+    maxResponseBytes: byparr ? 5 * 1024 * 1024 : 256 * 1024,
+  };
+}
+
 async function waitForPending(
   pending: http.ServerResponse[],
   count: number,
@@ -217,14 +232,7 @@ async function runTests() {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(jsonSolution(target.href)));
     });
-    const flareConfig: BrowserSolverConfig = {
-      provider: "flaresolverr",
-      endpoint: new URL(`${flare.url}/v1`),
-      timeoutMs: 1000,
-      wireTimeout: 1000,
-      maxConcurrentRequests: 1,
-      maxResponseBytes: 256 * 1024,
-    };
+    const flareConfig = createProviderConfig("flaresolverr", flare.url);
     const heldPrimary = acquireBrowserSolverSolution(
       createMockServer() as any,
       flareConfig,
@@ -236,14 +244,7 @@ async function runTests() {
         createMockServer() as any,
         [
           flareConfig,
-          {
-            provider: "byparr",
-            endpoint: new URL(`${byparr.url}/v1`),
-            timeoutMs: 1000,
-            wireTimeout: 1,
-            maxConcurrentRequests: 1,
-            maxResponseBytes: 5 * 1024 * 1024,
-          },
+          createProviderConfig("byparr", byparr.url),
         ],
         target,
       );
