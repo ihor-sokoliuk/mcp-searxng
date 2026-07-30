@@ -164,7 +164,9 @@ export async function runTests(): Promise<TestResult> {
     }
 
     for (const tool of [LITE_READ_URL_TOOL, READ_URL_TOOL]) {
-      assert.ok(tool.description.includes('every uncached URL read'));
+      assert.ok(tool.description.includes('attempts to acquire a browser session'));
+      assert.ok(tool.description.includes('before every uncached URL read'));
+      assert.ok(tool.description.includes('uncached direct'));
       assert.ok(!tool.description.includes('Byparr'));
     }
   }, results);
