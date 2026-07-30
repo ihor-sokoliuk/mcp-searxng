@@ -83,7 +83,10 @@ function normalizeSolverEndpoint(rawValue: string): URL {
     );
   }
 
-  endpoint.pathname = `${endpoint.pathname.replace(/\/?$/u, "/")}v1`;
+  const pathWithoutTrailingSlash = endpoint.pathname.replace(/\/+$/u, "");
+  endpoint.pathname = pathWithoutTrailingSlash.endsWith("/v1")
+    ? pathWithoutTrailingSlash
+    : `${pathWithoutTrailingSlash}/v1`;
   return endpoint;
 }
 
@@ -245,13 +248,27 @@ export async function acquireFlareSolverrSolution(
         config.endpoint,
         requestOptions,
       );
+      if (
+        response.status >= 400
+        && response.status < 500
+        && response.status !== 408
+        && response.status !== 429
+      ) {
+        await response.body?.cancel();
+        throw createConfigurationError(
+          "FlareSolverr endpoint rejected the request. Check FLARESOLVERR_URL and service API compatibility.",
+        );
+      }
       if (!response.ok) {
         await response.body?.cancel();
         logDirectFallback(mcpServer);
         return { kind: "fallback", reason: "unavailable" };
       }
       responseText = await readBoundedResponse(response);
-    } catch {
+    } catch (error: any) {
+      if (error?.name === "MCPSearXNGError") {
+        throw error;
+      }
       logDirectFallback(mcpServer);
       return { kind: "fallback", reason: "unavailable" };
     } finally {

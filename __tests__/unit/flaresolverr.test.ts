@@ -89,6 +89,12 @@ async function runTests() {
     assert.equal(config?.endpoint.href, "http://solver.example/base/v1");
     assert.equal(config?.timeoutMs, 60000);
     assert.equal(config?.maxConcurrentRequests, 2);
+
+    process.env.FLARESOLVERR_URL = "http://solver.example/base/v1/";
+    assert.equal(
+      resolveFlareSolverrConfig(createMockServer() as any)?.endpoint.href,
+      "http://solver.example/base/v1",
+    );
   }, results);
 
   await testFunction("invalid numeric controls warn and use bounded defaults", async () => {
@@ -177,6 +183,47 @@ async function runTests() {
       assert.equal(acquisition.kind, "solved");
     } finally {
       await solver.close();
+    }
+  }, results);
+
+  await testFunction("persistent solver HTTP 4xx fails closed while transient statuses fall back", async () => {
+    const target = new URL("https://example.com/paper");
+    for (const status of [400, 404]) {
+      const solver = await startServer((_req, res) => {
+        res.writeHead(status, { "content-type": "text/plain" });
+        res.end("private response detail");
+      });
+      try {
+        await assert.rejects(
+          acquireFlareSolverrSolution(
+            createMockServer() as any,
+            { endpoint: new URL(`${solver.url}/v1`), timeoutMs: 1000, maxConcurrentRequests: 2 },
+            target,
+          ),
+          /Configuration Error.*endpoint rejected/iu,
+        );
+      } finally {
+        await solver.close();
+      }
+    }
+
+    for (const status of [408, 429, 500]) {
+      const solver = await startServer((_req, res) => {
+        res.writeHead(status, { "content-type": "text/plain" });
+        res.end("transient");
+      });
+      try {
+        assert.deepEqual(
+          await acquireFlareSolverrSolution(
+            createMockServer() as any,
+            { endpoint: new URL(`${solver.url}/v1`), timeoutMs: 1000, maxConcurrentRequests: 2 },
+            target,
+          ),
+          { kind: "fallback", reason: "unavailable" },
+        );
+      } finally {
+        await solver.close();
+      }
     }
   }, results);
 
