@@ -748,7 +748,7 @@ export async function fetchAndConvertToMarkdown(
       const extraction = await extractPdfText(bodyRead.bytes, effectivePdfLimit);
       switch (extraction.kind) {
         case "text":
-          markdownContent = extraction.text;
+          markdownContent = renderFencedMarkdown("text", extraction.text);
           break;
         case "no_text":
           return "No extractable text (likely a scanned/image PDF; OCR is not supported).";

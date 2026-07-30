@@ -16,6 +16,7 @@ import {
   spawnWithMessagesAsync,
 } from './helpers/spawn-server.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
+import { createTextPdf } from '../helpers/pdf-fixtures.js';
 
 const results = createTestResults();
 const PROTECTED_PDF_URL = 'https://eprint.iacr.org/2025/858.pdf';
@@ -77,9 +78,9 @@ async function runTests() {
         replayCookie = req.headers.cookie ?? '';
       }
       res.writeHead(req.method === 'HEAD' ? 403 : 200, {
-        'content-type': 'text/html; charset=utf-8',
+        'content-type': 'application/pdf',
       });
-      res.end(req.method === 'HEAD' ? '' : '<html><body><h1>Solver E2E</h1></body></html>');
+      res.end(req.method === 'HEAD' ? '' : Buffer.from(createTextPdf(['Solver PDF E2E'])));
     });
     const solver = await startServer((req, res) => {
       let body = '';
@@ -121,7 +122,7 @@ async function runTests() {
       const response = responses[2];
       assert.ok(response && !response.error, JSON.stringify(response?.error));
       const text: string = response.result?.content?.[0]?.text ?? '';
-      assert.ok(text.includes('# Solver E2E'), text);
+      assert.ok(text.includes('Solver PDF E2E'), text);
       assert.equal(replayUserAgent, 'flaresolverr-e2e-agent');
       assert.equal(replayCookie, 'cf_clearance=e2e-token');
     } finally {

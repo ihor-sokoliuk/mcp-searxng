@@ -32,6 +32,11 @@ export async function runTests() {
       disableAutoFetch: true,
       disableStream: true,
       useWorkerFetch: false,
+      useWasm: false,
+      cMapUrl: undefined,
+      standardFontDataUrl: undefined,
+      wasmUrl: undefined,
+      iccUrl: undefined,
       verbosity: 0,
     });
   }, results);
@@ -45,6 +50,22 @@ export async function runTests() {
       totalPages: 2,
       textBytes: 21,
     });
+  }, results);
+
+  await testFunction("removes unsafe control characters from extracted text", async () => {
+    const result = await extractPdfText(createTextPdf(["safe\u0000text\u0007"]), 1024);
+    assert.equal(result.kind, "text");
+    assert.ok(result.kind !== "text" || result.text === "safe text");
+    assert.ok(
+      result.kind !== "text"
+      || [...result.text].every((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint === 0x09
+          || codePoint === 0x0a
+          || codePoint === 0x0d
+          || (codePoint >= 0x20 && codePoint !== 0x7f);
+      }),
+    );
   }, results);
 
   await testFunction("reports PDFs with no extractable text", async () => {

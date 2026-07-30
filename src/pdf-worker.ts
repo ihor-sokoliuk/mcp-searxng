@@ -1,5 +1,4 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { getDocumentProxy } from "unpdf";
 import { MAX_PDF_PAGES, type PdfWorkerResult } from "./pdf-reader.js";
 import {
   ExternalFetchAttemptError,
@@ -20,8 +19,17 @@ export const PDF_DOCUMENT_OPTIONS = Object.freeze({
   disableAutoFetch: true,
   disableStream: true,
   useWorkerFetch: false,
+  useWasm: false,
+  cMapUrl: undefined,
+  standardFontDataUrl: undefined,
+  wasmUrl: undefined,
+  iccUrl: undefined,
   verbosity: 0,
 });
+
+type PdfDocumentProxy = Awaited<
+  ReturnType<(typeof import("unpdf"))["getDocumentProxy"]>
+>;
 
 function containsExternalFetchMarker(error: unknown): boolean {
   let current = error;
@@ -58,6 +66,22 @@ function normalizeMergedText(texts: string[]): string {
     .trim();
 }
 
+function removeUnsafeControlCharacters(text: string): string {
+  let sanitized = "";
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      codePoint === 0x09
+      || codePoint === 0x0a
+      || codePoint === 0x0d
+      || (codePoint >= 0x20 && codePoint !== 0x7f)
+    ) {
+      sanitized += character;
+    }
+  }
+  return sanitized;
+}
+
 async function extract(): Promise<PdfWorkerResult> {
   const input = workerData as PdfWorkerInput;
   if (
@@ -74,8 +98,11 @@ async function extract(): Promise<PdfWorkerResult> {
   // a second layer while parsing untrusted document content.
   const restoreNetwork = installPdfNetworkGuards();
 
-  let pdf: Awaited<ReturnType<typeof getDocumentProxy>> | undefined;
+  let pdf: PdfDocumentProxy | undefined;
   try {
+    // Import after the guards are active so parser dependencies cannot retain
+    // unguarded references to Node network primitives during module loading.
+    const { getDocumentProxy } = await import("unpdf");
     pdf = await getDocumentProxy(new Uint8Array(input.pdfBytes), PDF_DOCUMENT_OPTIONS);
 
     if (pdf.numPages > MAX_PDF_PAGES) {
@@ -89,11 +116,11 @@ async function extract(): Promise<PdfWorkerResult> {
       const page = await pdf.getPage(pageNumber);
       try {
         const content = await page.getTextContent();
-        const pageText = normalizeMergedText([content.items
+        const pageText = normalizeMergedText([removeUnsafeControlCharacters(content.items
           .map((item) => "str" in item && typeof item.str === "string"
             ? item.str + (item.hasEOL ? "\n" : "")
             : "")
-          .join("")]);
+          .join(""))]);
         if (pageText !== "") {
           const pageBytes = encoder.encode(pageText).byteLength;
           textBytes += pageBytes + (pageTexts.length > 0 ? 1 : 0);
