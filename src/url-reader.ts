@@ -743,6 +743,9 @@ export async function fetchAndConvertToMarkdown(
       try {
         bodyRead = await readResponseBytesWithLimit(response, effectivePdfLimit);
       } catch (error: any) {
+        if (error?.name === "AbortError") {
+          throw error;
+        }
         throw createContentError(
           `Failed to read PDF content: ${error.message || "Unknown error reading content"}`,
           url,
