@@ -56,6 +56,31 @@ When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTP
 
 To allow private URL reads and private DNS-resolved targets (e.g. for internal deployments), set `MCP_HTTP_ALLOW_PRIVATE_URLS=true`. Do this only when internal fetching is intentional.
 
+### Delegated Browser Service
+
+Setting `FLARESOLVERR_URL` delegates challenge-page navigation to a trusted
+FlareSolverr or Byparr-compatible browser service. `mcp-searxng` validates the
+requested target before contacting the solver, accepts a solution only for the
+same hostname, filters returned cookies by domain, path, secure flag, and
+expiry, and performs the final target fetch through the normal URL-reader
+controls.
+
+The browser service performs its own navigation internally. `mcp-searxng`
+cannot intercept or validate every redirect the browser follows while solving a
+challenge. Treat that service as part of the trusted deployment boundary:
+
+- keep it on a private network and do not publish its API port;
+- use firewall or container-network egress rules to block private services,
+  localhost, and cloud metadata endpoints;
+- run it with the least privileges and resource limits appropriate to a browser
+  workload;
+- keep the solver image updated and review its own security guidance.
+
+Transient solver failures use the direct URL-reader path once. Invalid solver
+configuration and hostname-divergent solutions fail closed. The solver API
+response is capped at 256 KiB, and concurrent solver acquisitions are bounded
+by `FLARESOLVERR_MAX_CONCURRENT_REQUESTS`.
+
 ### Hardened HTTP Mode
 
 When `MCP_HTTP_PORT` is set, the server exposes an HTTP endpoint. By default it has no authentication. Enable hardened mode for any network-accessible deployment:

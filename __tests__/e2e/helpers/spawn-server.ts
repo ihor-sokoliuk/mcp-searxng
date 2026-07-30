@@ -12,7 +12,7 @@
  *   const toolResult = responses[2]; // keyed by id
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -82,4 +82,80 @@ export function spawnWithMessages(
     }
   }
   return responses;
+}
+
+/**
+ * Asynchronous variant used when the parent process hosts local target or
+ * solver servers that must continue servicing requests while the MCP child is
+ * running.
+ */
+export async function spawnWithMessagesAsync(
+  messages: object[],
+  searxngUrl: string = LIVE_URL ?? '',
+  timeoutMs = 15000,
+  environmentOverrides: NodeJS.ProcessEnv = {},
+): Promise<Record<number, any>> {
+  const input = messages.map((message) => JSON.stringify(message)).join('\n') + '\n';
+
+  return await new Promise((resolve, reject) => {
+    const child = spawn('node', [DIST_CLI], {
+      env: {
+        ...process.env,
+        ...environmentOverrides,
+        SEARXNG_URL: searxngUrl,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timeout);
+      if (timedOut) {
+        reject(new Error(`MCP child timed out after ${timeoutMs}ms`));
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(`MCP child exited with code ${code}: ${stderr.trim()}`));
+        return;
+      }
+
+      const responses: Record<number, any> = {};
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
+        }
+        try {
+          const message = JSON.parse(trimmed);
+          if (message.id !== undefined) {
+            responses[message.id] = message;
+          }
+        } catch {
+          // Notifications and unparseable lines are ignored.
+        }
+      }
+      resolve(responses);
+    });
+
+    child.stdin.end(input);
+  });
 }

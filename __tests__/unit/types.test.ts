@@ -321,6 +321,7 @@ async function runTests() {
     assert.ok(LITE_READ_URL_TOOL.description.includes('XML'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('binary'), LITE_READ_URL_TOOL.description);
     assert.ok(LITE_READ_URL_TOOL.description.includes('rejected'), LITE_READ_URL_TOOL.description);
+    assert.ok(LITE_READ_URL_TOOL.description.includes('FlareSolverr'), LITE_READ_URL_TOOL.description);
   }, results);
 
   await testFunction('Full WEB_SEARCH_TOOL schema has multiple properties including language', () => {
@@ -349,6 +350,7 @@ async function runTests() {
     assert.ok(READ_URL_TOOL.description.includes('Binary'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('media'), READ_URL_TOOL.description);
     assert.ok(READ_URL_TOOL.description.includes('rejected'), READ_URL_TOOL.description);
+    assert.ok(READ_URL_TOOL.description.includes('FlareSolverr'), READ_URL_TOOL.description);
   }, results);
 
   await testFunction('isSearXNGSearchSuggestionsArgs accepts query and optional language', () => {

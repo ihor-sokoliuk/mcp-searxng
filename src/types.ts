@@ -350,7 +350,7 @@ export const LITE_INSTANCE_INFO_TOOL: Tool = {
 export const LITE_READ_URL_TOOL: Tool = {
   name: "web_url_read",
   description:
-    "Fetch URL. Converts HTML to markdown; returns explicit JSON, plain text, YAML, TOML, and XML as readable markdown; binary/media/archive downloads are rejected.",
+    "Fetch URL. Converts HTML to markdown; returns explicit JSON, plain text, YAML, TOML, and XML as readable markdown; binary/media/archive downloads are rejected. An operator-configured FlareSolverr or Byparr service can acquire browser sessions for challenge-protected URLs.",
   inputSchema: {
     type: "object",
     properties: { url: { type: "string", description: "URL to fetch." } },
@@ -364,6 +364,7 @@ export const READ_URL_TOOL: Tool = {
     "Fetches a URL and returns readable content as markdown. " +
     "Content-type aware: HTML is converted to markdown; JSON is pretty-printed; plain text, YAML, TOML, and XML are returned as fenced readable text. " +
     "Binary, media, archive, PDF, and octet-stream downloads are intentionally rejected instead of being returned as raw bytes. " +
+    "When the operator configures FlareSolverr or Byparr, challenge-protected URLs are solved before the normal bounded URL-reader fetch. " +
     "Three modes: " +
     "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
     "(2) Section extraction — set `section` to return content under a specific heading. " +
