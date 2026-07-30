@@ -269,7 +269,7 @@ For direct URL-reader requests without a proxy, DNS answers are validated before
 
 When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions, so proxied deployments should rely on proxy, firewall, and egress controls.
 
-`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response body, including chunked responses and responses whose GET body is larger than the HEAD `Content-Length` value. The limit is measured after transparent response decompression. For `application/pdf`, both the downloaded input and extracted UTF-8 text are limited to the lower of this value and 16 MiB; extraction is limited to 500 pages and does not perform OCR.
+`URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response body, including chunked responses and responses whose GET body is larger than the HEAD `Content-Length` value. The limit is measured after transparent response decompression. For `application/pdf`, both the downloaded input and extracted UTF-8 text are limited to the lower of this value and 16 MiB; extraction is limited to 500 pages and does not perform OCR. PDF parsing starts only after the response body is complete and has its own 30-second worker budget, so the maximum processing time is `FETCH_TIMEOUT_MS` plus up to 30 seconds.
 
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
 

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { extractPdfText } from "../../src/pdf-reader.js";
+import {
+  extractPdfText,
+  PDF_PARSE_TIMEOUT_MS,
+  PDF_WORKER_RESOURCE_LIMITS,
+} from "../../src/pdf-reader.js";
+import { PDF_DOCUMENT_OPTIONS } from "../../src/pdf-worker.js";
 import { createTestResults, printTestSummary, testFunction } from "../helpers/test-utils.js";
 import { createEncryptedPdf, createTextPdf } from "../helpers/pdf-fixtures.js";
 
@@ -12,6 +17,24 @@ function createDelayedWorkerUrl(delayMs: number): URL {
 
 export async function runTests() {
   const results = createTestResults();
+
+  await testFunction("keeps the parser hardening and resource envelope explicit", () => {
+    assert.equal(PDF_PARSE_TIMEOUT_MS, 30_000);
+    assert.deepEqual(PDF_WORKER_RESOURCE_LIMITS, {
+      maxOldGenerationSizeMb: 192,
+      stackSizeMb: 4,
+    });
+    assert.deepEqual(PDF_DOCUMENT_OPTIONS, {
+      isEvalSupported: false,
+      enableXfa: false,
+      useSystemFonts: false,
+      disableFontFace: true,
+      disableAutoFetch: true,
+      disableStream: true,
+      useWorkerFetch: false,
+      verbosity: 0,
+    });
+  }, results);
 
   await testFunction("extracts text from a real in-memory PDF", async () => {
     const result = await extractPdfText(createTextPdf(["Hello PDF", "Second page"]), 1024);
@@ -56,6 +79,16 @@ export async function runTests() {
       workerUrl: createDelayedWorkerUrl(1000),
     });
     assert.deepEqual(result, { version: 1, kind: "timeout" });
+  }, results);
+
+  await testFunction("accepts the worker external-fetch sentinel without leaking details", async () => {
+    const source =
+      `import { parentPort } from "node:worker_threads";` +
+      `parentPort.postMessage({version:1,kind:"external_fetch_attempt"});`;
+    const result = await extractPdfText(createTextPdf(["ignored"]), 1024, {
+      workerUrl: new URL(`data:text/javascript,${encodeURIComponent(source)}`),
+    });
+    assert.deepEqual(result, { version: 1, kind: "external_fetch_attempt" });
   }, results);
 
   await testFunction("admits at most two concurrent PDF workers without queueing", async () => {

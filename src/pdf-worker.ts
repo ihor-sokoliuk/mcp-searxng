@@ -1,6 +1,10 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { getDocumentProxy } from "unpdf";
 import { MAX_PDF_PAGES, type PdfWorkerResult } from "./pdf-reader.js";
+import {
+  ExternalFetchAttemptError,
+  installPdfNetworkGuards,
+} from "./pdf-network-guard.js";
 
 interface PdfWorkerInput {
   version: 1;
@@ -8,12 +12,16 @@ interface PdfWorkerInput {
   maxTextBytes: number;
 }
 
-class ExternalFetchAttemptError extends Error {
-  constructor() {
-    super("PDF_EXTERNAL_FETCH_ATTEMPT");
-    this.name = "ExternalFetchAttemptError";
-  }
-}
+export const PDF_DOCUMENT_OPTIONS = Object.freeze({
+  isEvalSupported: false,
+  enableXfa: false,
+  useSystemFonts: false,
+  disableFontFace: true,
+  disableAutoFetch: true,
+  disableStream: true,
+  useWorkerFetch: false,
+  verbosity: 0,
+});
 
 function containsExternalFetchMarker(error: unknown): boolean {
   let current = error;
@@ -61,23 +69,14 @@ async function extract(): Promise<PdfWorkerResult> {
     return { version: 1, kind: "parse_error" };
   }
 
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new ExternalFetchAttemptError();
-  };
+  // The document loader receives bytes rather than a URL, so no target-derived
+  // filesystem path exists. Block the network primitives available to Node as
+  // a second layer while parsing untrusted document content.
+  const restoreNetwork = installPdfNetworkGuards();
 
   let pdf: Awaited<ReturnType<typeof getDocumentProxy>> | undefined;
   try {
-    pdf = await getDocumentProxy(new Uint8Array(input.pdfBytes), {
-      isEvalSupported: false,
-      enableXfa: false,
-      useSystemFonts: false,
-      disableFontFace: true,
-      disableAutoFetch: true,
-      disableStream: true,
-      useWorkerFetch: false,
-      verbosity: 0,
-    });
+    pdf = await getDocumentProxy(new Uint8Array(input.pdfBytes), PDF_DOCUMENT_OPTIONS);
 
     if (pdf.numPages > MAX_PDF_PAGES) {
       return { version: 1, kind: "too_many_pages", totalPages: pdf.numPages };
@@ -85,34 +84,32 @@ async function extract(): Promise<PdfWorkerResult> {
 
     const pageTexts: string[] = [];
     const encoder = new TextEncoder();
-    let provisionalBytes = 0;
+    let textBytes = 0;
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       const page = await pdf.getPage(pageNumber);
       try {
         const content = await page.getTextContent();
-        const pageText = content.items
+        const pageText = normalizeMergedText([content.items
           .map((item) => "str" in item && typeof item.str === "string"
             ? item.str + (item.hasEOL ? "\n" : "")
             : "")
-          .join("");
-        pageTexts.push(pageText);
-        provisionalBytes += encoder.encode(pageText).byteLength + (pageNumber > 1 ? 1 : 0);
-        if (provisionalBytes > input.maxTextBytes) {
-          return { version: 1, kind: "text_too_large", bytes: provisionalBytes };
+          .join("")]);
+        if (pageText !== "") {
+          const pageBytes = encoder.encode(pageText).byteLength;
+          textBytes += pageBytes + (pageTexts.length > 0 ? 1 : 0);
+          if (textBytes > input.maxTextBytes) {
+            return { version: 1, kind: "text_too_large", bytes: textBytes };
+          }
+          pageTexts.push(pageText);
         }
       } finally {
         page.cleanup();
       }
     }
 
-    const text = normalizeMergedText(pageTexts);
+    const text = pageTexts.join("\n");
     if (text === "") {
       return { version: 1, kind: "no_text", totalPages: pdf.numPages };
-    }
-
-    const textBytes = encoder.encode(text).byteLength;
-    if (textBytes > input.maxTextBytes) {
-      return { version: 1, kind: "text_too_large", bytes: textBytes };
     }
 
     return { version: 1, kind: "text", text, totalPages: pdf.numPages, textBytes };
@@ -125,7 +122,7 @@ async function extract(): Promise<PdfWorkerResult> {
     }
     return { version: 1, kind: "parse_error" };
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreNetwork();
     try {
       await pdf?.destroy();
     } catch {
