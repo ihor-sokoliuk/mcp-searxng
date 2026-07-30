@@ -35,6 +35,22 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+type PdfWorkerResultValidator = (result: Record<string, unknown>) => boolean;
+
+const PDF_WORKER_RESULT_VALIDATORS = new Map<string, PdfWorkerResultValidator>([
+  ["text", (result) => (
+    typeof result.text === "string"
+    && isNonNegativeInteger(result.totalPages)
+    && isNonNegativeInteger(result.textBytes)
+  )],
+  ["no_text", (result) => isNonNegativeInteger(result.totalPages)],
+  ["too_many_pages", (result) => isNonNegativeInteger(result.totalPages)],
+  ["text_too_large", (result) => isNonNegativeInteger(result.bytes)],
+  ["password_protected", () => true],
+  ["parse_error", () => true],
+  ["external_fetch_attempt", () => true],
+]);
+
 function isPdfWorkerResult(value: unknown): value is PdfWorkerResult {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -45,23 +61,8 @@ function isPdfWorkerResult(value: unknown): value is PdfWorkerResult {
     return false;
   }
 
-  switch (result.kind) {
-    case "text":
-      return typeof result.text === "string"
-        && isNonNegativeInteger(result.totalPages)
-        && isNonNegativeInteger(result.textBytes);
-    case "no_text":
-    case "too_many_pages":
-      return isNonNegativeInteger(result.totalPages);
-    case "text_too_large":
-      return isNonNegativeInteger(result.bytes);
-    case "password_protected":
-    case "parse_error":
-    case "external_fetch_attempt":
-      return true;
-    default:
-      return false;
-  }
+  const validator = PDF_WORKER_RESULT_VALIDATORS.get(result.kind);
+  return validator?.(result) ?? false;
 }
 
 function defaultPdfWorkerUrl(): URL {
