@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 
 /**
- * Unit Tests: client configuration cookbook
+ * Unit Tests: public documentation guides
  *
- * Keeps copyable client examples aligned with the current server contract.
+ * Keeps public guidance aligned with the current server contract.
  */
 
 import { strict as assert } from 'node:assert';
@@ -13,6 +13,7 @@ import { createTestResults, printTestSummary, TestResult, testFunction } from '.
 
 const results = createTestResults();
 const guideUrl = new URL('../../docs/client-configurations.md', import.meta.url);
+const researchGuideUrl = new URL('../../docs/research-workflow.md', import.meta.url);
 const markdownFence = String.fromCharCode(96).repeat(3);
 
 const expectedMatrixRows = [
@@ -103,7 +104,7 @@ function collectJsonServers(config: Record<string, unknown>): Record<string, unk
 }
 
 export async function runTests(): Promise<TestResult> {
-  console.log('Testing: client configuration cookbook\n');
+  console.log('Testing: public documentation guides\n');
 
   await testFunction('cookbook exists and README links to it', () => {
     const guide = readText(guideUrl);
@@ -188,7 +189,62 @@ export async function runTests(): Promise<TestResult> {
     }
   }, results);
 
-  printTestSummary(results, 'Client Configuration Cookbook');
+  await testFunction('research workflow exists and README links to it', () => {
+    const guide = readText(researchGuideUrl);
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    assert.ok(guide.startsWith('# Evidence-Focused Research Workflow'));
+    assert.ok(readme.includes('(docs/research-workflow.md)'));
+  }, results);
+
+  await testFunction('research workflow uses current full schemas and describes Lite Tools limits', () => {
+    const guide = readText(researchGuideUrl);
+    const normalizedGuide = guide.replace(/\s+/gu, ' ');
+    const types = readText(new URL('../../src/types.ts', import.meta.url));
+    const fullSchemaParameters = [
+      'query', 'pageno', 'time_range', 'language', 'safesearch', 'min_score',
+      'num_results', 'categories', 'engines', 'response_format',
+      'includeEngines', 'includeDisabled', 'category', 'refresh',
+      'url', 'startChar', 'maxLength', 'section', 'paragraphRange', 'readHeadings',
+    ];
+
+    for (const tool of expectedTools) {
+      assert.ok(guide.includes(`\`${tool}\``), `workflow must name ${tool}`);
+      assert.ok(types.includes(`name: "${tool}"`), `source must still expose ${tool}`);
+    }
+    for (const parameter of fullSchemaParameters) {
+      assert.ok(guide.includes(`\`${parameter}\``), `workflow must describe ${parameter}`);
+      assert.ok(types.includes(`${parameter}: {`), `full schemas must still expose ${parameter}`);
+    }
+    assert.ok(guide.includes('`SEARXNG_LITE_TOOLS=true`'));
+    assert.ok(normalizedGuide.includes('search and suggestions accept only `query`'));
+    assert.ok(normalizedGuide.includes('instance information accepts no optional controls'));
+    assert.ok(normalizedGuide.includes('URL reading accepts only `url`'));
+  }, results);
+
+  await testFunction('research workflow is bounded and evidence focused', () => {
+    const guide = readText(researchGuideUrl);
+    for (const phrase of [
+      'Stopping conditions',
+      'Cross-check material claims',
+      'Cite the evidence',
+      'State uncertainty',
+      'Evidence versus inference',
+      'adjustable starting point',
+      '(self-hosted-searxng.md)',
+      '(public-searxng-instances.md)',
+    ]) {
+      assert.ok(guide.includes(phrase), `workflow must include: ${phrase}`);
+    }
+    for (const unsupportedPromise of [
+      'guarantees results',
+      'all engines are available',
+      'automatically private',
+    ]) {
+      assert.ok(!guide.includes(unsupportedPromise), `workflow must not promise: ${unsupportedPromise}`);
+    }
+  }, results);
+
+  printTestSummary(results, 'Public Documentation Guides');
   return results;
 }
 
