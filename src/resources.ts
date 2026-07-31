@@ -135,7 +135,7 @@ Performs web searches using the configured SearXNG instance or replica list, wit
 - \`num_results\` (optional): Maximum result count from 1 to 20
 - \`categories\` (optional): Comma-separated SearXNG categories such as "news" or "it,science"; live \`/config\` values are aggregated across reachable instances and normalized case-insensitively when available
 - \`engines\` (optional): Comma-separated SearXNG engine names such as "google,bing,ddg" or "semantic scholar"; live \`/config\` values are aggregated across reachable instances and normalized case-insensitively when available
-- \`response_format\` (optional): "text" for formatted output or "json" for raw SearXNG-shaped JSON (may include a \`warnings\` array for non-fatal issues)
+- \`response_format\` (optional): Response format, either \`text\` or \`json\`. Text is formatted for agents; JSON preserves the SearXNG shape and may include a \`warnings\` array for non-fatal issues. If omitted, \`SEARXNG_DEFAULT_RESPONSE_FORMAT\` applies; if unset or invalid, text is used. An explicit \`response_format\` always takes precedence.
 
 Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`, and may include a \`warnings\` array for non-fatal issues. Use \`searxng_instance_info\` and prefer \`common\` categories/engines for consistent multi-instance results; \`available\`-only filters are best-effort. Unknown categories or engines are forwarded trimmed so SearXNG can ignore or honor them; if \`/config\` is unavailable, the search proceeds with the supplied values and emits a warning.
 
@@ -175,6 +175,7 @@ ${REQUIRED_CONFIGURATION_GUIDANCE}
 ### Optional Environment Variables
 ${OPTIONAL_CONFIGURATION_GUIDANCE}
 Common ones are listed below (failover/fan-out, caching, timeouts, result limits, per-tool proxies, TLS, HTTP transport, and hardening).
+- \`SEARXNG_DEFAULT_RESPONSE_FORMAT\`: Default omitted search responses to \`text\` or \`json\`; an explicit \`response_format\` takes precedence
 - \`AUTH_USERNAME\` & \`AUTH_PASSWORD\`: Legacy global Basic Auth fallback when \`SEARXNG_URL\` has no userinfo
 - \`HTTP_PROXY\` / \`HTTPS_PROXY\`: Proxy server configuration
 - \`NO_PROXY\` / \`no_proxy\`: Comma-separated list of hosts to bypass proxy

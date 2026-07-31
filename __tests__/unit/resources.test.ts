@@ -98,6 +98,10 @@ async function runTests() {
     assert.ok(help.includes('`num_results`'), 'missing num_results parameter');
     assert.ok(help.includes('`categories`'), 'missing categories parameter');
     assert.ok(help.includes('`response_format`'), 'missing response_format parameter');
+    assert.ok(help.includes('`SEARXNG_DEFAULT_RESPONSE_FORMAT`'), 'missing response-format environment default');
+    assert.ok(help.includes('`text` or `json`'), 'missing accepted response-format values');
+    assert.ok(help.includes('if unset or invalid, text is used'), 'missing text fallback');
+    assert.ok(help.includes('explicit `response_format` always takes precedence'), 'missing explicit precedence');
     assert.ok(help.includes('metadata sections'), 'missing metadata/direct-answer output note');
     assert.ok(help.includes('### 2. searxng_search_suggestions'), 'missing suggestions tool section');
     assert.ok(help.includes('### 3. searxng_instance_info'), 'missing instance info tool section');

@@ -2286,6 +2286,178 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('omitted response_format honors SEARXNG_DEFAULT_RESPONSE_FORMAT=json', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', '  json  ');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'environment json query',
+        number_of_results: 1,
+        results: [
+          {
+            title: 'Environment JSON Result',
+            content: 'Structured result content',
+            url: 'https://example.com/environment-json',
+            score: 1,
+          },
+        ],
+      },
+    }));
+
+    try {
+      const result = await performWebSearch(mockServer as any, 'environment json query');
+      const payload = JSON.parse(result);
+      assert.equal(payload.query, 'environment json query');
+      assert.equal(payload.results[0].title, 'Environment JSON Result');
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('unset, blank, and text response defaults stay formatted and silent', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.delete('SEARXNG_DEFAULT_RESPONSE_FORMAT');
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'text default',
+        number_of_results: 1,
+        results: [{ title: 'Text Default', content: 'Body', url: 'https://example.com/text-default', score: 1 }],
+      },
+    }));
+
+    try {
+      const unset = await performWebSearch(server as any, 'unset default');
+      envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', '   ');
+      const blank = await performWebSearch(server as any, 'blank default');
+      envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', ' text ');
+      const configuredText = await performWebSearch(server as any, 'text default');
+
+      for (const output of [unset, blank, configuredText]) {
+        assert.ok(output.includes('Title: Text Default'), output);
+        assert.throws(() => JSON.parse(output));
+      }
+      assert.equal(getLoggingCalls().filter((call) => call.level === 'warning').length, 0);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('invalid configured format warns once per server without echoing the value', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const invalidValue = 'sensitive-invalid-sentinel-7f3a';
+    envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', invalidValue);
+    const first = createMockServerWithTracking();
+    const second = createMockServerWithTracking();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'invalid default',
+        number_of_results: 1,
+        results: [{ title: 'Fallback Text', content: 'Body', url: 'https://example.com/fallback', score: 1 }],
+      },
+    }));
+
+    try {
+      const firstCall = await performWebSearch(first.server as any, 'invalid default one');
+      const repeatedCall = await performWebSearch(first.server as any, 'invalid default two');
+      envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', 'JSON');
+      const secondServerCall = await performWebSearch(second.server as any, 'invalid default three');
+
+      for (const output of [firstCall, repeatedCall, secondServerCall]) {
+        assert.ok(output.includes('Title: Fallback Text'), output);
+      }
+      for (const calls of [first.getLoggingCalls(), second.getLoggingCalls()]) {
+        const warnings = calls.filter((call) => call.level === 'warning');
+        assert.equal(warnings.length, 1);
+        const message = String(warnings[0].data?.message ?? '');
+        assert.ok(message.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'), message);
+        assert.ok(message.includes('text or json'), message);
+      }
+      const firstWarning = String(first.getLoggingCalls().find((call) => call.level === 'warning')?.data?.message ?? '');
+      const secondWarning = String(second.getLoggingCalls().find((call) => call.level === 'warning')?.data?.message ?? '');
+      assert.ok(!firstWarning.toLowerCase().includes(invalidValue.toLowerCase()), firstWarning);
+      assert.ok(!secondWarning.includes('JSON'), secondWarning);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('explicit response_format overrides the environment without resolving an invalid default', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', 'invalid-explicit-override');
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'explicit override',
+        number_of_results: 1,
+        results: [{ title: 'Explicit Result', content: 'Body', url: 'https://example.com/explicit', score: 1 }],
+      },
+    }));
+
+    try {
+      const text = await performWebSearch(server as any, 'explicit text', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text');
+      const json = await performWebSearch(server as any, 'explicit json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
+
+      assert.ok(text.includes('Title: Explicit Result'), text);
+      assert.equal(JSON.parse(json).results[0].title, 'Explicit Result');
+      assert.equal(getLoggingCalls().filter((call) => call.level === 'warning').length, 0);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('effective response format isolates cache entries and annotations', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', 'text');
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({
+        json: {
+          query: 'format cache',
+          number_of_results: 1,
+          results: [{ title: 'Format Cache', content: 'Body', url: 'https://example.com/cache-format', score: 1 }],
+        },
+      })(url, options);
+    });
+
+    try {
+      const firstText = await performWebSearch(mockServer as any, 'format cache');
+      envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', 'json');
+      const firstJson = await performWebSearch(mockServer as any, 'format cache');
+      envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', 'text');
+      const cachedText = await performWebSearch(mockServer as any, 'format cache');
+      envManager.set('SEARXNG_DEFAULT_RESPONSE_FORMAT', 'json');
+      const cachedJson = await performWebSearch(mockServer as any, 'format cache');
+
+      assert.equal(fetchCount, 2);
+      assert.ok(!firstText.endsWith('_Cached result_'), firstText);
+      assert.equal(JSON.parse(firstJson).cached, undefined);
+      assert.ok(cachedText.endsWith('\n\n_Cached result_'), cachedText);
+      assert.equal(JSON.parse(cachedJson).cached, true);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
   await testFunction('response_format=json returns parseable SearXNG JSON with raw metadata', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
@@ -2381,6 +2553,7 @@ async function runTests() {
     const result = await performWebSearch(mockServer as any, 'empty query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
     const payload = JSON.parse(result);
     assert.equal(payload.query, 'empty query');
+    assert.equal(payload.number_of_results, 0);
     assert.deepEqual(payload.results, []);
     assert.deepEqual(payload.suggestions, ['broader query']);
     assert.ok(!result.includes('No results found'), result);

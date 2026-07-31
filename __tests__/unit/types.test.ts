@@ -247,6 +247,7 @@ async function runTests() {
   }, results);
 
   await testFunction('isSearXNGWebSearchArgs accepts response_format text or json', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'text' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'json' }), true);
   }, results);
@@ -295,6 +296,16 @@ async function runTests() {
     assert.ok(properties.response_format, 'WEB_SEARCH_TOOL must expose response_format parameter');
     assert.equal(properties.response_format.type, 'string');
     assert.deepEqual(properties.response_format.enum, ['text', 'json']);
+    assert.equal('default' in properties.response_format, false);
+    assert.ok(!(WEB_SEARCH_TOOL.inputSchema.required as string[]).includes('response_format'));
+    assert.ok(
+      properties.response_format.description.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'),
+      properties.response_format.description,
+    );
+    assert.ok(
+      properties.response_format.description.includes('explicit response_format always takes precedence'),
+      properties.response_format.description,
+    );
   }, results);
 
   await testFunction('LITE_WEB_SEARCH_TOOL schema has only query property', () => {

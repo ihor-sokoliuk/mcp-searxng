@@ -24,10 +24,34 @@ const results = createTestResults();
 async function runTests() {
   console.log('🌐 E2E Testing: searxng_web_search (live)\n');
 
+  const localSkip = checkSkipConditions(false);
+  if (localSkip) {
+    console.log(localSkip);
+    return { passed: 0, failed: 0, errors: [] };
+  }
+
+  await testFunction('built CLI exposes the environment-aware response_format schema', async () => {
+    const responses = spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    ], 'https://unused.invalid');
+
+    const r = responses[2];
+    assert.ok(r && !r.error, `server error: ${JSON.stringify(r?.error)}`);
+    const searchTool = r.result?.tools?.find((tool: any) => tool.name === 'searxng_web_search');
+    assert.ok(searchTool, 'tools/list should include searxng_web_search');
+    const responseFormat = searchTool.inputSchema?.properties?.response_format;
+    assert.deepEqual(responseFormat?.enum, ['text', 'json']);
+    assert.equal('default' in responseFormat, false);
+    assert.ok(responseFormat.description.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'));
+    assert.ok(responseFormat.description.includes('explicit response_format always takes precedence'));
+  }, results);
+
   const skip = checkSkipConditions();
   if (skip) {
     console.log(skip);
-    return { passed: 0, failed: 0, errors: [] };
+    printTestSummary(results, 'E2E: Web Search');
+    return results;
   }
 
   await testFunction('basic search returns results with title and URL', async () => {
@@ -119,6 +143,52 @@ async function runTests() {
     const payload = JSON.parse(text);
     assert.ok(Array.isArray(payload.results), 'JSON response should contain results array');
     assert.ok(payload.results.length <= 2, 'num_results should slice JSON results');
+  }, results);
+
+  await testFunction('configured JSON default applies when omitted and explicit text still wins', async () => {
+    const previousDefault = process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
+    process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = 'json';
+
+    try {
+      const responses = spawnWithMessages([
+        { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+        {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: {
+            name: 'searxng_web_search',
+            arguments: { query: 'test', num_results: 2 },
+          },
+        },
+        {
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'tools/call',
+          params: {
+            name: 'searxng_web_search',
+            arguments: { query: 'test', num_results: 2, response_format: 'text' },
+          },
+        },
+      ]);
+
+      const omitted = responses[2];
+      assert.ok(omitted && !omitted.error, `server error: ${JSON.stringify(omitted?.error)}`);
+      const payload = JSON.parse(omitted.result?.content?.[0]?.text ?? '');
+      assert.ok(Array.isArray(payload.results), 'configured JSON default should return a results array');
+
+      const explicit = responses[3];
+      assert.ok(explicit && !explicit.error, `server error: ${JSON.stringify(explicit?.error)}`);
+      const text: string = explicit.result?.content?.[0]?.text ?? '';
+      assert.ok(text.includes('Title:'), 'explicit text should return formatted results');
+      assert.throws(() => JSON.parse(text));
+    } finally {
+      if (previousDefault === undefined) {
+        delete process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
+      } else {
+        process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = previousDefault;
+      }
+    }
   }, results);
 
   printTestSummary(results, 'E2E: Web Search');
