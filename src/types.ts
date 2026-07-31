@@ -247,9 +247,8 @@ export const WEB_SEARCH_TOOL: Tool = {
       },
       response_format: {
         type: "string",
-        description: "Response format: formatted text for agents or raw JSON for programmatic clients. Default: text.",
+        description: "Response format: formatted text for agents or raw JSON for programmatic clients. If omitted, SEARXNG_DEFAULT_RESPONSE_FORMAT applies; if unset or invalid, text is used. An explicit response_format always takes precedence.",
         enum: ["text", "json"],
-        default: "text",
       },
     },
     required: ["query"],

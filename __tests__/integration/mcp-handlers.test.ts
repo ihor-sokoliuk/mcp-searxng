@@ -388,6 +388,50 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('tools/call in lite mode uses the configured response default and accepts an explicit override', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = 'json';
+    fetchMocker.mock(createMockFetch({
+      body: JSON.stringify({
+        query: 'configured default',
+        number_of_results: 1,
+        results: [
+          {
+            title: 'Configured Default Result',
+            url: 'https://example.com/configured-default',
+            content: 'Configured default snippet',
+            score: 1.0,
+          },
+        ],
+      }),
+    }));
+    const { client } = await connect();
+
+    try {
+      const omitted = await client.callTool({
+        name: 'searxng_web_search',
+        arguments: { query: 'configured default omitted' },
+      });
+      const omittedPayload = JSON.parse((omitted.content[0] as { type: string; text: string }).text);
+      assert.equal(omittedPayload.results[0].title, 'Configured Default Result');
+
+      const explicit = await client.callTool({
+        name: 'searxng_web_search',
+        arguments: { query: 'configured default explicit', response_format: 'text' },
+      });
+      const explicitText = (explicit.content[0] as { type: string; text: string }).text;
+      assert.ok(explicitText.includes('Title: Configured Default Result'), explicitText);
+      assert.throws(() => JSON.parse(explicitText));
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
+      delete process.env.SEARXNG_LITE_TOOLS;
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
   await testFunction('tools/call searxng_search_suggestions returns JSON suggestions', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: JSON.stringify(['type', ['typescript', 'typescript tutorial']]) }));
@@ -449,24 +493,38 @@ async function runTests() {
   }, results);
 
   await testFunction('tools/call searxng_web_search with invalid args throws protocol error', async () => {
+    process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = 'json';
     const { client } = await connect();
 
     try {
-      await client.callTool({
-        name: 'searxng_web_search',
-        arguments: { notQuery: 'oops' },
-      });
-      assert.fail('Expected error was not thrown');
-    } catch (error) {
-      assert.ok(error instanceof Error, 'should throw an Error');
-      assert.ok(
-        error.message.toLowerCase().includes('invalid') ||
-        error.message.toLowerCase().includes('argument'),
-        `unexpected message: ${error.message}`
-      );
-    }
+      try {
+        await client.callTool({
+          name: 'searxng_web_search',
+          arguments: { notQuery: 'oops' },
+        });
+        assert.fail('Expected error was not thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error, 'should throw an Error');
+        assert.ok(
+          error.message.toLowerCase().includes('invalid') ||
+          error.message.toLowerCase().includes('argument'),
+          `unexpected message: ${error.message}`
+        );
+      }
 
-    await client.close();
+      try {
+        await client.callTool({
+          name: 'searxng_web_search',
+          arguments: { query: 'invalid format', response_format: 'xml' },
+        });
+        assert.fail('Expected invalid response_format error was not thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error, 'should throw an Error for invalid response_format');
+      }
+    } finally {
+      delete process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
+      await client.close();
+    }
   }, results);
 
   await testFunction('tool errors and MCP logs never expose configured Basic Auth material', async () => {

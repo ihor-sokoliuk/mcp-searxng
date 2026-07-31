@@ -464,6 +464,29 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(normalizedGuide.includes('published port in `MCP_HTTP_ALLOWED_HOSTS`'));
   }, results);
 
+  await testFunction('public docs define the configurable search response default and precedence', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const precedence = 'If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence.';
+
+    assert.ok(readme.includes('`SEARXNG_DEFAULT_RESPONSE_FORMAT`'));
+    assert.ok(readme.includes(precedence));
+    assert.ok(readme.includes('auto-inject `response_format=text`'));
+
+    const searchDefaultsStart = configuration.indexOf('## Search Defaults');
+    const resultControlsStart = configuration.indexOf('## Search Result Controls');
+    assert.ok(searchDefaultsStart >= 0);
+    assert.ok(resultControlsStart > searchDefaultsStart);
+    const searchDefaults = configuration.slice(searchDefaultsStart, resultControlsStart);
+    assert.ok(searchDefaults.includes('| `SEARXNG_DEFAULT_RESPONSE_FORMAT` |'));
+    assert.ok(searchDefaults.includes('`text` or `json`'));
+    assert.ok(searchDefaults.includes(precedence));
+    assert.ok(searchDefaults.includes('auto-inject `response_format=text`'));
+    assert.ok(configuration.includes('also applies when `SEARXNG_LITE_TOOLS=true`'));
+    assert.ok(configuration.includes('callers that send `response_format` explicitly still override'));
+    assert.ok(configuration.includes('"SEARXNG_DEFAULT_RESPONSE_FORMAT": "text"'));
+  }, results);
+
   await testFunction('public documentation states current security, privacy, and configuration contracts', () => {
     const readme = readText(new URL('../../README.md', import.meta.url));
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));

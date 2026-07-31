@@ -53,7 +53,7 @@ For measured MCP-process CPU and memory starting points, see
 
 ## Features
 
-- **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output (`response_format`).
+- **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output selected per call (`response_format`) or with the operator default (`SEARXNG_DEFAULT_RESPONSE_FORMAT`).
 - **Instance Failover & Fan-out**: Configure interchangeable SearXNG replicas in `SEARXNG_URL`; searches fail over in order by default, or query all healthy replicas in parallel and merge results with `SEARXNG_FANOUT`.
 - **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before the result list.
 - **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
@@ -132,7 +132,8 @@ For SearXNG deployment, configuration, and troubleshooting, see
     - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
     - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `categories.common` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.
     - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`, `"semantic scholar"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `engines.common.enabled` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively, including engines disabled by default; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.
-    - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. (default: `"text"`)
+    - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence.
+    - Clients that explicitly send or auto-inject `response_format=text` continue to override the operator default. If omitted calls still return text after configuring JSON, inspect the arguments emitted by the MCP client.
 
 - **searxng_search_suggestions**
   - Get autocomplete suggestions for refining search queries
@@ -347,6 +348,8 @@ The server binds to `127.0.0.1` by default; set `MCP_HTTP_HOST=0.0.0.0` for remo
 ## Configuration
 
 `SEARXNG_URL` is the only required variable — set it to your SearXNG instance URL (or a semicolon-separated list of interchangeable replicas). Everything else is optional.
+
+Use `SEARXNG_DEFAULT_RESPONSE_FORMAT` to select `text` or `json` when search calls omit `response_format`; explicit per-call values still win.
 
 See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable reference, including authentication, failover/fan-out, caching, timeouts, proxies, TLS, HTTP transport, and hardening.
 

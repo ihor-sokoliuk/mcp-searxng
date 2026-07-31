@@ -295,6 +295,9 @@ type FailedInstanceResult = {
   error: unknown;
 };
 
+type ResponseFormat = "text" | "json";
+const warnedInvalidDefaultResponseFormat = new WeakSet<McpServer>();
+
 async function normalizeSearchFilters(
   mcpServer: McpServer,
   categories?: string,
@@ -391,6 +394,29 @@ function formatSearchMetadata(data: SearXNGWeb): string {
 
 function getDefaultLanguage(): string {
   return process.env.SEARXNG_DEFAULT_LANGUAGE ?? "all";
+}
+
+function getDefaultResponseFormat(mcpServer: McpServer): ResponseFormat {
+  const rawValue = process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return "text";
+  }
+
+  const value = rawValue.trim();
+  if (value === "text" || value === "json") {
+    return value;
+  }
+
+  if (!warnedInvalidDefaultResponseFormat.has(mcpServer)) {
+    warnedInvalidDefaultResponseFormat.add(mcpServer);
+    logMessage(
+      mcpServer,
+      "warning",
+      "Ignoring invalid SEARXNG_DEFAULT_RESPONSE_FORMAT. Expected text or json. Using text.",
+    );
+  }
+
+  return "text";
 }
 
 function getDefaultSafesearch(mcpServer: McpServer): number | undefined {
@@ -699,9 +725,10 @@ export async function performWebSearch(
   num_results?: number,
   categories?: string,
   engines?: string,
-  response_format: "text" | "json" = "text",
+  response_format?: ResponseFormat,
 ) {
   const startTime = Date.now();
+  const effectiveResponseFormat = response_format ?? getDefaultResponseFormat(mcpServer);
   const operatorMax = getOperatorMaxResults(mcpServer);
   const effectiveMax = operatorMax !== undefined
     ? (num_results !== undefined ? Math.min(num_results, operatorMax) : operatorMax)
@@ -756,13 +783,13 @@ export async function performWebSearch(
     min_score,
     effectiveMax,
     maxResultChars,
-    response_format,
+    response_format: effectiveResponseFormat,
     instances,
     searxngFanout: fanoutEnabled,
   };
   const cachedResult = searchCache.get("searxng_web_search", cacheArgs);
   if (cachedResult !== null) {
-    return formatCachedSearchResult(cachedResult, response_format);
+    return formatCachedSearchResult(cachedResult, effectiveResponseFormat);
   }
 
   let data: SearXNGWeb;
@@ -786,7 +813,7 @@ export async function performWebSearch(
     ? results.slice(0, effectiveMax)
     : results;
 
-  if (response_format === "json") {
+  if (effectiveResponseFormat === "json") {
     const result = JSON.stringify({
       ...data,
       results: slicedResults,
