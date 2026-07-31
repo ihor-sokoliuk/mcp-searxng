@@ -60,6 +60,15 @@ function makeConfigWithEngines() {
   };
 }
 
+function getSingleResponseFormatWarning(calls: any[]): string {
+  const warnings = calls.filter((call) => call.level === 'warning');
+  assert.equal(warnings.length, 1);
+  const message = String(warnings[0].data?.message ?? '');
+  assert.ok(message.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'), message);
+  assert.ok(message.includes('text or json'), message);
+  return message;
+}
+
 async function runTests() {
   console.log('🧪 Testing: search.ts\n');
 
@@ -2375,15 +2384,8 @@ async function runTests() {
       for (const output of [firstCall, repeatedCall, secondServerCall]) {
         assert.ok(output.includes('Title: Fallback Text'), output);
       }
-      for (const calls of [first.getLoggingCalls(), second.getLoggingCalls()]) {
-        const warnings = calls.filter((call) => call.level === 'warning');
-        assert.equal(warnings.length, 1);
-        const message = String(warnings[0].data?.message ?? '');
-        assert.ok(message.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'), message);
-        assert.ok(message.includes('text or json'), message);
-      }
-      const firstWarning = String(first.getLoggingCalls().find((call) => call.level === 'warning')?.data?.message ?? '');
-      const secondWarning = String(second.getLoggingCalls().find((call) => call.level === 'warning')?.data?.message ?? '');
+      const firstWarning = getSingleResponseFormatWarning(first.getLoggingCalls());
+      const secondWarning = getSingleResponseFormatWarning(second.getLoggingCalls());
       assert.ok(!firstWarning.toLowerCase().includes(invalidValue.toLowerCase()), firstWarning);
       assert.ok(!secondWarning.includes('JSON'), secondWarning);
     } finally {
