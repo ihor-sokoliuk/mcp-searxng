@@ -21,6 +21,11 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 
 const results = createTestResults();
 
+function getToolResponseText(response: any): string {
+  assert.ok(response && !response.error, `server error: ${JSON.stringify(response?.error)}`);
+  return response.result?.content?.[0]?.text ?? '';
+}
+
 async function runTests() {
   console.log('🌐 E2E Testing: searxng_web_search (live)\n');
 
@@ -169,14 +174,10 @@ async function runTests() {
       },
     ]);
 
-    const omitted = responses[2];
-    assert.ok(omitted && !omitted.error, `server error: ${JSON.stringify(omitted?.error)}`);
-    const payload = JSON.parse(omitted.result?.content?.[0]?.text ?? '');
+    const payload = JSON.parse(getToolResponseText(responses[2]));
     assert.ok(Array.isArray(payload.results), 'configured JSON default should return a results array');
 
-    const explicit = responses[3];
-    assert.ok(explicit && !explicit.error, `server error: ${JSON.stringify(explicit?.error)}`);
-    const text: string = explicit.result?.content?.[0]?.text ?? '';
+    const text = getToolResponseText(responses[3]);
     assert.ok(text.includes('Title:'), 'explicit text should return formatted results');
     assert.throws(() => JSON.parse(text));
   }, results);

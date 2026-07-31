@@ -60,7 +60,7 @@ Operator-level defaults applied when the caller omits the corresponding per-call
 |---|---|---|---|
 | `SEARXNG_DEFAULT_LANGUAGE` | No | `all` | Default language for all searches when `language` is not passed per call (e.g. `en`, `fr`, `de`). |
 | `SEARXNG_DEFAULT_SAFESEARCH` | No | — | Default safe-search level: `0` (off), `1` (moderate), `2` (strict). Invalid values are ignored with a warning. When unset, the SearXNG instance default applies. |
-| `SEARXNG_DEFAULT_RESPONSE_FORMAT` | No | `text` | Default response format when `response_format` is omitted. After trimming whitespace, accepted values are the exact lowercase `text` or `json`. Unset or blank values use `text` silently; invalid values warn once per server instance and use `text`. If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence. |
+| `SEARXNG_DEFAULT_RESPONSE_FORMAT` | No | `text` | After trimming whitespace, accepted values are the exact lowercase `text` or `json`. Unset or blank values use `text` silently; invalid values warn once per server instance and use `text`. If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence. |
 
 Clients that explicitly send or auto-inject `response_format=text` continue to override the operator default. If an omitted call still returns text after configuring JSON, inspect the tool arguments emitted by the MCP client.
 
