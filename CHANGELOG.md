@@ -3,6 +3,14 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.14.0] - 2026-07-31
+
+### Added
+
+- **Configurable default search response format:** Operators can set `SEARXNG_DEFAULT_RESPONSE_FORMAT` to the exact lowercase value `text` or `json` for calls that omit `response_format`. Explicit per-call values continue to take precedence, and unset, blank, or invalid configuration preserves the existing text default. The tool schema no longer advertises the hard-coded `default: "text"` annotation so clients can omit the argument and allow the operator default to apply; clients that explicitly send or auto-inject `text` continue to override it. The operator default also applies in lite-tools mode. ([#225](https://github.com/ihor-sokoliuk/mcp-searxng/pull/225))
+
+- **Bounded stateless Streamable HTTP mode:** Set `MCP_HTTP_STATELESS=true` to isolate every `POST /mcp` in a fresh MCP server and transport for serverless or horizontally scaled deployments that cannot preserve process-local sessions. Stateless requests are protected by configurable global and per-client-IP in-flight limits, a request lifetime, authorization and hardened Host/Origin checks before server construction, and bounded cleanup. Stateful sessions remain the default; stateless mode is POST-only and does not preserve cross-request sessions, resumable streams, standalone GET notification streams, or DELETE-based termination. ([#226](https://github.com/ihor-sokoliuk/mcp-searxng/pull/226))
+
 ## [1.13.0] - 2026-07-30
 
 ### Added
