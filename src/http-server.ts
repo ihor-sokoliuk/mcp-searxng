@@ -458,9 +458,11 @@ export async function createHttpServer(
         }
         void cleanup();
       };
-      res.once('close', () => {
+      const cleanupAfterResponse = () => {
         void cleanup();
-      });
+      };
+      res.once('finish', cleanupAfterResponse);
+      res.once('close', cleanupAfterResponse);
       requestTimer = setTimeout(handleStatelessTimeout, stateless.requestTimeoutMs);
       requestTimer.unref();
       try {
