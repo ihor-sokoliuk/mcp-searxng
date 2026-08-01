@@ -62,7 +62,7 @@ For measured MCP-process CPU and memory starting points, see
 - **Browser Solver Support**: For each uncached URL that passes static URL validation and the HEAD size preflight, optionally acquire a browser session from FlareSolverr, Byparr, or both, then replay the returned user-agent and scoped cookies through the bounded URL reader. In dual-provider mode FlareSolverr is always primary and Byparr is attempted only after a busy or transient-unavailable primary. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30.
 - **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
 - **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
-- **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening — bearer-token auth, CORS allowlist, and rate limiting.
+- **HTTP Transport**: Optional Streamable HTTP mode with opt-in hardening, rate limiting, and bounded stateless compatibility for serverless or horizontally scaled deployments.
 - **HTML Fallback**: Optionally parse results from the HTML page for public instances that reject `format=json`.
 - **Lite Tools Mode**: Minimal tool schemas for local models with small context windows.
 - **Proxy Support**: Global or per-tool HTTP/HTTPS proxies for search and URL-reader traffic.
@@ -333,7 +333,11 @@ The `--add-host` mapping lets the container reach a SearXNG instance on the host
 }
 ```
 
-**Endpoints:** `POST/GET/DELETE /mcp` (MCP protocol), `GET /health` (health check)
+**Endpoints:** `POST/GET/DELETE /mcp` (stateful MCP protocol), `GET /health` (health check)
+
+Stateful sessions remain the default. Set `MCP_HTTP_STATELESS=true` when a deployment cannot preserve in-memory sessions between requests. Every stateless POST creates a fresh MCP server and transport, ignores any incoming session ID, and returns negotiated JSON or an SSE stream within that same POST. Stateless mode is POST-only: `GET /mcp` and `DELETE /mcp` return HTTP 405 with `Allow: POST`, and no cross-request subscriptions, resumability, or server-to-client notifications are preserved.
+
+Stateless requests are bounded by global and per-client-IP in-flight limits plus a request lifetime. See [CONFIGURATION.md](CONFIGURATION.md#http-transport) for defaults, overload and timeout responses, proxy-aware fairness, and the complete compatibility contract.
 
 **Test it:**
 
