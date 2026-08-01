@@ -44,6 +44,18 @@ function createTestMcpServer(): McpServer {
   );
 }
 
+function postStatelessMcp(
+  app: Awaited<ReturnType<typeof createHttpServer>>,
+  body: unknown,
+  clientIp?: string,
+) {
+  const pending = request(app).post('/mcp')
+    .set('Content-Type', 'application/json')
+    .set('Accept', 'application/json, text/event-stream');
+  if (clientIp) pending.set('X-Forwarded-For', clientIp);
+  return pending.send(body);
+}
+
 async function captureConsoleOutput(action: () => Promise<void>): Promise<string[]> {
   const originalError = console.error;
   const originalWarn = console.warn;
@@ -433,19 +445,11 @@ async function runTests() {
       const waitForStart = () => new Promise<void>((resolve) => startedResolvers.push(resolve));
 
       const firstStarted = waitForStart();
-      const first = request(app).post('/mcp')
-        .set('X-Forwarded-For', '198.51.100.10')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send(callBody);
+      const first = postStatelessMcp(app, callBody, '198.51.100.10');
       const firstResult = first.then(response => response);
       await firstStarted;
 
-      const sameIp = await request(app).post('/mcp')
-        .set('X-Forwarded-For', '198.51.100.10')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send(callBody)
+      const sameIp = await postStatelessMcp(app, callBody, '198.51.100.10')
         .timeout({ deadline: 500 });
       assert.equal(sameIp.status, 503);
       assert.equal(sameIp.headers['retry-after'], '1');
@@ -454,19 +458,11 @@ async function runTests() {
       assert.equal(constructions, 1);
 
       const secondStarted = waitForStart();
-      const second = request(app).post('/mcp')
-        .set('X-Forwarded-For', '198.51.100.11')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send({ ...callBody, id: 2 });
+      const second = postStatelessMcp(app, { ...callBody, id: 2 }, '198.51.100.11');
       const secondResult = second.then(response => response);
       await secondStarted;
 
-      const global = await request(app).post('/mcp')
-        .set('X-Forwarded-For', '198.51.100.12')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send({ ...callBody, id: 3 });
+      const global = await postStatelessMcp(app, { ...callBody, id: 3 }, '198.51.100.12');
       assert.equal(global.status, 503);
       assert.equal(global.headers['retry-after'], '1');
       assert.equal(constructions, 2);
@@ -477,11 +473,11 @@ async function runTests() {
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(closes, 2);
 
-      const afterCleanup = await request(app).post('/mcp')
-        .set('X-Forwarded-For', '198.51.100.10')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} });
+      const afterCleanup = await postStatelessMcp(
+        app,
+        { jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} },
+        '198.51.100.10',
+      );
       assert.equal(afterCleanup.status, 200);
       assert.equal(constructions, 3);
     } finally {
