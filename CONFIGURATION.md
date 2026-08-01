@@ -313,16 +313,23 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
 | `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. Works in pair with `MCP_HTTP_PORT` only. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
 | `MCP_HTTP_TRUST_PROXY` | No | `false` | Express `trust proxy` setting for deployments behind a trusted reverse proxy. Use `true`, a trusted hop count such as `1`, or a proxy subnet/preset such as `loopback` or `10.0.0.0/8`. Unset, `false`, or `0` disables it (the secure default). |
+| `MCP_HTTP_STATELESS` | No | `false` | Set to the exact value `true` to create an isolated MCP server and transport for every `POST /mcp`. `false`, blank, or unset disables it; any other nonblank value warns and uses `false`. Intended for deployments that cannot preserve process-local sessions. |
+| `MCP_HTTP_STATELESS_MAX_IN_FLIGHT` | No | `16` (range `1`-`256`) | Global maximum number of admitted stateless POST requests in flight. Invalid values use the default. |
+| `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP` | No | `8` (range `1`-global cap) | Per-client-IP in-flight maximum. Values above the normalized global cap are reduced to that cap. |
+| `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` | No | `900000` (range `1000`-`2147483647`) | Maximum lifetime of an admitted stateless POST, including server construction, MCP handling, and an active response stream. |
 
 **HTTP endpoints (when HTTP mode is active):**
-- `POST/GET/DELETE /mcp` — MCP protocol
+- Stateful default: `POST/GET/DELETE /mcp` — session-based MCP protocol
+- With `MCP_HTTP_STATELESS=true`: `POST /mcp` only; GET and DELETE return HTTP 405 with `Allow: POST`
 - `GET /health` — health check
 
 HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-id` on a non-initialize `POST /mcp` receives HTTP 404 with JSON-RPC error code `-32001` and message `"Session not found"`. Clients should recover by running `initialize` again; initialize requests are accepted even when they still carry a stale session header.
 
+In stateless mode, every POST creates a fresh MCP server and transport, ignores incoming `mcp-session-id` headers, and never emits a response session ID. A POST can return negotiated JSON or an SSE stream within that same POST. Cross-request sessions, resumable streams, standalone GET notification streams, and DELETE-based session termination are unavailable. This mode does not require an SDK 2.0 upgrade; it uses the stateless transport contract provided by the currently supported SDK.
+
 ## Rate Limiting (HTTP mode)
 
-Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit: POST requests with a currently live session use the session limit, other POST requests use the initialization limit, and GET/DELETE requests always use the session limit.
+Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit. In stateful mode, POST requests with a currently live session use the session limit, other POST requests use the initialization limit, and GET/DELETE requests always use the session limit. In stateless mode, only a single parsed request object recognized by the SDK as `initialize` uses the initialization limit; all other POST bodies, including notifications and batches, use the session limit, and GET/DELETE still use the session limit. Malformed or oversized JSON is rejected by parsing before rate limiting or MCP server construction.
 
 Each `MCP_RATE_*` value must be a positive decimal safe integer after JavaScript whitespace trimming. A leading `+` and leading zeros are accepted; fractions, suffixes, exponents, hexadecimal forms, non-positive values, and integers above `Number.MAX_SAFE_INTEGER` are rejected. An invalid value uses the documented default and emits one startup warning per variable without copying the raw value into diagnostics. Blank or unset variables use the default silently.
 
@@ -336,9 +343,13 @@ Before this correction, spellings such as `20requests`, `12.5`, or `1e3` could b
 
 Requests exceeding a limit receive HTTP 429 with a JSON-RPC error body (`code: -32029`). `/health` has a fixed limit of 60 requests per minute. Standard `RateLimit-*` headers are included on all responses.
 
+After a stateless request consumes its rate-limit token and passes authorization plus hardened Host/Origin checks, it must also acquire the per-IP and global in-flight capacity slots. Per-IP capacity is checked first. Saturation returns HTTP 503, `Retry-After: 1`, and JSON-RPC code `-32000` with message `Server busy`; these attempts still consume their selected rate-limit token. A request that exceeds its lifetime before response headers receives HTTP 504 and JSON-RPC code `-32000` with message `Stateless request timed out`. If an SSE response has already started, the connection is closed instead because its status can no longer be changed. Resource cleanup is bounded and capacity is reclaimed after completion, disconnect, failure, or timeout.
+
 The in-memory store is per-process; for horizontally scaled deployments replace it with a shared Redis store via `express-rate-limit`'s `store` option.
 
 When HTTP mode runs behind a trusted reverse proxy, set `MCP_HTTP_TRUST_PROXY` so Express can resolve the client IP from proxy headers before rate-limit keys and request logs are computed. For a single trusted proxy hop, use `MCP_HTTP_TRUST_PROXY=1`. Leave it unset for direct exposure; enabling it without a trusted proxy lets clients spoof `X-Forwarded-For`. This setting is distinct from outbound `HTTP_PROXY` / `HTTPS_PROXY`, which control this server's requests to SearXNG or URLs.
+
+Requests whose client IP cannot be resolved share one fail-closed capacity bucket. This prevents missing identity data from bypassing the per-IP cap, but such requests can receive HTTP 503 when another unresolved-IP request occupies that bucket.
 
 ## Hardened HTTP Mode
 
@@ -441,6 +452,10 @@ This combined MCP client configuration shows the supported option groups in one 
         "MCP_HTTP_PORT": "3000",
         "MCP_HTTP_HOST": "0.0.0.0",
         "MCP_HTTP_TRUST_PROXY": "1",
+        "MCP_HTTP_STATELESS": "false",
+        "MCP_HTTP_STATELESS_MAX_IN_FLIGHT": "16",
+        "MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP": "8",
+        "MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS": "900000",
         "MCP_RATE_WINDOW_MS": "60000",
         "MCP_RATE_INIT_MAX": "20",
         "MCP_RATE_SESSION_MAX": "300",

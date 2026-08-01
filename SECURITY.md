@@ -33,7 +33,7 @@ The primary security surface areas are:
 | Area | Risk |
 |------|------|
 | `web_url_read` tool | SSRF — the server fetches user-supplied URLs on behalf of the AI |
-| HTTP transport | Unauthorized access, DNS rebinding, CORS misconfiguration |
+| HTTP transport | Unauthorized access, DNS rebinding, CORS misconfiguration, resource exhaustion, or unfair shared capacity |
 | Proxy credentials | Credential exposure in environment variables |
 | SearXNG credentials | Credentials in `SEARXNG_URL` userinfo or legacy `AUTH_PASSWORD` fallback |
 | Query forwarding | Search queries are forwarded verbatim to SearXNG |
@@ -158,6 +158,8 @@ Hardened mode protects the MCP protocol endpoint (`/mcp`) with:
 - **Origin allowlist** — `/mcp` requests from unlisted browser origins are rejected
 - **DNS rebinding protection** — the `Host` header is validated against `MCP_HTTP_ALLOWED_HOSTS`. The default allows loopback access on the configured port (`127.0.0.1`, `localhost`, `[::1]` and their `:PORT` forms). A custom list is matched exactly against `Host`: an entry matches only when it carries the same port the client or proxy sends (e.g. `app.example.com:8443`).
 
+With `MCP_HTTP_STATELESS=true`, bearer authorization and the hardened Host and Origin checks run before any per-request MCP server is constructed. Rate limiting also runs before construction, followed by the stateless capacity controls.
+
 `MCP_HTTP_HARDEN=true` will fail to start if `MCP_HTTP_AUTH_TOKEN` or `MCP_HTTP_ALLOWED_ORIGINS` are missing.
 
 `GET /health` intentionally remains unauthenticated so container orchestrators
@@ -179,6 +181,14 @@ MCP_HTTP_HOST=127.0.0.1
 ```
 
 The default bind address is `127.0.0.1` (loopback only); set `MCP_HTTP_HOST=0.0.0.0` to expose the port on all interfaces.
+
+Optional stateless mode isolates each POST in a fresh MCP server and transport. It does not preserve cross-request sessions, subscriptions, resumability, or standalone notification streams. Responses remain confined to negotiated JSON or an SSE stream within the initiating POST; GET and DELETE on `/mcp` are rejected with HTTP 405.
+
+Stateless mode uses global and per-client-IP in-flight caps plus a request lifetime so abandoned or expensive requests cannot occupy unbounded process resources. Saturation is rejected before server construction. These are process-local controls: horizontally scaled deployments enforce the global cap independently in each process.
+
+The per-IP cap uses Express's resolved request IP, just like rate limiting and request diagnostics. Configure `MCP_HTTP_TRUST_PROXY` only for a known proxy topology whose edge strips and sets forwarding headers. Otherwise clients can spoof `X-Forwarded-For`, evade fair per-IP allocation, and influence logs. Application capacity limits complement, but do not replace, reverse-proxy connection limits and infrastructure-level timeouts.
+
+Requests whose client IP cannot be resolved share one fail-closed capacity bucket. This avoids treating missing identity data as a new client on every request, at the cost of shared contention among those unusual connections.
 
 ### TLS and CA Certificates
 
@@ -211,6 +221,7 @@ Use the default STDIO transport. No additional configuration is needed beyond `S
 ```
 MCP_HTTP_HOST=127.0.0.1   # bind to loopback only
 MCP_HTTP_PORT=3000
+# Optional for serverless/process-local isolation: MCP_HTTP_STATELESS=true
 ```
 
 ### Public / Internet-Facing (HTTP)

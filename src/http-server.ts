@@ -26,6 +26,22 @@ interface Session {
   mcpServer: McpServer;
 }
 
+export const DEFAULT_STATELESS_MAX_IN_FLIGHT = 16;
+export const DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP = 8;
+export const DEFAULT_STATELESS_REQUEST_TIMEOUT_MS = 900000;
+export const MAX_STATELESS_MAX_IN_FLIGHT = 256;
+const MIN_STATELESS_REQUEST_TIMEOUT_MS = 1000;
+const MAX_STATELESS_REQUEST_TIMEOUT_MS = 2147483647;
+const STATELESS_CLEANUP_DEADLINE_MS = 5000;
+const STATELESS_WARNING_INTERVAL_MS = 60000;
+
+export interface StatelessHttpConfig {
+  enabled: boolean;
+  maxInFlight: number;
+  maxInFlightPerIp: number;
+  requestTimeoutMs: number;
+}
+
 function warnDiagnostic(message: string, data?: unknown): void {
   if (data === undefined) {
     writeDiagnostic("warn", sanitizeDiagnosticText(message));
@@ -73,6 +89,71 @@ export function parseRateLimitEnv(name: string, fallback: number): number {
   return parsed;
 }
 
+function parseBoundedStatelessEnv(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const parsed = parseStrictInteger(raw);
+  if (parsed === undefined || parsed < minimum || parsed > maximum) {
+    warnDiagnostic(
+      `⚠️  Ignoring invalid ${name}. Expected an integer from ${minimum} through ${maximum}. Using default ${fallback}.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+function resolveStatelessEnabled(): boolean {
+  const raw = process.env.MCP_HTTP_STATELESS;
+  const value = raw?.trim();
+  if (!value || value === "false") return false;
+  if (value === "true") return true;
+  warnDiagnostic(
+    "⚠️  Ignoring invalid MCP_HTTP_STATELESS. Expected true or false. Using false.",
+  );
+  return false;
+}
+
+export function resolveStatelessHttpConfig(): StatelessHttpConfig {
+  const maxInFlight = parseBoundedStatelessEnv(
+    "MCP_HTTP_STATELESS_MAX_IN_FLIGHT",
+    DEFAULT_STATELESS_MAX_IN_FLIGHT,
+    1,
+    MAX_STATELESS_MAX_IN_FLIGHT,
+  );
+  const requestedPerIp = parseBoundedStatelessEnv(
+    "MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP",
+    DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP,
+    1,
+    MAX_STATELESS_MAX_IN_FLIGHT,
+  );
+  const maxInFlightPerIp = Math.min(requestedPerIp, maxInFlight);
+  if (requestedPerIp > maxInFlight) {
+    warnDiagnostic(
+      `⚠️  Ignoring invalid MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP. Expected a value no greater than MCP_HTTP_STATELESS_MAX_IN_FLIGHT. Using ${maxInFlight}.`,
+    );
+  }
+  const requestTimeoutMs = parseBoundedStatelessEnv(
+    "MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS",
+    DEFAULT_STATELESS_REQUEST_TIMEOUT_MS,
+    MIN_STATELESS_REQUEST_TIMEOUT_MS,
+    MAX_STATELESS_REQUEST_TIMEOUT_MS,
+  );
+
+  return {
+    enabled: resolveStatelessEnabled(),
+    maxInFlight,
+    maxInFlightPerIp,
+    requestTimeoutMs,
+  };
+}
+
 function makeRateLimiters() {
   const windowMs = parseRateLimitEnv("MCP_RATE_WINDOW_MS", 60000);
 
@@ -116,6 +197,7 @@ export async function createHttpServer(
 ): Promise<express.Application> {
   const app = express();
   const security = getHttpSecurityConfig(port);
+  const stateless = resolveStatelessHttpConfig();
   validateHttpSecurityConfig(security);
   if (security.trustProxy !== false) {
     app.set('trust proxy', security.trustProxy);
@@ -145,6 +227,34 @@ export async function createHttpServer(
       },
       id: null,
     });
+  }
+
+  function rejectInvalidStatelessHeaders(
+    req: express.Request,
+    res: express.Response,
+  ): boolean {
+    if (!security.enableDnsRebindingProtection) {
+      return false;
+    }
+    const host = req.headers.host;
+    if (security.allowedHosts.length > 0 && (!host || !security.allowedHosts.includes(host))) {
+      res.status(403).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: `Invalid Host header: ${host}` },
+        id: null,
+      });
+      return true;
+    }
+    const origin = req.headers.origin;
+    if (origin && !isOriginAllowed(origin, security)) {
+      res.status(403).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: `Invalid Origin header: ${origin}` },
+        id: null,
+      });
+      return true;
+    }
+    return false;
   }
 
   function rejectInvalidPost(
@@ -196,8 +306,73 @@ export async function createHttpServer(
 
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
+  let statelessInFlight = 0;
+  const statelessInFlightByIp = new Map<string, number>();
+  let lastCapacityWarningAt = 0;
+  let suppressedCapacityWarnings = 0;
+
+  function resolvedClientIp(req: express.Request): string {
+    return req.ip || req.socket.remoteAddress || "unknown";
+  }
+
+  function warnStatelessCapacity(reason: "per-ip" | "global"): void {
+    const now = Date.now();
+    if (now - lastCapacityWarningAt < STATELESS_WARNING_INTERVAL_MS) {
+      suppressedCapacityWarnings += 1;
+      return;
+    }
+    warnDiagnostic("⚠️  Stateless HTTP capacity exhausted.", {
+      reason,
+      inFlight: statelessInFlight,
+      maxInFlight: stateless.maxInFlight,
+      suppressedSinceLastWarning: suppressedCapacityWarnings,
+    });
+    lastCapacityWarningAt = now;
+    suppressedCapacityWarnings = 0;
+  }
+
+  function admitStatelessRequest(
+    req: express.Request,
+    res: express.Response,
+  ): (() => void) | undefined {
+    const clientIp = resolvedClientIp(req);
+    const clientInFlight = statelessInFlightByIp.get(clientIp) ?? 0;
+    const reason = clientInFlight >= stateless.maxInFlightPerIp
+      ? "per-ip"
+      : statelessInFlight >= stateless.maxInFlight
+        ? "global"
+        : undefined;
+    if (reason) {
+      warnStatelessCapacity(reason);
+      res.set("Retry-After", "1").status(503).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Server busy" },
+        id: null,
+      });
+      return undefined;
+    }
+
+    statelessInFlight += 1;
+    statelessInFlightByIp.set(clientIp, clientInFlight + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      statelessInFlight -= 1;
+      const remaining = (statelessInFlightByIp.get(clientIp) ?? 1) - 1;
+      if (remaining <= 0) statelessInFlightByIp.delete(clientIp);
+      else statelessInFlightByIp.set(clientIp, remaining);
+    };
+  }
 
   const postRateLimiter: express.RequestHandler = (req, res, next) => {
+    if (stateless.enabled) {
+      const selectedLimiter = isInitializeRequest(req.body)
+        ? initLimiter
+        : sessionLimiter;
+      selectedLimiter(req, res, next);
+      return;
+    }
     const sessionId = req.headers['mcp-session-id'];
     // Node comma-joins duplicate custom headers. Only one exact live session ID
     // selects the generous bucket; every other value stays initialization-limited.
@@ -211,6 +386,103 @@ export async function createHttpServer(
   app.post('/mcp', postRateLimiter, async (req, res) => {
     if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
       rejectUnauthorized(res);
+      return;
+    }
+
+    if (stateless.enabled) {
+      if (rejectInvalidStatelessHeaders(req, res)) {
+        return;
+      }
+      const releaseCapacity = admitStatelessRequest(req, res);
+      if (!releaseCapacity) return;
+
+      let mcpServer: McpServer | undefined;
+      let transport: StreamableHTTPServerTransport | undefined;
+      let requestTimer: NodeJS.Timeout | undefined;
+      let cleanupPromise: Promise<void> | undefined;
+      let requestTimedOut = false;
+      const requestDeadline = Date.now() + stateless.requestTimeoutMs;
+      const cleanup = (): Promise<void> => {
+        if (cleanupPromise) return cleanupPromise;
+        cleanupPromise = (async () => {
+          if (requestTimer) clearTimeout(requestTimer);
+          const closeResources = async () => {
+            const errors: unknown[] = [];
+            try {
+              await transport?.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            try {
+              await mcpServer?.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            if (errors.length) throw new AggregateError(errors, "Stateless resource cleanup failed");
+          };
+          let cleanupDeadline: NodeJS.Timeout | undefined;
+          try {
+            await Promise.race([
+              closeResources(),
+              new Promise<never>((_resolve, reject) => {
+                cleanupDeadline = setTimeout(
+                  () => reject(new Error("Stateless resource cleanup timed out")),
+                  STATELESS_CLEANUP_DEADLINE_MS,
+                );
+                cleanupDeadline.unref();
+              }),
+            ]);
+          } catch (error) {
+            warnDiagnostic("⚠️  Stateless HTTP cleanup did not complete normally.", error);
+          } finally {
+            if (cleanupDeadline) clearTimeout(cleanupDeadline);
+            releaseCapacity();
+          }
+        })();
+        return cleanupPromise;
+      };
+      const handleStatelessTimeout = (): void => {
+        if (requestTimedOut) return;
+        requestTimedOut = true;
+        warnDiagnostic("⚠️  Stateless HTTP request reached its lifetime limit.", {
+          timeoutMs: stateless.requestTimeoutMs,
+        });
+        if (!res.headersSent && !res.destroyed) {
+          res.status(504).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Stateless request timed out" },
+            id: null,
+          });
+        } else if (!res.destroyed) {
+          res.destroy();
+        }
+        void cleanup();
+      };
+      res.once('close', () => {
+        void cleanup();
+      });
+      requestTimer = setTimeout(handleStatelessTimeout, stateless.requestTimeoutMs);
+      requestTimer.unref();
+      try {
+        mcpServer = createMcpServer();
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableDnsRebindingProtection: security.enableDnsRebindingProtection,
+          allowedHosts: security.allowedHosts,
+          allowedOrigins: security.allowedOrigins,
+        });
+        if (Date.now() >= requestDeadline) {
+          handleStatelessTimeout();
+          await cleanup();
+          return;
+        }
+        await mcpServer.connect(transport);
+        await handleTransportRequest(transport, req, res);
+      } catch (error) {
+        await cleanup();
+        if (requestTimedOut) return;
+        throw error;
+      }
       return;
     }
 
@@ -263,6 +535,18 @@ export async function createHttpServer(
       return;
     }
 
+    if (stateless.enabled) {
+      if (rejectInvalidStatelessHeaders(req, res)) {
+        return;
+      }
+      res.set('Allow', 'POST').status(405).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed' },
+        id: null,
+      });
+      return;
+    }
+
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !sessions.has(sessionId)) {
       warnDiagnostic(`⚠️  GET request rejected - missing or invalid session ID:`, {
@@ -291,6 +575,18 @@ export async function createHttpServer(
   app.delete('/mcp', sessionLimiter, async (req, res) => {
     if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
       rejectUnauthorized(res);
+      return;
+    }
+
+    if (stateless.enabled) {
+      if (rejectInvalidStatelessHeaders(req, res)) {
+        return;
+      }
+      res.set('Allow', 'POST').status(405).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed' },
+        id: null,
+      });
       return;
     }
 

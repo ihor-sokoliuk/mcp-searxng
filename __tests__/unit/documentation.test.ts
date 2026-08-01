@@ -27,6 +27,12 @@ import {
   MAX_FLARESOLVERR_TIMEOUT_MS,
 } from '../../src/browser-solver.js';
 import { LITE_READ_URL_TOOL, READ_URL_TOOL } from '../../src/types.js';
+import {
+  DEFAULT_STATELESS_MAX_IN_FLIGHT,
+  DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP,
+  DEFAULT_STATELESS_REQUEST_TIMEOUT_MS,
+  MAX_STATELESS_MAX_IN_FLIGHT,
+} from '../../src/http-server.js';
 import { createTestResults, printTestSummary, TestResult, testFunction } from '../helpers/test-utils.js';
 
 const results = createTestResults();
@@ -485,6 +491,45 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(configuration.includes('also applies when `SEARXNG_LITE_TOOLS=true`'));
     assert.ok(configuration.includes('callers that send `response_format` explicitly still override'));
     assert.ok(configuration.includes('"SEARXNG_DEFAULT_RESPONSE_FORMAT": "text"'));
+  }, results);
+
+  await testFunction('public docs define the optional stateless HTTP contract and fixed defaults', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const security = readText(new URL('../../SECURITY.md', import.meta.url));
+
+    assert.equal(DEFAULT_STATELESS_MAX_IN_FLIGHT, 16);
+    assert.equal(DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP, 8);
+    assert.equal(DEFAULT_STATELESS_REQUEST_TIMEOUT_MS, 900000);
+    assert.equal(MAX_STATELESS_MAX_IN_FLIGHT, 256);
+
+    for (const document of [readme, configuration, security]) {
+      assert.ok(document.includes('`MCP_HTTP_STATELESS=true`'));
+    }
+    assert.ok(readme.includes('Stateless mode is POST-only'));
+    assert.ok(readme.includes('Every stateless POST creates a fresh MCP server and transport'));
+
+    for (const variable of [
+      'MCP_HTTP_STATELESS',
+      'MCP_HTTP_STATELESS_MAX_IN_FLIGHT',
+      'MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP',
+      'MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS',
+    ]) {
+      assert.ok(configuration.includes(`\`${variable}\``), `configuration must define ${variable}`);
+      assert.ok(configuration.includes(`"${variable}"`), `combined example must include ${variable}`);
+    }
+    assert.ok(configuration.includes('`16` (range `1`-`256`)'));
+    assert.ok(configuration.includes('`8` (range `1`-global cap)'));
+    assert.ok(configuration.includes('`900000` (range `1000`-`2147483647`)'));
+    assert.ok(configuration.includes('HTTP 503'));
+    assert.ok(configuration.includes('HTTP 504'));
+    assert.ok(configuration.includes('negotiated JSON or an SSE stream within that same POST'));
+    assert.ok(configuration.includes('Requests whose client IP cannot be resolved share one fail-closed capacity bucket'));
+
+    assert.ok(security.includes('does not preserve cross-request sessions'));
+    assert.ok(security.includes('global and per-client-IP in-flight caps'));
+    assert.ok(security.includes('clients can spoof `X-Forwarded-For`'));
+    assert.ok(security.includes('Requests whose client IP cannot be resolved share one fail-closed capacity bucket'));
   }, results);
 
   await testFunction('public documentation states current security, privacy, and configuration contracts', () => {
