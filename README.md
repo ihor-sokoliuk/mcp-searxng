@@ -40,6 +40,24 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 
 Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`). You can also provide interchangeable replicas as a semicolon-separated list, e.g. `https://one.example.com;https://two.example.com`.
 
+**Alternative: You.com Search (No Self-Hosting Required)**
+
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "npx",
+      "args": ["-y", "mcp-searxng"],
+      "env": {
+        "SEARCH_PROVIDER": "youcom"
+      }
+    }
+  }
+}
+```
+
+Optional: Add `"YDC_API_KEY": "your-api-key"` for higher quotas (get your key at [you.com/platform/api-keys](https://you.com/platform/api-keys)). Without an API key, uses You.com's free tier (100 searches/day per IP).
+
 For verified Claude Desktop, Claude Code, Codex CLI, Cursor, VS Code, Windsurf,
 Cline, and OpenCode recipes, see the
 [MCP client configuration cookbook](docs/client-configurations.md).
@@ -53,6 +71,7 @@ For measured MCP-process CPU and memory starting points, see
 
 ## Features
 
+- **Multiple Search Providers**: Choose between SearXNG (self-hosted, requires `SEARXNG_URL`) or You.com (cloud-based, optional `YDC_API_KEY`) via `SEARCH_PROVIDER` configuration.
 - **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output selected per call (`response_format`) or with the operator default (`SEARXNG_DEFAULT_RESPONSE_FORMAT`).
 - **Instance Failover & Fan-out**: Configure interchangeable SearXNG replicas in `SEARXNG_URL`; searches fail over in order by default, or query all healthy replicas in parallel and merge results with `SEARXNG_FANOUT`.
 - **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before the result list.
@@ -351,11 +370,13 @@ The server binds to `127.0.0.1` by default; set `MCP_HTTP_HOST=0.0.0.0` for remo
 
 ## Configuration
 
-`SEARXNG_URL` is the only required variable — set it to your SearXNG instance URL (or a semicolon-separated list of interchangeable replicas). Everything else is optional.
+**SearXNG Provider (Default):** `SEARXNG_URL` is required — set it to your SearXNG instance URL (or semicolon-separated replicas).
+
+**You.com Provider:** Set `SEARCH_PROVIDER=youcom` to use You.com Search API. `YDC_API_KEY` is optional for higher quotas.
 
 Use `SEARXNG_DEFAULT_RESPONSE_FORMAT` to select `text` or `json` when search calls omit `response_format`; explicit per-call values still win.
 
-See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable reference, including authentication, failover/fan-out, caching, timeouts, proxies, TLS, HTTP transport, and hardening.
+See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable reference, including provider selection, authentication, failover/fan-out, caching, timeouts, proxies, TLS, HTTP transport, and hardening.
 
 ## Troubleshooting
 

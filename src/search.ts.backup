@@ -25,7 +25,6 @@ import {
   createNoResultsMessage,
   type ErrorContext
 } from "./error-handler.js";
-import { performYouComWebSearch, isYouComSearchEnabled, getYouComProviderInfo } from "./youcom-search.js";
 
 function getOperatorMaxResults(mcpServer: McpServer): number | undefined {
   const rawValue = process.env.SEARXNG_MAX_RESULTS;
@@ -791,82 +790,6 @@ export async function performWebSearch(
   const cachedResult = searchCache.get("searxng_web_search", cacheArgs);
   if (cachedResult !== null) {
     return formatCachedSearchResult(cachedResult, effectiveResponseFormat);
-  }
-
-  // Check for You.com provider routing
-  if (isYouComSearchEnabled()) {
-    logMessage(mcpServer, "info", `Using You.com search provider for query: "${query}"`);
-    
-    // Convert parameters to You.com format
-    const domains = categories ? categories.split(",").map(c => c.trim()) : undefined;
-    const freshness = time_range && ["day", "week", "month", "year"].includes(time_range) 
-      ? time_range 
-      : undefined;
-    
-    try {
-      const youComResult = await performYouComWebSearch(mcpServer, query, {
-        pageno,
-        count: effectiveMax || 10,
-        domains,
-        freshness,
-        safeSearch: effectiveSafesearch === 2, // Convert safesearch levels: 2 = strict = true
-        timeoutMs: SEARCH_TIMEOUT_MS,
-      });
-
-      // Apply min_score filtering if specified
-      const results = youComResult.results
-        .filter((result) => min_score === undefined || (result.score || 0) >= min_score);
-      const slicedResults = effectiveMax !== undefined
-        ? results.slice(0, effectiveMax)
-        : results;
-
-      // Apply maxResultChars truncation
-      if (maxResultChars !== undefined) {
-        slicedResults.forEach(result => {
-          result.content = truncateResultContent(result.content, maxResultChars);
-        });
-      }
-
-      if (effectiveResponseFormat === "json") {
-        const result = JSON.stringify({
-          ...youComResult,
-          results: slicedResults,
-          provider: "youcom",
-          servedBy: ["You.com Search API"],
-        }, null, 2);
-        if (slicedResults.length > 0) {
-          searchCache.set("searxng_web_search", cacheArgs, result);
-        }
-        return result;
-      }
-
-      // Text format response
-      if (slicedResults.length === 0) {
-        const appliedFilters = [
-          min_score === undefined ? null : `min_score=${min_score}`,
-          effectiveMax === undefined ? null : `num_results=${effectiveMax}`,
-        ].filter(Boolean).join(" ");
-        const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
-        logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
-        return createNoResultsMessage(query);
-      }
-
-      const formattedResults = slicedResults
-        .map((result, index) => 
-          `${index + 1}. **${result.title}**\n   ${result.url}\n   ${result.content}`
-        )
-        .join("\n\n");
-
-      const providerInfo = getYouComProviderInfo();
-      const providerNote = `Served by You.com Search API (${providerInfo.mode})`;
-
-      return `${providerNote}\n\n${formattedResults}`;
-
-    } catch (error) {
-      // If You.com fails, we could fallback to SearXNG, but for now we'll just re-throw
-      logMessage(mcpServer, "error", `You.com search failed: ${error}`);
-      throw error;
-    }
   }
 
   let data: SearXNGWeb;

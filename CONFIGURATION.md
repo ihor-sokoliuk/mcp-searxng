@@ -18,6 +18,20 @@ For SearXNG setup, direct verification, and replica troubleshooting, see
 For MCP-process capacity planning and optional Docker limits, see the
 [measured deployment profiles](docs/deployment-profiles.md).
 
+## Search Provider
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARCH_PROVIDER` | No | `searxng` | Search provider to use: `searxng` (default, requires `SEARXNG_URL`) or `youcom` (You.com Search API). |
+| `YDC_API_KEY` | No | — | You.com API key for authenticated access when `SEARCH_PROVIDER=youcom`. Without this key, uses keyless operation (100 free searches/day per IP). Get your key at [you.com/platform/api-keys](https://you.com/platform/api-keys). |
+
+**You.com Provider Notes:**
+- **Keyless operation**: When `YDC_API_KEY` is not set, uses You.com's free tier (100 searches/day per IP address)
+- **Authenticated operation**: With `YDC_API_KEY` set, gets higher quotas and enhanced features per your You.com plan
+- **Parameter mapping**: `categories` maps to domain filtering, `time_range` maps to freshness, `safesearch=2` enables safe search
+- **Pagination**: You.com searches are not paginated; `pageno > 1` returns empty results
+- **Fallback**: If You.com fails, the error is returned (no automatic fallback to SearXNG)
+
 ## Authentication
 
 For SearXNG instances protected with HTTP Basic Auth, embed credentials in each `SEARXNG_URL` entry:

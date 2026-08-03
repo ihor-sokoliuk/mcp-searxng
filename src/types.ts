@@ -181,9 +181,9 @@ export function isSearXNGInstanceInfoArgs(args: unknown): args is {
 export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
-    "Searches the web using SearXNG and returns a list of results, each with a title, URL, and content snippet. " +
+    "Searches the web using SearXNG or You.com (configurable) and returns a list of results, each with a title, URL, and content snippet. " +
     "CRITICAL: The required parameter name is exactly `query` (not `prompt`, `q`, or any other name). " +
-    "Calls an external SearXNG instance; availability depends on the `SEARXNG_URL` configuration. " +
+    "Provider selection: Set SEARCH_PROVIDER=searxng (default, requires SEARXNG_URL) or SEARCH_PROVIDER=youcom (optional YDC_API_KEY for higher quotas). " +
     "Use `pageno` to paginate results; combine `time_range` and `language` to narrow scope. " +
     "To read the full text of a result URL, follow up with `web_url_read`.",
   annotations: {
@@ -318,7 +318,7 @@ export const INSTANCE_INFO_TOOL: Tool = {
 
 export const LITE_WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
-  description: "Web search. Returns titles, URLs, snippets.",
+  description: "Web search via SearXNG or You.com. Returns titles, URLs, snippets. Provider: SEARCH_PROVIDER env var.",
   inputSchema: {
     type: "object",
     properties: { query: { type: "string", description: "Search query." } },
