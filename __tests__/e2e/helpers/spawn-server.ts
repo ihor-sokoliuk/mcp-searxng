@@ -134,10 +134,11 @@ async function reserveLoopbackPort(): Promise<number> {
 
 async function waitForHealth(
   child: ChildProcess,
-  healthUrl: URL,
+  port: number,
   output: ChildOutputState,
   timeoutMs = 10000,
 ): Promise<unknown> {
+  const healthUrl = new URL(`http://127.0.0.1:${port}/health`);
   const deadline = Date.now() + timeoutMs;
   let lastError = '';
   while (Date.now() < deadline) {
@@ -159,19 +160,25 @@ async function waitForHealth(
   throw new Error(`Timed out waiting for HTTP CLI health after ${timeoutMs}ms: lastError=${lastError}; ${diagnostics(child, output)}`);
 }
 
-function createHttpCliConfig(options: SpawnHttpCliOptions): HttpCliConfig {
+function createHttpCliConfig({
+  stateless = false,
+  readyTimeoutMs = 10000,
+  args = [DIST_CLI],
+  reservePort = reserveLoopbackPort,
+}: SpawnHttpCliOptions): HttpCliConfig {
   return {
-    stateless: options.stateless ?? false,
-    readyTimeoutMs: options.readyTimeoutMs ?? 10000,
-    args: options.args ?? [DIST_CLI],
-    reservePort: options.reservePort ?? reserveLoopbackPort,
+    stateless,
+    readyTimeoutMs,
+    args,
+    reservePort,
   };
 }
 
 function createChildCloser(child: ChildProcess, output: ChildOutputState): () => Promise<void> {
   const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
   return async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    child.kill('SIGTERM');
     const completed = await Promise.race([closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))]);
     if (completed || child.exitCode !== null || child.signalCode !== null) return;
     child.kill('SIGKILL');
@@ -198,7 +205,7 @@ function createHttpCliAttempt(port: number, config: HttpCliConfig): HttpCliAttem
 async function startHttpCliAttempt(port: number, config: HttpCliConfig): Promise<SpawnedHttpCli> {
   const attempt = createHttpCliAttempt(port, config);
   try {
-    const health = await waitForHealth(attempt.child, new URL('/health', attempt.url), attempt.output, config.readyTimeoutMs);
+    const health = await waitForHealth(attempt.child, port, attempt.output, config.readyTimeoutMs);
     return { url: attempt.url, health, close: attempt.close };
   } catch (error) {
     await attempt.close();
@@ -223,7 +230,8 @@ export async function spawnHttpCli(options: SpawnHttpCliOptions = {}): Promise<S
       if (!isAddressInUse(lastError) || attempt === MAX_HTTP_CLI_START_ATTEMPTS) break;
     }
   }
-  if (!lastError || !isAddressInUse(lastError)) throw lastError;
+  if (!lastError) throw new Error('HTTP CLI startup ended without an error diagnostic');
+  if (!isAddressInUse(lastError)) throw lastError;
   throw new Error(`HTTP CLI startup exhausted ${MAX_HTTP_CLI_START_ATTEMPTS} attempts after confirmed EADDRINUSE: ${lastError.message}`);
 }
 
