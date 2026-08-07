@@ -242,15 +242,25 @@ function createHttpCliAttempt(port: number, config: HttpCliConfig): HttpCliAttem
   return { child, url: new URL(`http://127.0.0.1:${port}/mcp`), output, close: createChildCloser(child, output) };
 }
 
+async function captureCleanupFailure(close: () => Promise<void>): Promise<string | undefined> {
+  try {
+    await close();
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function startHttpCliAttempt(port: number, config: HttpCliConfig): Promise<SpawnedHttpCli> {
   const attempt = createHttpCliAttempt(port, config);
   try {
     const health = await waitForHealth(attempt.child, port, attempt.output, config.readyTimeoutMs);
     return { url: attempt.url, health, close: attempt.close };
   } catch (error) {
-    await attempt.close();
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${message}; cleanup=${diagnostics(attempt.child, attempt.output)}`);
+    const cleanupFailure = await captureCleanupFailure(attempt.close);
+    const cleanupError = cleanupFailure ? `; cleanupFailure=${JSON.stringify(cleanupFailure)}` : '';
+    throw new Error(`${message}; cleanup=${diagnostics(attempt.child, attempt.output)}${cleanupError}`);
   }
 }
 
