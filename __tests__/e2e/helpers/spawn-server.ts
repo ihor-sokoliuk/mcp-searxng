@@ -60,6 +60,26 @@ export interface SpawnHttpCliOptions {
   reservePort?: () => Promise<number>;
 }
 
+interface HttpCliConfig {
+  stateless: boolean;
+  readyTimeoutMs: number;
+  args: string[];
+  reservePort: () => Promise<number>;
+}
+
+interface ChildOutputState {
+  stdout: string;
+  stderr: string;
+  spawnError?: Error;
+}
+
+interface HttpCliAttempt {
+  child: ChildProcess;
+  url: URL;
+  output: ChildOutputState;
+  close: () => Promise<void>;
+}
+
 const MAX_HTTP_CLI_START_ATTEMPTS = 2;
 const MAX_CAPTURED_OUTPUT_CHARS = 64 * 1024;
 
@@ -89,8 +109,8 @@ function createHttpCliEnvironment(port: number, stateless: boolean): NodeJS.Proc
   };
 }
 
-function diagnostics(child: ChildProcess, stdout: string, stderr: string): string {
-  return `exitCode=${child.exitCode}; signalCode=${child.signalCode}; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`;
+function diagnostics(child: ChildProcess, output: ChildOutputState): string {
+  return `exitCode=${child.exitCode}; signalCode=${child.signalCode}; stdout=${JSON.stringify(output.stdout)}; stderr=${JSON.stringify(output.stderr)}`;
 }
 
 function appendOutputTail(current: string, chunk: string): string {
@@ -115,21 +135,17 @@ async function reserveLoopbackPort(): Promise<number> {
 async function waitForHealth(
   child: ChildProcess,
   healthUrl: URL,
-  captured: () => { stdout: string; stderr: string },
-  getSpawnError: () => Error | undefined,
+  output: ChildOutputState,
   timeoutMs = 10000,
 ): Promise<unknown> {
   const deadline = Date.now() + timeoutMs;
   let lastError = '';
   while (Date.now() < deadline) {
-    const spawnError = getSpawnError();
-    if (spawnError) {
-      const { stdout, stderr } = captured();
-      throw new Error(`HTTP CLI failed to spawn: ${spawnError.message}; ${diagnostics(child, stdout, stderr)}`);
+    if (output.spawnError) {
+      throw new Error(`HTTP CLI failed to spawn: ${output.spawnError.message}; ${diagnostics(child, output)}`);
     }
     if (child.exitCode !== null || child.signalCode !== null) {
-      const { stdout, stderr } = captured();
-      throw new Error(`HTTP CLI exited before health became ready: ${diagnostics(child, stdout, stderr)}`);
+      throw new Error(`HTTP CLI exited before health became ready: ${diagnostics(child, output)}`);
     }
     try {
       const response = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
@@ -140,72 +156,74 @@ async function waitForHealth(
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  const { stdout, stderr } = captured();
-  throw new Error(`Timed out waiting for HTTP CLI health after ${timeoutMs}ms: lastError=${lastError}; ${diagnostics(child, stdout, stderr)}`);
+  throw new Error(`Timed out waiting for HTTP CLI health after ${timeoutMs}ms: lastError=${lastError}; ${diagnostics(child, output)}`);
+}
+
+function createHttpCliConfig(options: SpawnHttpCliOptions): HttpCliConfig {
+  return {
+    stateless: options.stateless ?? false,
+    readyTimeoutMs: options.readyTimeoutMs ?? 10000,
+    args: options.args ?? [DIST_CLI],
+    reservePort: options.reservePort ?? reserveLoopbackPort,
+  };
+}
+
+function createChildCloser(child: ChildProcess, output: ChildOutputState): () => Promise<void> {
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+  return async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    const completed = await Promise.race([closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))]);
+    if (completed || child.exitCode !== null || child.signalCode !== null) return;
+    child.kill('SIGKILL');
+    const forced = await Promise.race([closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))]);
+    if (!forced) throw new Error(`HTTP CLI did not exit after forced cleanup: ${diagnostics(child, output)}`);
+  };
+}
+
+function createHttpCliAttempt(port: number, config: HttpCliConfig): HttpCliAttempt {
+  const output: ChildOutputState = { stdout: '', stderr: '' };
+  const child = spawn(process.execPath, config.args, {
+    env: createHttpCliEnvironment(port, config.stateless),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { output.stdout = appendOutputTail(output.stdout, chunk); });
+  child.stderr.on('data', (chunk) => { output.stderr = appendOutputTail(output.stderr, chunk); });
+  child.once('error', (error) => { output.spawnError = error; });
+  return { child, url: new URL(`http://127.0.0.1:${port}/mcp`), output, close: createChildCloser(child, output) };
+}
+
+async function startHttpCliAttempt(port: number, config: HttpCliConfig): Promise<SpawnedHttpCli> {
+  const attempt = createHttpCliAttempt(port, config);
+  try {
+    const health = await waitForHealth(attempt.child, new URL('/health', attempt.url), attempt.output, config.readyTimeoutMs);
+    return { url: attempt.url, health, close: attempt.close };
+  } catch (error) {
+    await attempt.close();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}; cleanup=${diagnostics(attempt.child, attempt.output)}`);
+  }
+}
+
+function isAddressInUse(error: Error): boolean {
+  return error.message.includes('EADDRINUSE');
 }
 
 /** Starts the built CLI on an isolated loopback port and waits for /health. */
 export async function spawnHttpCli(options: SpawnHttpCliOptions = {}): Promise<SpawnedHttpCli> {
-  const { stateless = false, readyTimeoutMs = 10000, args = [DIST_CLI], reservePort = reserveLoopbackPort } = options;
+  const config = createHttpCliConfig(options);
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= MAX_HTTP_CLI_START_ATTEMPTS; attempt++) {
-    let port: number;
     try {
-      port = await reservePort();
+      return await startHttpCliAttempt(await config.reservePort(), config);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      if (!lastError.message.includes('EADDRINUSE') || attempt === MAX_HTTP_CLI_START_ATTEMPTS) break;
-      continue;
-    }
-    const url = new URL(`http://127.0.0.1:${port}/mcp`);
-    let stdout = '';
-    let stderr = '';
-    let spawnError: Error | undefined;
-    const child = spawn(process.execPath, args, {
-      env: createHttpCliEnvironment(port, stateless),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { stdout = appendOutputTail(stdout, chunk); });
-    child.stderr.on('data', (chunk) => { stderr = appendOutputTail(stderr, chunk); });
-    child.once('error', (error) => { spawnError = error; });
-
-    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
-    const close = async (): Promise<void> => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-      const completed = await Promise.race([
-        closed.then(() => true),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
-      ]);
-      if (!completed && child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGKILL');
-        const forced = await Promise.race([
-          closed.then(() => true),
-          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
-        ]);
-        if (!forced) throw new Error(`HTTP CLI did not exit after forced cleanup: ${diagnostics(child, stdout, stderr)}`);
-      }
-    };
-
-    try {
-      const health = await waitForHealth(
-        child,
-        new URL('/health', url),
-        () => ({ stdout, stderr }),
-        () => spawnError,
-        readyTimeoutMs,
-      );
-      return { url, health, close };
-    } catch (error) {
-      await close();
-      const message = error instanceof Error ? error.message : String(error);
-      lastError = new Error(`${message}; cleanup=${diagnostics(child, stdout, stderr)}`);
-      if (!lastError.message.includes('EADDRINUSE') || attempt === MAX_HTTP_CLI_START_ATTEMPTS) break;
+      if (!isAddressInUse(lastError) || attempt === MAX_HTTP_CLI_START_ATTEMPTS) break;
     }
   }
-  if (!lastError?.message.includes('EADDRINUSE')) throw lastError;
+  if (!lastError || !isAddressInUse(lastError)) throw lastError;
   throw new Error(`HTTP CLI startup exhausted ${MAX_HTTP_CLI_START_ATTEMPTS} attempts after confirmed EADDRINUSE: ${lastError.message}`);
 }
 
