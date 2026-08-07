@@ -86,7 +86,7 @@ async function runTests() {
       server = await spawnHttpCli({
         reservePort: async () => {
           reserveCalls++;
-          if (reserveCalls === 1) throw new Error('EADDRINUSE deterministic test collision');
+          if (reserveCalls === 1) throw Object.assign(new Error('deterministic test collision'), { code: 'EADDRINUSE' });
           return await reserveTestPort();
         },
       });
@@ -94,6 +94,26 @@ async function runTests() {
     } finally {
       await server?.close();
     }
+  }, results);
+
+  await testFunction('HTTP CLI does not retry when only stdout mentions EADDRINUSE', async () => {
+    let reserveCalls = 0;
+    await assert.rejects(
+      () => spawnHttpCli({
+        args: ['-e', "process.stdout.write('EADDRINUSE in child stdout only'); process.exit(7);"],
+        reservePort: async () => {
+          reserveCalls++;
+          return await reserveTestPort();
+        },
+      }),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /HTTP CLI exited before health became ready/);
+        assert.match(message, /EADDRINUSE in child stdout only/);
+        return true;
+      },
+    );
+    assert.equal(reserveCalls, 1);
   }, results);
 
   await testFunction('HTTP CLI readiness timeout includes diagnostics and reaps the child', async () => {

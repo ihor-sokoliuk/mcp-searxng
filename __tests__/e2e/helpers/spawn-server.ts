@@ -81,6 +81,16 @@ interface HttpCliAttempt {
   close: () => Promise<void>;
 }
 
+class HttpCliStartupError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, readonly startupStderr: string, code?: string) {
+    super(message);
+    this.name = 'HttpCliStartupError';
+    this.code = code;
+  }
+}
+
 const MAX_HTTP_CLI_START_ATTEMPTS = 2;
 const MAX_CAPTURED_OUTPUT_CHARS = 64 * 1024;
 const MAX_HEALTH_RESPONSE_CHARS = 16 * 1024;
@@ -251,6 +261,11 @@ async function captureCleanupFailure(close: () => Promise<void>): Promise<string
   }
 }
 
+function getErrorCode(error: Error): string | undefined {
+  const code = (error as Error & { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
 async function startHttpCliAttempt(port: number, config: HttpCliConfig): Promise<SpawnedHttpCli> {
   const attempt = createHttpCliAttempt(port, config);
   try {
@@ -258,14 +273,20 @@ async function startHttpCliAttempt(port: number, config: HttpCliConfig): Promise
     return { url: attempt.url, health, close: attempt.close };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const code = error instanceof Error ? getErrorCode(error) : undefined;
     const cleanupFailure = await captureCleanupFailure(attempt.close);
     const cleanupError = cleanupFailure ? `; cleanupFailure=${JSON.stringify(cleanupFailure)}` : '';
-    throw new Error(`${message}; cleanup=${diagnostics(attempt.child, attempt.output)}${cleanupError}`);
+    throw new HttpCliStartupError(
+      `${message}; cleanup=${diagnostics(attempt.child, attempt.output)}${cleanupError}`,
+      attempt.output.stderr,
+      code,
+    );
   }
 }
 
 function isAddressInUse(error: Error): boolean {
-  return error.message.includes('EADDRINUSE');
+  return getErrorCode(error) === 'EADDRINUSE'
+    || error instanceof HttpCliStartupError && error.startupStderr.includes('EADDRINUSE');
 }
 
 /** Starts the built CLI on an isolated loopback port and waits for /health. */
