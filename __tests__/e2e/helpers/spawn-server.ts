@@ -160,6 +160,22 @@ async function requestHealth(port: number): Promise<HealthResponse> {
   });
 }
 
+function getChildStartupFailure(child: ChildProcess, output: ChildOutputState): Error | undefined {
+  if (output.spawnError) {
+    return new Error(`HTTP CLI failed to spawn: ${output.spawnError.message}; ${diagnostics(child, output)}`);
+  }
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return new Error(`HTTP CLI exited before health became ready: ${diagnostics(child, output)}`);
+  }
+  return undefined;
+}
+
+function getHealthStatusError(statusCode: number): string | undefined {
+  if (statusCode < 200) return `HTTP ${statusCode}`;
+  if (statusCode >= 300) return `HTTP ${statusCode}`;
+  return undefined;
+}
+
 async function waitForHealth(
   child: ChildProcess,
   port: number,
@@ -169,16 +185,13 @@ async function waitForHealth(
   const deadline = Date.now() + timeoutMs;
   let lastError = '';
   while (Date.now() < deadline) {
-    if (output.spawnError) {
-      throw new Error(`HTTP CLI failed to spawn: ${output.spawnError.message}; ${diagnostics(child, output)}`);
-    }
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`HTTP CLI exited before health became ready: ${diagnostics(child, output)}`);
-    }
+    const childFailure = getChildStartupFailure(child, output);
+    if (childFailure) throw childFailure;
     try {
       const response = await requestHealth(port);
-      if (response.statusCode >= 200 && response.statusCode < 300) return JSON.parse(response.body);
-      lastError = `HTTP ${response.statusCode}`;
+      const statusError = getHealthStatusError(response.statusCode);
+      if (statusError) lastError = statusError;
+      else return JSON.parse(response.body);
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
