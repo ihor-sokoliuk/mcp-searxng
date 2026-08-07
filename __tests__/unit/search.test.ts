@@ -2598,11 +2598,12 @@ async function runTests() {
     envManager.set('SEARXNG_MAX_RESULT_CHARS', '4');
     const mockServer = createMockServer();
     let fetchCount = 0;
+    const expectedUrl = 'https://example.com/long-url-stays-whole';
     fetchMocker.mock(async (url, options) => {
       fetchCount++;
       return createMockFetch({ json: {
         query: 'truncate', answers: ['kept in full'], results: [{
-          title: 'Long title stays whole', content: 'abcdefgh', url: 'https://example.com/long-url-stays-whole',
+          title: 'Long title stays whole', content: 'abcdefgh', url: expectedUrl,
           score: 0.5, engines: ['google', 'bing'], category: 'news', publishedDate: '2026-08-07', thumbnail: 'thumb', img_src: 'image',
         }],
       } })(url, options);
@@ -2615,9 +2616,12 @@ async function runTests() {
       for (const output of [compactText, fullText, JSON.stringify(compactJson), JSON.stringify(fullJson)]) {
         assert.ok(output.includes('abcd…'), output);
         assert.ok(output.includes('Long title stays whole'), output);
-        assert.ok(output.includes('https://example.com/long-url-stays-whole'), output);
         assert.ok(!output.includes('abcde'), output);
       }
+      assert.equal(compactText.split('\n').find((line) => line.startsWith('URL: ')), `URL: ${expectedUrl}`);
+      assert.equal(fullText.split('\n').find((line) => line.startsWith('URL: ')), `URL: ${expectedUrl}`);
+      assert.equal(compactJson.results[0].url, expectedUrl);
+      assert.equal(fullJson.results[0].url, expectedUrl);
       assert.ok(fullText.includes('Relevance Score: 0.500'), fullText);
       assert.ok(fullText.includes('Engines: google, bing'), fullText);
       assert.ok(fullText.includes('Category: news'), fullText);
