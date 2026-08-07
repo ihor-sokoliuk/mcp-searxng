@@ -14,7 +14,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import net from 'node:net';
+import { createServer } from 'node:net';
 import path from 'node:path';
 
 const DIST_CLI = path.join(process.cwd(), 'dist', 'cli.js');
@@ -56,7 +56,12 @@ export interface SpawnHttpCliOptions {
   stateless?: boolean;
   readyTimeoutMs?: number;
   args?: string[];
+  /** @internal Narrow test seam for exercising an EADDRINUSE retry. */
+  reservePort?: () => Promise<number>;
 }
+
+const MAX_HTTP_CLI_START_ATTEMPTS = 2;
+const MAX_CAPTURED_OUTPUT_CHARS = 64 * 1024;
 
 const CHILD_SYSTEM_ENV_KEYS = new Set([
   'ComSpec',
@@ -88,9 +93,13 @@ function diagnostics(child: ChildProcess, stdout: string, stderr: string): strin
   return `exitCode=${child.exitCode}; signalCode=${child.signalCode}; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`;
 }
 
+function appendOutputTail(current: string, chunk: string): string {
+  return `${current}${chunk}`.slice(-MAX_CAPTURED_OUTPUT_CHARS);
+}
+
 async function reserveLoopbackPort(): Promise<number> {
   return await new Promise((resolve, reject) => {
-    const reservation = net.createServer();
+    const reservation = createServer();
     reservation.once('error', reject);
     reservation.listen(0, '127.0.0.1', () => {
       const address = reservation.address();
@@ -137,54 +146,67 @@ async function waitForHealth(
 
 /** Starts the built CLI on an isolated loopback port and waits for /health. */
 export async function spawnHttpCli(options: SpawnHttpCliOptions = {}): Promise<SpawnedHttpCli> {
-  const { stateless = false, readyTimeoutMs = 10000, args = [DIST_CLI] } = options;
-  const port = await reserveLoopbackPort();
-  const url = new URL(`http://127.0.0.1:${port}/mcp`);
-  let stdout = '';
-  let stderr = '';
-  let spawnError: Error | undefined;
-  const child = spawn(process.execPath, args, {
-    env: createHttpCliEnvironment(port, stateless),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => { stdout += chunk; });
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
-  child.once('error', (error) => { spawnError = error; });
+  const { stateless = false, readyTimeoutMs = 10000, args = [DIST_CLI], reservePort = reserveLoopbackPort } = options;
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= MAX_HTTP_CLI_START_ATTEMPTS; attempt++) {
+    let port: number;
+    try {
+      port = await reservePort();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (!lastError.message.includes('EADDRINUSE') || attempt === MAX_HTTP_CLI_START_ATTEMPTS) break;
+      continue;
+    }
+    const url = new URL(`http://127.0.0.1:${port}/mcp`);
+    let stdout = '';
+    let stderr = '';
+    let spawnError: Error | undefined;
+    const child = spawn(process.execPath, args, {
+      env: createHttpCliEnvironment(port, stateless),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout = appendOutputTail(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = appendOutputTail(stderr, chunk); });
+    child.once('error', (error) => { spawnError = error; });
 
-  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
-  const close = async (): Promise<void> => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-    const completed = await Promise.race([
-      closed.then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
-    ]);
-    if (!completed && child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGKILL');
-      const forced = await Promise.race([
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    const close = async (): Promise<void> => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      const completed = await Promise.race([
         closed.then(() => true),
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
       ]);
-      if (!forced) throw new Error(`HTTP CLI did not exit after forced cleanup: ${diagnostics(child, stdout, stderr)}`);
-    }
-  };
+      if (!completed && child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        const forced = await Promise.race([
+          closed.then(() => true),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+        ]);
+        if (!forced) throw new Error(`HTTP CLI did not exit after forced cleanup: ${diagnostics(child, stdout, stderr)}`);
+      }
+    };
 
-  try {
-    const health = await waitForHealth(
-      child,
-      new URL('/health', url),
-      () => ({ stdout, stderr }),
-      () => spawnError,
-      readyTimeoutMs,
-    );
-    return { url, health, close };
-  } catch (error) {
-    await close();
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${message}; cleanup=${diagnostics(child, stdout, stderr)}`);
+    try {
+      const health = await waitForHealth(
+        child,
+        new URL('/health', url),
+        () => ({ stdout, stderr }),
+        () => spawnError,
+        readyTimeoutMs,
+      );
+      return { url, health, close };
+    } catch (error) {
+      await close();
+      const message = error instanceof Error ? error.message : String(error);
+      lastError = new Error(`${message}; cleanup=${diagnostics(child, stdout, stderr)}`);
+      if (!lastError.message.includes('EADDRINUSE') || attempt === MAX_HTTP_CLI_START_ATTEMPTS) break;
+    }
   }
+  if (!lastError?.message.includes('EADDRINUSE')) throw lastError;
+  throw new Error(`HTTP CLI startup exhausted ${MAX_HTTP_CLI_START_ATTEMPTS} attempts after confirmed EADDRINUSE: ${lastError.message}`);
 }
 
 /**
