@@ -7,7 +7,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Configurable search result detail:** `searxng_web_search` accepts optional `result_detail` values `compact` and `full` (default). Compact responses emit only safe title, description, and URL fields, while full responses retain the existing SearXNG metadata and research signals. `SEARXNG_MAX_RESULT_CHARS` applies only to result content in both modes.
+- **Configurable search result detail:** `searxng_web_search` accepts optional `result_detail` values `compact` and `full` (default). Compact responses emit only safe title, URL, and description/content-snippet fields (JSON keys: `title`, `url`, `content`), while full responses retain the existing SearXNG metadata and research signals. `SEARXNG_MAX_RESULT_CHARS` applies only to result content in both modes.
 
   **Migration note:** compact text has exactly three lines per result and no preamble or cache annotation. Line parsers that rely on relevance scores or other metadata should request `result_detail="full"` or accept compact's three-line records.
 

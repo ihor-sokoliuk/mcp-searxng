@@ -263,7 +263,7 @@ export const WEB_SEARCH_TOOL: Tool = {
       },
       result_detail: {
         type: "string",
-        description: "Result detail: full preserves SearXNG metadata and search signals; compact returns only title, description, and URL fields for each result. If omitted, full is used.",
+        description: "Result detail: full preserves SearXNG metadata and search signals; compact returns only title, URL, and content-snippet fields for each result (JSON keys: title, url, content). If omitted, full is used.",
         enum: ["compact", "full"],
       },
     },

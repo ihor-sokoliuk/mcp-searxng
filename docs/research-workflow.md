@@ -69,7 +69,7 @@ Call `searxng_web_search` with the required `query`. Full mode also supports:
 - `categories` and `engines` for instance-supported routing.
 - `response_format` as `text` for normal agent use or `json` for structured
   processing.
-- `result_detail` as `compact` for just title, description, and URL records,
+- `result_detail` as `compact` for just title, URL, and description/content-snippet records (JSON keys: `title`, `url`, `content`),
   or `full` (the default) when answers, infoboxes, corrections, suggestions,
   warnings, provenance, and other SearXNG research signals are needed.
 
