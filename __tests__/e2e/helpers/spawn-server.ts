@@ -12,8 +12,9 @@
  *   const toolResult = responses[2]; // keyed by id
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 const DIST_CLI = path.join(process.cwd(), 'dist', 'cli.js');
@@ -41,6 +42,150 @@ export const INIT_PARAMS = {
   capabilities: {},
   clientInfo: { name: 'e2e-test', version: '1.0.0' },
 };
+
+/**
+ * Starts the built CLI in HTTP transport mode for local end-to-end tests.
+ */
+export interface SpawnedHttpCli {
+  url: URL;
+  health: unknown;
+  close: () => Promise<void>;
+}
+
+export interface SpawnHttpCliOptions {
+  stateless?: boolean;
+  readyTimeoutMs?: number;
+  args?: string[];
+}
+
+const CHILD_SYSTEM_ENV_KEYS = new Set([
+  'ComSpec',
+  'COMSPEC',
+  'Path',
+  'PATH',
+  'PATHEXT',
+  'SystemRoot',
+  'SYSTEMROOT',
+  'TEMP',
+  'TMP',
+]);
+
+function createHttpCliEnvironment(port: number, stateless: boolean): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && CHILD_SYSTEM_ENV_KEYS.has(key)) environment[key] = value;
+  }
+  return {
+    ...environment,
+    MCP_HTTP_HOST: '127.0.0.1',
+    MCP_HTTP_PORT: String(port),
+    MCP_HTTP_STATELESS: stateless ? 'true' : 'false',
+    SEARXNG_URL: 'http://127.0.0.1:1',
+  };
+}
+
+function diagnostics(child: ChildProcess, stdout: string, stderr: string): string {
+  return `exitCode=${child.exitCode}; signalCode=${child.signalCode}; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`;
+}
+
+async function reserveLoopbackPort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const reservation = net.createServer();
+    reservation.once('error', reject);
+    reservation.listen(0, '127.0.0.1', () => {
+      const address = reservation.address();
+      if (!address || typeof address === 'string') {
+        reservation.close(() => reject(new Error('Failed to reserve a loopback port')));
+        return;
+      }
+      reservation.close((error) => error ? reject(error) : resolve(address.port));
+    });
+  });
+}
+
+async function waitForHealth(
+  child: ChildProcess,
+  healthUrl: URL,
+  captured: () => { stdout: string; stderr: string },
+  getSpawnError: () => Error | undefined,
+  timeoutMs = 10000,
+): Promise<unknown> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = '';
+  while (Date.now() < deadline) {
+    const spawnError = getSpawnError();
+    if (spawnError) {
+      const { stdout, stderr } = captured();
+      throw new Error(`HTTP CLI failed to spawn: ${spawnError.message}; ${diagnostics(child, stdout, stderr)}`);
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const { stdout, stderr } = captured();
+      throw new Error(`HTTP CLI exited before health became ready: ${diagnostics(child, stdout, stderr)}`);
+    }
+    try {
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
+      if (response.ok) return await response.json();
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const { stdout, stderr } = captured();
+  throw new Error(`Timed out waiting for HTTP CLI health after ${timeoutMs}ms: lastError=${lastError}; ${diagnostics(child, stdout, stderr)}`);
+}
+
+/** Starts the built CLI on an isolated loopback port and waits for /health. */
+export async function spawnHttpCli(options: SpawnHttpCliOptions = {}): Promise<SpawnedHttpCli> {
+  const { stateless = false, readyTimeoutMs = 10000, args = [DIST_CLI] } = options;
+  const port = await reserveLoopbackPort();
+  const url = new URL(`http://127.0.0.1:${port}/mcp`);
+  let stdout = '';
+  let stderr = '';
+  let spawnError: Error | undefined;
+  const child = spawn(process.execPath, args, {
+    env: createHttpCliEnvironment(port, stateless),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.once('error', (error) => { spawnError = error; });
+
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+  const close = async (): Promise<void> => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    const completed = await Promise.race([
+      closed.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+    ]);
+    if (!completed && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      const forced = await Promise.race([
+        closed.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+      ]);
+      if (!forced) throw new Error(`HTTP CLI did not exit after forced cleanup: ${diagnostics(child, stdout, stderr)}`);
+    }
+  };
+
+  try {
+    const health = await waitForHealth(
+      child,
+      new URL('/health', url),
+      () => ({ stdout, stderr }),
+      () => spawnError,
+      readyTimeoutMs,
+    );
+    return { url, health, close };
+  } catch (error) {
+    await close();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}; cleanup=${diagnostics(child, stdout, stderr)}`);
+  }
+}
 
 /**
  * Spawn the built MCP binary, pipe `messages` as newline-delimited JSON to stdin,
