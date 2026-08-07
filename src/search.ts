@@ -520,9 +520,12 @@ function asTextLineString(value: unknown): string {
 }
 
 function truncateSearchResults(results: SearXNGWeb["results"], maxResultChars?: number): SearXNGWeb["results"] {
+  if (maxResultChars === undefined) {
+    return results;
+  }
   return results.map((result) => {
     const cloned = { ...result };
-    if (maxResultChars !== undefined && typeof result.content === "string") {
+    if (typeof result.content === "string") {
       cloned.content = truncateResultContent(result.content, maxResultChars);
     }
     return cloned;
