@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { parse } from "node-html-parser";
-import { SearXNGWeb } from "./types.js";
+import { SearXNGWeb, type ResultDetail } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import { logMessage } from "./logging.js";
@@ -489,7 +489,10 @@ function buildSearchRequestOptions(url: URL): RequestInit {
   return requestOptions;
 }
 
-export function formatCachedSearchResult(result: string, responseFormat: "text" | "json"): string {
+export function formatCachedSearchResult(result: string, responseFormat: "text" | "json", resultDetail: ResultDetail = "full"): string {
+  if (resultDetail === "compact") {
+    return result;
+  }
   if (responseFormat === "json") {
     try {
       return JSON.stringify({
@@ -506,6 +509,40 @@ export function formatCachedSearchResult(result: string, responseFormat: "text" 
   }
 
   return `${result}\n\n_Cached result_`;
+}
+
+function asSafeString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asTextLineString(value: unknown): string {
+  return asSafeString(value).replace(/[\r\n\u2028\u2029]+/gu, " ");
+}
+
+function truncateSearchResults(results: SearXNGWeb["results"], maxResultChars?: number): SearXNGWeb["results"] {
+  return results.map((result) => {
+    const cloned = { ...result };
+    if (maxResultChars !== undefined && typeof result.content === "string") {
+      cloned.content = truncateResultContent(result.content, maxResultChars);
+    }
+    return cloned;
+  });
+}
+
+function formatCompactTextResults(results: SearXNGWeb["results"], maxResultChars?: number): string {
+  return results.map((result) => [
+    `Title: ${asTextLineString(result.title)}`,
+    `Description: ${truncateResultContent(asTextLineString(result.content), maxResultChars)}`,
+    `URL: ${asTextLineString(result.url)}`,
+  ].join("\n")).join("\n\n");
+}
+
+function compactJsonResults(results: SearXNGWeb["results"], maxResultChars?: number) {
+  return results.map((result) => ({
+    title: asSafeString(result.title),
+    url: asSafeString(result.url),
+    content: truncateResultContent(asSafeString(result.content), maxResultChars),
+  }));
 }
 
 async function fetchSearchFromInstance(
@@ -726,6 +763,7 @@ export async function performWebSearch(
   categories?: string,
   engines?: string,
   response_format?: ResponseFormat,
+  result_detail: ResultDetail = "full",
 ) {
   const startTime = Date.now();
   const effectiveResponseFormat = response_format ?? getDefaultResponseFormat(mcpServer);
@@ -784,12 +822,13 @@ export async function performWebSearch(
     effectiveMax,
     maxResultChars,
     response_format: effectiveResponseFormat,
+    result_detail,
     instances,
     searxngFanout: fanoutEnabled,
   };
   const cachedResult = searchCache.get("searxng_web_search", cacheArgs);
   if (cachedResult !== null) {
-    return formatCachedSearchResult(cachedResult, effectiveResponseFormat);
+    return formatCachedSearchResult(cachedResult, effectiveResponseFormat, result_detail);
   }
 
   let data: SearXNGWeb;
@@ -814,19 +853,21 @@ export async function performWebSearch(
     : results;
 
   if (effectiveResponseFormat === "json") {
-    const result = JSON.stringify({
-      ...data,
-      results: slicedResults,
-      ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
-      ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
-    }, null, 2);
+    const result = result_detail === "compact"
+      ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars) }, null, 2)
+      : JSON.stringify({
+        ...data,
+        results: truncateSearchResults(slicedResults, maxResultChars),
+        ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
+        ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
+      }, null, 2);
     if (slicedResults.length > 0) {
       searchCache.set("searxng_web_search", cacheArgs, result);
     }
     return result;
   }
 
-  const metadata = formatSearchMetadata(data);
+  const metadata = result_detail === "full" ? formatSearchMetadata(data) : "";
   const leadingSections = [
     includeProvenance
       ? `Served by SearXNG ${redactedServedBy.length === 1 ? "instance" : "instances"}: ${redactedServedBy.join(", ")}`
@@ -844,30 +885,47 @@ export async function performWebSearch(
     const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
-    const result = leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage;
+    const result = result_detail === "compact" ? noResultsMessage : (leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage);
     return result;
   }
 
   const duration = Date.now() - startTime;
   logMessage(mcpServer, "info", `Search completed: "${query}" (${searchParams}) - ${slicedResults.length} results in ${duration}ms`);
 
-  const formattedResults = slicedResults
+  const formattedResults = result_detail === "compact"
+    ? formatCompactTextResults(slicedResults, maxResultChars)
+    : slicedResults
     .map((r) => {
       const lines = [
-        `Title: ${r.title || ""}`,
-        `Description: ${truncateResultContent(r.content || "", maxResultChars)}`,
-        `URL: ${r.url || ""}`,
+        `Title: ${asTextLineString(r.title)}`,
+        `Description: ${truncateResultContent(asTextLineString(r.content), maxResultChars)}`,
+        `URL: ${asTextLineString(r.url)}`,
       ];
 
-      if (r.score !== undefined) {
+      if (typeof r.score === "number" && Number.isFinite(r.score)) {
         lines.push(`Relevance Score: ${r.score.toFixed(3)}`);
       }
+
+      const engines = Array.isArray(r.engines) && r.engines.every((engine) => typeof engine === "string")
+        ? r.engines.map((engine) => asTextLineString(engine).trim()).filter(Boolean)
+        : [];
+      if (engines.length > 0) {
+        lines.push(`Engines: ${engines.join(", ")}`);
+      }
+      const category = asTextLineString(r.category).trim();
+      const publishedDate = asTextLineString(r.publishedDate).trim();
+      const thumbnail = asTextLineString(r.thumbnail).trim();
+      const imageSource = asTextLineString(r.img_src).trim();
+      if (category) lines.push(`Category: ${category}`);
+      if (publishedDate) lines.push(`Published Date: ${publishedDate}`);
+      if (thumbnail) lines.push(`Thumbnail: ${thumbnail}`);
+      if (imageSource) lines.push(`Image Source: ${imageSource}`);
 
       return lines.join("\n");
     })
     .join("\n\n");
 
-  const result = leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults;
+  const result = result_detail === "compact" ? formattedResults : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
   searchCache.set("searxng_web_search", cacheArgs, result);
   return result;
 }

@@ -184,6 +184,7 @@ export function createMcpServer(): McpServer {
           args.categories,
           args.engines,
           args.response_format,
+          args.result_detail,
         );
 
         return {

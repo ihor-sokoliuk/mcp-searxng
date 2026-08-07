@@ -31,9 +31,12 @@ export interface SearXNGWeb {
   unresponsive_engines?: Array<[string, string]>;
 }
 
+export type ResultDetail = "compact" | "full";
+
 const VALID_TIME_RANGES = ["day", "week", "month", "year"] as const;
 const VALID_SAFESEARCH_VALUES = [0, 1, 2, "0", "1", "2"] as const;
 const VALID_RESPONSE_FORMATS = ["text", "json"] as const;
+const VALID_RESULT_DETAILS = ["compact", "full"] as const;
 
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
@@ -46,6 +49,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   categories?: string;
   engines?: string;
   response_format?: "text" | "json";
+  result_detail?: ResultDetail;
 } {
   if (
     typeof args !== "object" ||
@@ -66,11 +70,18 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     categories?: unknown;
     engines?: unknown;
     response_format?: unknown;
+    result_detail?: unknown;
   };
 
   if (
     searchArgs.pageno !== undefined &&
     (typeof searchArgs.pageno !== "number" || !Number.isInteger(searchArgs.pageno) || searchArgs.pageno < 1)
+  ) {
+    return false;
+  }
+  if (
+    searchArgs.result_detail !== undefined &&
+    (typeof searchArgs.result_detail !== "string" || !VALID_RESULT_DETAILS.includes(searchArgs.result_detail as any))
   ) {
     return false;
   }
@@ -249,6 +260,11 @@ export const WEB_SEARCH_TOOL: Tool = {
         type: "string",
         description: "Response format: formatted text for agents or raw JSON for programmatic clients. If omitted, SEARXNG_DEFAULT_RESPONSE_FORMAT applies; if unset or invalid, text is used. An explicit response_format always takes precedence.",
         enum: ["text", "json"],
+      },
+      result_detail: {
+        type: "string",
+        description: "Result detail: full preserves SearXNG metadata and search signals; compact returns only title, description, and URL fields for each result. If omitted, full is used.",
+        enum: ["compact", "full"],
       },
     },
     required: ["query"],

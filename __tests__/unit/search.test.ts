@@ -2492,6 +2492,206 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('compact result detail returns exact text and JSON shapes without metadata', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: {
+      query: 'compact query', answers: ['42'], suggestions: ['ignored'], corrections: ['corrected'], infoboxes: [{ infobox: 'ignored' }], results: [
+        { title: 'First', content: 'First snippet', url: 'https://example.com/first', score: 0.9876, engines: ['google'], category: 'news', publishedDate: 'today' },
+        { title: 2, content: null, url: false },
+      ],
+    } }));
+    try {
+      const text = await performWebSearch(mockServer as any, 'compact query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      assert.equal(text, 'Title: First\nDescription: First snippet\nURL: https://example.com/first\n\nTitle: \nDescription: \nURL: ');
+      assert.ok(!text.endsWith('\n'), text);
+      assert.equal((text.match(/\n\n/g) ?? []).length, 1, text);
+      for (const excluded of ['Direct answer:', 'Suggestions:', 'Corrections:', 'Infobox:', 'Relevance Score:', 'Engines:', 'Category:']) {
+        assert.ok(!text.includes(excluded), text);
+      }
+      const json = await performWebSearch(mockServer as any, 'compact json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact');
+      assert.deepEqual(JSON.parse(json), { results: [
+        { title: 'First', url: 'https://example.com/first', content: 'First snippet' },
+        { title: '', url: '', content: '' },
+      ] });
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('compact text normalizes upstream line separators without changing compact JSON strings', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '8');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: [{
+      title: 'Title\r\nwith\u2028separators', content: 'Description\nwith\r\u2029separators', url: 'https://example.com/one\ntwo',
+    }] } }));
+    try {
+      const text = await performWebSearch(mockServer as any, 'line separators', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      assert.equal(text, 'Title: Title with separators\nDescription: Descript\u2026\nURL: https://example.com/one two');
+      assert.equal((text.match(/\n/g) ?? []).length, 2, text);
+      assert.ok(!text.endsWith('\n'), text);
+      const json = JSON.parse(await performWebSearch(mockServer as any, 'line separators json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact'));
+      assert.equal(json.results[0].title, 'Title\r\nwith\u2028separators');
+      assert.equal(json.results[0].content, 'Descript\u2026');
+      assert.equal(json.results[0].url, 'https://example.com/one\ntwo');
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('compact suppresses validation warnings and multi-instance provenance in text and JSON', async () => {
+    clearInstanceInfoCacheForTests();
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.pathname.endsWith('/config')) throw new Error('config blocked');
+      return createMockFetch({ json: { results: [{ title: 'Compact', content: 'Body', url: 'https://example.com/compact' }] } })(url);
+    });
+    try {
+      const warningText = await performWebSearch(mockServer as any, 'compact warning text', 1, undefined, undefined, undefined, undefined, undefined, 'Unknown Category', undefined, 'text', 'compact');
+      assert.equal(warningText, 'Title: Compact\nDescription: Body\nURL: https://example.com/compact');
+      const warningJson = JSON.parse(await performWebSearch(mockServer as any, 'compact warning json', 1, undefined, undefined, undefined, undefined, undefined, 'Unknown Category', undefined, 'json', 'compact'));
+      assert.deepEqual(warningJson, { results: [{ title: 'Compact', url: 'https://example.com/compact', content: 'Body' }] });
+
+      fetchMocker.restore();
+      clearSearxngInstanceStateForTests();
+      envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+      fetchMocker.mock(async (url) => {
+        if (new URL(url.toString()).hostname === 'first.example.com') throw new Error('first down');
+        return createMockFetch({ json: { results: [{ title: 'Second', content: 'Recovered', url: 'https://example.com/recovered' }] } })(url);
+      });
+      const provenanceText = await performWebSearch(mockServer as any, 'compact provenance text', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      assert.equal(provenanceText, 'Title: Second\nDescription: Recovered\nURL: https://example.com/recovered');
+      const provenanceJson = JSON.parse(await performWebSearch(mockServer as any, 'compact provenance json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact'));
+      assert.deepEqual(provenanceJson, { results: [{ title: 'Second', url: 'https://example.com/recovered', content: 'Recovered' }] });
+    } finally {
+      fetchMocker.restore();
+      clearInstanceInfoCacheForTests();
+      clearSearxngInstanceStateForTests();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('compact result detail uses the existing no-results diagnostic and cache hits are byte-identical', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { answers: ['42'], suggestions: ['ignored'], corrections: ['ignored'], infoboxes: [{ infobox: 'ignored' }], results: [] } }));
+    try {
+      const empty = await performWebSearch(mockServer as any, 'no compact results', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      assert.ok(empty.includes('No results found'), empty);
+      for (const excluded of ['Direct answer:', 'Suggestions:', 'Corrections:', 'Infobox:']) assert.ok(!empty.includes(excluded), empty);
+      const emptyJson = await performWebSearch(mockServer as any, 'no compact results json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact');
+      assert.equal(emptyJson, '{\n  "results": []\n}');
+      fetchMocker.mock(createMockFetch({ json: { results: [{ title: 'Cached', content: 'Body', url: 'https://example.com/cached' }] } }));
+      const first = await performWebSearch(mockServer as any, 'cached compact', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      const cached = await performWebSearch(mockServer as any, 'cached compact', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      assert.equal(cached, first);
+      const firstJson = await performWebSearch(mockServer as any, 'cached compact json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact');
+      const cachedJson = await performWebSearch(mockServer as any, 'cached compact json', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact');
+      assert.equal(cachedJson, firstJson);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('result detail truncates only content in all text and JSON combinations and isolates cache entries', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '4');
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({ json: {
+        query: 'truncate', answers: ['kept in full'], results: [{
+          title: 'Long title stays whole', content: 'abcdefgh', url: 'https://example.com/long-url-stays-whole',
+          score: 0.5, engines: ['google', 'bing'], category: 'news', publishedDate: '2026-08-07', thumbnail: 'thumb', img_src: 'image',
+        }],
+      } })(url, options);
+    });
+    try {
+      const compactText = await performWebSearch(mockServer as any, 'truncate', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact');
+      const fullText = await performWebSearch(mockServer as any, 'truncate', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'full');
+      const compactJson = JSON.parse(await performWebSearch(mockServer as any, 'truncate', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact'));
+      const fullJson = JSON.parse(await performWebSearch(mockServer as any, 'truncate', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'full'));
+      for (const output of [compactText, fullText, JSON.stringify(compactJson), JSON.stringify(fullJson)]) {
+        assert.ok(output.includes('abcd…'), output);
+        assert.ok(output.includes('Long title stays whole'), output);
+        assert.ok(output.includes('https://example.com/long-url-stays-whole'), output);
+        assert.ok(!output.includes('abcde'), output);
+      }
+      assert.ok(fullText.includes('Relevance Score: 0.500'), fullText);
+      assert.ok(fullText.includes('Engines: google, bing'), fullText);
+      assert.ok(fullText.includes('Category: news'), fullText);
+      assert.ok(fullText.includes('Published Date: 2026-08-07'), fullText);
+      assert.ok(fullText.includes('Thumbnail: thumb'), fullText);
+      assert.ok(fullText.includes('Image Source: image'), fullText);
+      const metadataLines = ['Title:', 'Description:', 'URL:', 'Relevance Score:', 'Engines:', 'Category:', 'Published Date:', 'Thumbnail:', 'Image Source:'];
+      assert.deepEqual(metadataLines.map((prefix) => fullText.indexOf(prefix)), [...metadataLines.map((prefix) => fullText.indexOf(prefix))].sort((a, b) => a - b));
+      assert.deepEqual(compactJson, { results: [{ title: 'Long title stays whole', url: 'https://example.com/long-url-stays-whole', content: 'abcd…' }] });
+      assert.deepEqual(fullJson.answers, ['kept in full']);
+      assert.equal(fullJson.results[0].engines[0], 'google');
+      assert.equal(fetchCount, 4);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('full JSON preserves raw metadata, clones before truncation, and omits invalid optional text lines', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_MAX_RESULT_CHARS', '4');
+    const source = {
+      query: 'clone', answers: ['raw answer'], suggestions: ['raw suggestion'],
+      results: [
+        { title: 'Raw', content: 'abcdefgh', url: 'https://example.com/raw', score: Number.NaN, engines: ['google', 3] as any, category: 3 as any, publishedDate: '' },
+        { title: 'Missing', url: 'https://example.com/missing' } as any,
+        { title: 'Non-string', content: 7, url: 'https://example.com/non-string' } as any,
+      ],
+    };
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => ({ ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(source), json: async () => source } as Response));
+    try {
+      const json = JSON.parse(await performWebSearch(mockServer as any, 'clone', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'full'));
+      assert.deepEqual(json.answers, ['raw answer']);
+      assert.deepEqual(json.suggestions, ['raw suggestion']);
+      assert.equal(json.results[0].content, 'abcd\u2026');
+      assert.equal('content' in json.results[1], false);
+      assert.equal(json.results[2].content, 7);
+      assert.equal(source.results[0].content, 'abcdefgh', 'response data must not be mutated during truncation');
+
+      envManager.delete('SEARXNG_MAX_RESULT_CHARS');
+      const uncapped = JSON.parse(await performWebSearch(mockServer as any, 'clone uncapped', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'full'));
+      assert.equal(uncapped.results[0].content, 'abcdefgh');
+      assert.equal('content' in uncapped.results[1], false);
+      assert.equal(uncapped.results[2].content, 7);
+
+      const text = await performWebSearch(mockServer as any, 'clone text', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'full');
+      for (const omitted of ['Relevance Score:', 'Engines:', 'Category:', 'Published Date:', 'Thumbnail:', 'Image Source:']) assert.ok(!text.includes(omitted), text);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('full text normalizes line separators and omits empty engine metadata', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: { results: [{
+      title: 'Full\rTitle', content: 'Body\nDescription', url: 'https://example.com/full\u2028fake', score: 1,
+      engines: ['', ' bing\nfake ', ''], category: 'news\r\nTitle: forged', publishedDate: 'today\u2029tomorrow',
+      thumbnail: 'thumb\nline', img_src: 'image\rline',
+    }] } }));
+    try {
+      const text = await performWebSearch(mockServer as any, 'full line normalization', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'full');
+      assert.equal(text, [
+        'Title: Full Title',
+        'Description: Body Description',
+        'URL: https://example.com/full fake',
+        'Relevance Score: 1.000',
+        'Engines: bing fake',
+        'Category: news Title: forged',
+        'Published Date: today tomorrow',
+        'Thumbnail: thumb line',
+        'Image Source: image line',
+      ].join('\n'));
+      assert.ok(!text.includes('\nTitle: forged'), text);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
   await testFunction('response_format=text returns formatted text output', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
