@@ -14,6 +14,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { request } from 'node:http';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
@@ -82,6 +83,7 @@ interface HttpCliAttempt {
 
 const MAX_HTTP_CLI_START_ATTEMPTS = 2;
 const MAX_CAPTURED_OUTPUT_CHARS = 64 * 1024;
+const MAX_HEALTH_RESPONSE_CHARS = 16 * 1024;
 
 const CHILD_SYSTEM_ENV_KEYS = new Set([
   'ComSpec',
@@ -132,13 +134,38 @@ async function reserveLoopbackPort(): Promise<number> {
   });
 }
 
+interface HealthResponse {
+  statusCode: number;
+  body: string;
+}
+
+async function requestHealth(port: number): Promise<HealthResponse> {
+  return await new Promise((resolve, reject) => {
+    const probe = request({ hostname: '127.0.0.1', port, path: '/health', method: 'GET' }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        body += chunk;
+        if (body.length > MAX_HEALTH_RESPONSE_CHARS) {
+          response.destroy();
+          reject(new Error(`HTTP health response exceeded ${MAX_HEALTH_RESPONSE_CHARS} characters`));
+        }
+      });
+      response.once('end', () => resolve({ statusCode: response.statusCode ?? 0, body }));
+      response.once('error', reject);
+    });
+    probe.once('error', reject);
+    probe.setTimeout(500, () => probe.destroy(new Error('HTTP health request timed out after 500ms')));
+    probe.end();
+  });
+}
+
 async function waitForHealth(
   child: ChildProcess,
   port: number,
   output: ChildOutputState,
   timeoutMs = 10000,
 ): Promise<unknown> {
-  const healthUrl = new URL(`http://127.0.0.1:${port}/health`);
   const deadline = Date.now() + timeoutMs;
   let lastError = '';
   while (Date.now() < deadline) {
@@ -149,9 +176,9 @@ async function waitForHealth(
       throw new Error(`HTTP CLI exited before health became ready: ${diagnostics(child, output)}`);
     }
     try {
-      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
-      if (response.ok) return await response.json();
-      lastError = `HTTP ${response.status}`;
+      const response = await requestHealth(port);
+      if (response.statusCode >= 200 && response.statusCode < 300) return JSON.parse(response.body);
+      lastError = `HTTP ${response.statusCode}`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
