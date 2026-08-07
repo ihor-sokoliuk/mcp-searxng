@@ -3,6 +3,20 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.14.1] - 2026-08-06
+
+### Fixed
+
+- **Built HTTP transport regression coverage now exercises real loopback TCP:** The end-to-end suite launches the compiled CLI in both stateful and stateless modes and verifies session negotiation, tool listing, bounded readiness and diagnostics, process cleanup, and narrowly classified address-in-use retries. This is test-only hardening; supported transport behavior is unchanged. ([#237](https://github.com/ihor-sokoliuk/mcp-searxng/pull/237))
+
+### Changed
+
+- **Compatible runtime dependencies and the pinned container base are refreshed:** The Hono override floor moves to 4.13.0, `ip-address` resolves to 10.4.0, `fast-uri` resolves to 3.1.5, and both Docker stages use the current pinned Node 24 LTS Alpine digest. These are non-major compatibility and supply-chain maintenance updates; the supported API and product behavior are unchanged. ([#228](https://github.com/ihor-sokoliuk/mcp-searxng/pull/228), [#233](https://github.com/ihor-sokoliuk/mcp-searxng/pull/233), [#235](https://github.com/ihor-sokoliuk/mcp-searxng/pull/235), [#236](https://github.com/ihor-sokoliuk/mcp-searxng/pull/236))
+
+### Security
+
+- **The development dependency tree now resolves the patched `brace-expansion` release:** The ESLint/minimatch lock resolution moves from vulnerable 5.0.8 to 5.0.9, the first patched 5.x release for GHSA-rgw5-rvv9-x895, without adding a direct dependency or changing the production dependency tree. ([#239](https://github.com/ihor-sokoliuk/mcp-searxng/pull/239))
+
 ## [1.14.0] - 2026-07-31
 
 ### Added
