@@ -71,7 +71,7 @@ The response-format default also applies when `SEARXNG_LITE_TOOLS=true`. Lite sc
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `SEARXNG_MAX_RESULTS` | No | — | Operator-level maximum number of search results to return per call (1-20). Invalid values are ignored. Recommended: `10` for smaller context windows. |
-| `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet. Longer snippets are truncated and marked with `…`. Invalid values are ignored. Recommended: `500` for smaller context windows. |
+| `SEARXNG_MAX_RESULT_CHARS` | No | — | Maximum characters to include in each search result snippet in both compact and full text/JSON responses, including full JSON for existing users who already set this variable. Longer snippets are truncated and marked with `…`; titles, URLs, and other metadata are never truncated. Compact text normalizes line separators before applying the cap, while JSON applies the cap to the original string value. Invalid values are ignored. Recommended: `500` for smaller context windows. |
 | `SEARCH_CACHE_TTL_MS` | No | `86400000` | Search result cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `SEARCH_CACHE_MAX_ENTRIES` | No | `200` | Maximum number of cached search queries. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 

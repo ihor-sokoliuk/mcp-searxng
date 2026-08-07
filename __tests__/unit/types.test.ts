@@ -252,6 +252,14 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'json' }), true);
   }, results);
 
+  await testFunction('isSearXNGWebSearchArgs accepts exact result_detail values and rejects non-exact values', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: 'compact' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: 'full' }), true);
+    for (const invalid of ['Compact', ' full', 'full ', '', null, 1, true, [], {}]) {
+      assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: invalid }), false, String(invalid));
+    }
+  }, results);
+
   await testFunction('isSearXNGWebSearchArgs rejects non-string categories', () => {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: 123 }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', categories: ['news'] }), false);
@@ -306,6 +314,15 @@ async function runTests() {
       properties.response_format.description.includes('explicit response_format always takes precedence'),
       properties.response_format.description,
     );
+  }, results);
+
+  await testFunction('WEB_SEARCH_TOOL schema includes result_detail enum after response_format', () => {
+    const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
+    assert.deepEqual(Object.keys(properties).slice(-2), ['response_format', 'result_detail']);
+    assert.equal(properties.result_detail.type, 'string');
+    assert.deepEqual(properties.result_detail.enum, ['compact', 'full']);
+    assert.equal('default' in properties.result_detail, false);
+    assert.ok(properties.result_detail.description.includes('If omitted, full is used'));
   }, results);
 
   await testFunction('LITE_WEB_SEARCH_TOOL schema has only query property', () => {

@@ -432,6 +432,49 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('full schema defaults to full and routes compact text and JSON', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({ body: JSON.stringify({
+      answers: ['42'],
+      results: [{ title: 'Detail', url: 'https://example.com/detail', content: 'Snippet', score: 0.5, engines: ['google'] }],
+    }) }));
+    const { client } = await connect();
+    try {
+      const omitted = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'omitted full' } });
+      const omittedText = (omitted.content[0] as { text: string }).text;
+      assert.ok(omittedText.includes('Direct answer: 42'), omittedText);
+      assert.ok(omittedText.includes('Relevance Score: 0.500'), omittedText);
+
+      const compactText = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'compact text', result_detail: 'compact' } });
+      assert.equal((compactText.content[0] as { text: string }).text, 'Title: Detail\nDescription: Snippet\nURL: https://example.com/detail');
+
+      const compactJson = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'compact json', response_format: 'json', result_detail: 'compact' } });
+      assert.deepEqual(JSON.parse((compactJson.content[0] as { text: string }).text), {
+        results: [{ title: 'Detail', url: 'https://example.com/detail', content: 'Snippet' }],
+      });
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
+  await testFunction('tools/call in lite mode honors explicitly supplied result_detail without changing its schema', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    fetchMocker.mock(createMockFetch({ body: JSON.stringify({ results: [{ title: 'Lite', url: 'https://example.com/lite', content: 'Snippet', score: 1 }] }) }));
+    const { client } = await connect();
+    try {
+      const result = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'lite compact', result_detail: 'compact' } });
+      assert.equal((result.content[0] as { text: string }).text, 'Title: Lite\nDescription: Snippet\nURL: https://example.com/lite');
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_LITE_TOOLS;
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
   await testFunction('tools/call searxng_search_suggestions returns JSON suggestions', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: JSON.stringify(['type', ['typescript', 'typescript tutorial']]) }));
@@ -511,6 +554,24 @@ async function runTests() {
           `unexpected message: ${error.message}`
         );
       }
+
+      let fetchCount = 0;
+      fetchMocker.mock(async () => {
+        fetchCount++;
+        throw new Error('invalid result_detail must not fetch');
+      });
+
+      try {
+        await client.callTool({
+          name: 'searxng_web_search',
+          arguments: { query: 'invalid detail', result_detail: 'Compact' },
+        });
+        assert.fail('Expected invalid result_detail error was not thrown');
+      } catch (error) {
+        assert.ok(error instanceof Error, 'should throw an Error for invalid result_detail');
+      }
+      assert.equal(fetchCount, 0, 'invalid result_detail must fail before fetch');
+      fetchMocker.restore();
 
       try {
         await client.callTool({

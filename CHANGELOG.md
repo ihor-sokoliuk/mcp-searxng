@@ -3,6 +3,16 @@
 All notable changes to mcp-searxng are documented here.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Configurable search result detail:** `searxng_web_search` accepts optional `result_detail` values `compact` and `full` (default). Compact responses emit only safe title, description, and URL fields, while full responses retain the existing SearXNG metadata and research signals. `SEARXNG_MAX_RESULT_CHARS` applies only to result content in both modes.
+
+  **Migration note:** compact text has exactly three lines per result and no preamble or cache annotation. Line parsers that rely on relevance scores or other metadata should request `result_detail="full"` or accept compact's three-line records.
+
+  Compact suppresses warnings, provenance, and every other search signal. Full text adds valid optional metadata in fixed score, engines, category, published-date, thumbnail, and image-source order; invalid optional metadata is omitted, and text fields are normalized to single lines. Existing users with `SEARXNG_MAX_RESULT_CHARS` set now also receive truncated full JSON content.
+
 ## [1.14.1] - 2026-08-06
 
 ### Fixed

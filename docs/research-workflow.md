@@ -69,6 +69,19 @@ Call `searxng_web_search` with the required `query`. Full mode also supports:
 - `categories` and `engines` for instance-supported routing.
 - `response_format` as `text` for normal agent use or `json` for structured
   processing.
+- `result_detail` as `compact` for just title, description, and URL records,
+  or `full` (the default) when answers, infoboxes, corrections, suggestions,
+  warnings, provenance, and other SearXNG research signals are needed.
+
+When `SEARXNG_LITE_TOOLS=true`, the Lite schema stays query-only, but explicitly
+supplied optional overrides such as `response_format` and `result_detail` remain
+validated and honored.
+
+Compact suppresses warnings, provenance, and every other search signal. Use
+`full` when those signals matter: full text adds valid optional metadata in the
+fixed score, engines, category, published-date, thumbnail, image-source order;
+invalid optional metadata is omitted, and text fields are normalized to single
+lines.
 
 If results are poor or empty, change one material constraint at a time:
 

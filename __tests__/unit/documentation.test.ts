@@ -326,7 +326,7 @@ export async function runTests(): Promise<TestResult> {
     const types = readText(new URL('../../src/types.ts', import.meta.url));
     const fullSchemaParameters = [
       'query', 'pageno', 'time_range', 'language', 'safesearch', 'min_score',
-      'num_results', 'categories', 'engines', 'response_format',
+      'num_results', 'categories', 'engines', 'response_format', 'result_detail',
       'includeEngines', 'includeDisabled', 'category', 'refresh',
       'url', 'startChar', 'maxLength', 'section', 'paragraphRange', 'readHeadings',
     ];
@@ -343,6 +343,29 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(normalizedGuide.includes('search and suggestions accept only `query`'));
     assert.ok(normalizedGuide.includes('instance information accepts no optional controls'));
     assert.ok(normalizedGuide.includes('URL reading accepts only `url`'));
+  }, results);
+
+  await testFunction('documentation explains compact result detail and the full-mode migration boundary', () => {
+    const readme = readText(new URL('../../README.md', import.meta.url));
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const changelog = readText(new URL('../../CHANGELOG.md', import.meta.url));
+    const guide = readText(researchGuideUrl);
+    assert.ok(readme.includes('`result_detail`'));
+    assert.ok(readme.includes('line parsers'));
+    assert.ok(configuration.includes('compact and full'));
+    assert.ok(changelog.includes('## Unreleased'));
+    assert.ok(changelog.includes('result_detail'));
+    assert.ok(guide.includes('`result_detail`'));
+    assert.ok(readme.includes('Lite schema stays query-only'));
+    assert.ok(readme.includes('explicitly supplied optional overrides'));
+    assert.ok(guide.includes('Lite schema stays query-only'));
+    assert.ok(configuration.includes('both compact and full text/JSON responses'));
+    assert.ok(readme.includes('suppresses warnings, provenance, and every other search signal'));
+    assert.ok(readme.includes('score, engines, category, published date, thumbnail, image source'));
+    assert.ok(changelog.includes('full JSON content'));
+    assert.ok(guide.includes('invalid optional metadata is omitted'));
+    assert.ok(configuration.includes('normalizes line separators before applying the cap'));
+    assert.ok(readme.includes('Text fields are normalized to single lines'));
   }, results);
 
   await testFunction('research workflow is bounded and evidence focused', () => {

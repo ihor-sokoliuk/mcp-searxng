@@ -35,7 +35,7 @@ async function runTests() {
     return { passed: 0, failed: 0, errors: [] };
   }
 
-  await testFunction('built CLI exposes the environment-aware response_format schema', async () => {
+  await testFunction('built CLI exposes response_format and result_detail schemas', async () => {
     const responses = spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
@@ -50,6 +50,9 @@ async function runTests() {
     assert.equal('default' in responseFormat, false);
     assert.ok(responseFormat.description.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'));
     assert.ok(responseFormat.description.includes('explicit response_format always takes precedence'));
+    const resultDetail = searchTool.inputSchema?.properties?.result_detail;
+    assert.deepEqual(resultDetail?.enum, ['compact', 'full']);
+    assert.equal('default' in resultDetail, false);
   }, results);
 
   const skip = checkSkipConditions();
@@ -148,6 +151,37 @@ async function runTests() {
     const payload = JSON.parse(text);
     assert.ok(Array.isArray(payload.results), 'JSON response should contain results array');
     assert.ok(payload.results.length <= 2, 'num_results should slice JSON results');
+  }, results);
+
+  await testFunction('compact text has only exact three-line result records without full-mode markers', async () => {
+    const responses = spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', result_detail: 'compact', num_results: 2 } } },
+    ]);
+    const text = getToolResponseText(responses[2]);
+    assert.ok(text.length > 0, 'compact text should be non-empty');
+    if (text.includes('No results found')) return;
+    assert.ok(!text.endsWith('\n'), text);
+    for (const marker of ['Direct answer:', 'Suggestions:', 'Corrections:', 'Infobox:', 'Relevance Score:', '_Cached result_']) assert.ok(!text.includes(marker), text);
+    for (const record of text.split('\n\n')) assert.equal(record.split('\n').length, 3, record);
+  }, results);
+
+  await testFunction('compact JSON excludes full metadata and omitted detail remains valid full output', async () => {
+    const responses = spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', response_format: 'json', result_detail: 'compact', num_results: 2 } } },
+      { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', num_results: 1 } } },
+    ]);
+    const compactText = getToolResponseText(responses[2]);
+    const compact = JSON.parse(compactText);
+    assert.deepEqual(Object.keys(compact), ['results']);
+    assert.ok(Array.isArray(compact.results));
+    if (compact.results.length > 0) {
+      for (const result of compact.results) assert.deepEqual(Object.keys(result), ['title', 'url', 'content']);
+    }
+    const fullText = getToolResponseText(responses[3]);
+    assert.ok(fullText.length > 0, 'omitted result_detail should produce a valid full response');
+    assert.throws(() => JSON.parse(fullText));
   }, results);
 
   await testFunction('configured JSON default applies when omitted and explicit text still wins', async () => {
