@@ -3,12 +3,34 @@
 import { strict as assert } from 'node:assert';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { spawnHttpCli, type SpawnedHttpCli } from './helpers/spawn-server.js';
 import { createTestResults, printTestSummary, testFunction } from '../helpers/test-utils.js';
 import { packageVersion } from '../../src/version.js';
 
 const results = createTestResults();
+const CORE_TOOL_NAMES = [
+  'searxng_web_search',
+  'searxng_search_suggestions',
+  'searxng_instance_info',
+  'web_url_read',
+];
+
+async function reserveTestPort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const reservation = createServer();
+    reservation.once('error', reject);
+    reservation.listen(0, '127.0.0.1', () => {
+      const address = reservation.address();
+      if (!address || typeof address === 'string') {
+        reservation.close(() => reject(new Error('Failed to reserve test port')));
+        return;
+      }
+      reservation.close((error) => error ? reject(error) : resolve(address.port));
+    });
+  });
+}
 
 async function runTests() {
   await testFunction('stateful HTTP CLI supports a negotiated MCP session', async () => {
@@ -27,12 +49,7 @@ async function runTests() {
       await client.connect(transport);
       assert.ok(transport.sessionId, 'stateful HTTP transport must negotiate a session ID');
       const tools = await client.listTools();
-      assert.deepEqual(tools.tools.map((tool) => tool.name), [
-        'searxng_web_search',
-        'searxng_search_suggestions',
-        'searxng_instance_info',
-        'web_url_read',
-      ]);
+      assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [...CORE_TOOL_NAMES].sort());
     } finally {
       await client?.close();
       await server?.close();
@@ -49,14 +66,26 @@ async function runTests() {
       await client.connect(transport);
       assert.equal(transport.sessionId, undefined);
       const tools = await client.listTools();
-      assert.deepEqual(tools.tools.map((tool) => tool.name), [
-        'searxng_web_search',
-        'searxng_search_suggestions',
-        'searxng_instance_info',
-        'web_url_read',
-      ]);
+      assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [...CORE_TOOL_NAMES].sort());
     } finally {
       await client?.close();
+      await server?.close();
+    }
+  }, results);
+
+  await testFunction('HTTP CLI retries a confirmed EADDRINUSE startup once', async () => {
+    let reserveCalls = 0;
+    let server: SpawnedHttpCli | undefined;
+    try {
+      server = await spawnHttpCli({
+        reservePort: async () => {
+          reserveCalls++;
+          if (reserveCalls === 1) throw new Error('EADDRINUSE deterministic test collision');
+          return await reserveTestPort();
+        },
+      });
+      assert.equal(reserveCalls, 2);
+    } finally {
       await server?.close();
     }
   }, results);
@@ -73,6 +102,21 @@ async function runTests() {
         assert.match(message, /timeout stdout/);
         assert.match(message, /timeout stderr/);
         assert.match(message, /cleanup=(?:exitCode=0; signalCode=null|exitCode=null; signalCode=SIGTERM)/);
+        return true;
+      },
+    );
+  }, results);
+
+  await testFunction('HTTP CLI diagnostics retain bounded stdout and stderr tails', async () => {
+    await assert.rejects(
+      () => spawnHttpCli({
+        args: ['-e', "process.stdout.write('stdout-head' + 'A'.repeat(70000) + 'stdout-tail'); process.stderr.write('stderr-head' + 'B'.repeat(70000) + 'stderr-tail'); process.exit(7);"],
+      }),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.doesNotMatch(message, /stdout-head|stderr-head/);
+        assert.match(message, /stdout-tail/);
+        assert.match(message, /stderr-tail/);
         return true;
       },
     );
