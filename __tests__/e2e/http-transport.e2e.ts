@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { spawnHttpCli, type SpawnedHttpCli } from './helpers/spawn-server.js';
+import { checkSkipConditions, spawnHttpCli, type SpawnedHttpCli } from './helpers/spawn-server.js';
 import { createTestResults, printTestSummary, testFunction } from '../helpers/test-utils.js';
 import { packageVersion } from '../../src/version.js';
 
@@ -33,6 +33,12 @@ async function reserveTestPort(): Promise<number> {
 }
 
 async function runTests() {
+  const skip = checkSkipConditions(false);
+  if (skip) {
+    console.log(skip);
+    return { passed: 0, failed: 0, errors: [] };
+  }
+
   await testFunction('stateful HTTP CLI supports a negotiated MCP session', async () => {
     let server: SpawnedHttpCli | undefined;
     let client: Client | undefined;
