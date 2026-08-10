@@ -83,6 +83,8 @@ async function runTests() {
   await testFunction('WEB_SEARCH_TOOL schema includes week, min_score, and num_results', () => {
     const properties = WEB_SEARCH_TOOL.inputSchema.properties as Record<string, any>;
     assert.ok(properties.time_range.enum.includes('week'));
+    assert.ok(properties.time_range.description.includes('time_range_support=true'));
+    assert.ok(WEB_SEARCH_TOOL.description.includes('request is rejected before search'));
     assert.equal(properties.safesearch.type, 'string');
     assert.deepEqual(properties.safesearch.enum, ['0', '1', '2']);
     assert.equal(properties.safesearch.default, undefined);

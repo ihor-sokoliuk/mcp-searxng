@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { fetchInstanceInfo, clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
+import { fetchInstanceInfo, getEngineTimeRangeSupport, clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
@@ -34,9 +34,9 @@ function makeConfig() {
       },
     },
     engines: [
-      { name: 'google', categories: ['general'], disabled: false },
-      { name: 'bing', categories: ['general'], disabled: true },
-      { name: 'brave', categories: ['news'], disabled: false },
+      { name: 'google', categories: ['general'], disabled: false, time_range_support: true },
+      { name: 'bing', categories: ['general'], disabled: true, time_range_support: true },
+      { name: 'brave', categories: ['news'], disabled: false, time_range_support: false },
     ],
     default_locale: 'en',
     locales: { en: 'English', fr: 'French' },
@@ -114,6 +114,24 @@ async function runTests() {
     assert.equal(payload.defaults.safesearch, 1);
     assert.equal(payload.defaults.theme, 'simple');
     assert.deepEqual(payload.plugins, ['Hash plugin']);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('resolves engine time-range support from cached /config', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: makeConfig() }));
+
+    const support = await getEngineTimeRangeSupport(mockServer as any, ['google', 'brave', 'missing']);
+
+    assert.deepEqual(support, {
+      supported: ['google'],
+      unsupported: ['brave'],
+      unknown: ['missing'],
+    });
 
     fetchMocker.restore();
     envManager.restore();
