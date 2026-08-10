@@ -18,6 +18,11 @@ type AggregateConfigResult =
   | { available: true; configs: ReachableConfig[]; failures: ConfigFailure[] }
   | { available: false; message: string; failures: ConfigFailure[] };
 type CachedConfigFailure = { until: number; message: string; status?: number };
+export type EngineTimeRangeSupport = {
+  supported: string[];
+  unsupported: string[];
+  unknown: string[];
+};
 
 const CONFIG_FAILURE_CACHE_TTL_MS = 60_000;
 const cachedConfigs = new Map<string, SearXNGConfig>();
@@ -394,6 +399,41 @@ export async function getKnownEngines(mcpServer: McpServer, refresh = false): Pr
 
 export async function getKnownCategories(mcpServer: McpServer, refresh = false): Promise<Set<string> | null> {
   return getAggregatedCapability(mcpServer, refresh, (config) => new Set(namesFromCategories(config)));
+}
+
+export async function getEngineTimeRangeSupport(
+  mcpServer: McpServer,
+  requestedEngines: string[],
+): Promise<EngineTimeRangeSupport | null> {
+  const result = await fetchConfigs(mcpServer);
+  if (!result.available) {
+    return null;
+  }
+
+  const supported: string[] = [];
+  const unsupported: string[] = [];
+  const unknown: string[] = [];
+
+  for (const name of requestedEngines) {
+    const values = result.configs.map(({ config }) => {
+      const engine = Array.isArray(config.engines)
+        ? config.engines.find((entry: any) => entry?.name === name)
+        : undefined;
+      return typeof engine?.time_range_support === "boolean"
+        ? engine.time_range_support
+        : undefined;
+    });
+
+    if (values.every((value) => value === true)) {
+      supported.push(name);
+    } else if (values.some((value) => value === false)) {
+      unsupported.push(name);
+    } else {
+      unknown.push(name);
+    }
+  }
+
+  return { supported, unsupported, unknown };
 }
 
 export async function fetchInstanceInfo(
