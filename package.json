@@ -72,7 +72,7 @@
         "fast-check": "^4.8.0",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
-        "tsx": "4.23.5",
+        "tsx": "4.23.10",
         "typescript": "^5.8.3"
     },
     "overrides": {
