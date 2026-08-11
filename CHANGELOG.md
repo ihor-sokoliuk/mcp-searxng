@@ -5,6 +5,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [1.15.0] - 2026-08-11
+
 ### Added
 
 - **Configurable search result detail:** `searxng_web_search` accepts optional `result_detail` values `compact` and `full` (default). Compact responses emit only safe title, URL, and description/content-snippet fields (JSON keys: `title`, `url`, `content`), while full responses retain the existing SearXNG metadata and research signals. `SEARXNG_MAX_RESULT_CHARS` applies only to result content in both modes.
