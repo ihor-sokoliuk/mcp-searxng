@@ -88,6 +88,23 @@ async function captureConsoleOutput(action: () => Promise<void>): Promise<string
   return output;
 }
 
+async function assertAllowedMcpPreflight(
+  app: Awaited<ReturnType<typeof createHttpServer>>,
+  origin: string,
+): Promise<void> {
+  const options = await request(app).options('/mcp')
+    .set('Origin', origin)
+    .set('Access-Control-Request-Method', 'POST')
+    .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version');
+  assert.equal(options.status, 204);
+  assert.equal(options.headers['access-control-allow-origin'], origin);
+  assert.match(options.headers.vary || '', /Origin/);
+  const allowHeaders = (options.headers['access-control-allow-headers'] || '').toLowerCase();
+  for (const header of ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version']) {
+    assert.ok(allowHeaders.includes(header));
+  }
+}
+
 async function runTests() {
   console.log('🧪 Integration Testing: http-server.ts\n');
 
@@ -360,17 +377,7 @@ async function runTests() {
         'https://[::1]:43123',
       ];
       for (const allowedOrigin of allowedOrigins) {
-        const options = await request(app).options('/mcp')
-          .set('Origin', allowedOrigin)
-          .set('Access-Control-Request-Method', 'POST')
-          .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version');
-        assert.equal(options.status, 204);
-        assert.equal(options.headers['access-control-allow-origin'], allowedOrigin);
-        assert.match(options.headers.vary || '', /Origin/);
-        const allowHeaders = (options.headers['access-control-allow-headers'] || '').toLowerCase();
-        for (const header of ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version']) {
-          assert.ok(allowHeaders.includes(header));
-        }
+        await assertAllowedMcpPreflight(app, allowedOrigin);
       }
 
       const post = await request(app).post('/mcp')
