@@ -17,7 +17,7 @@ const envManager = new EnvManager();
 async function runTests() {
   console.log('🧪 Testing: http-security.ts\n');
 
-  await testFunction('default config preserves compatibility mode', () => {
+  await testFunction('default config restricts origins to loopback defaults in HTTP mode', () => {
     envManager.delete('MCP_HTTP_HARDEN');
     envManager.delete('MCP_HTTP_AUTH_TOKEN');
     envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
@@ -26,8 +26,70 @@ async function runTests() {
     const config = getHttpSecurityConfig();
     assert.equal(config.harden, false);
     assert.equal(config.requireAuth, false);
-    assert.equal(config.restrictOrigins, false);
+    assert.equal(config.restrictOrigins, true);
+    assert.deepEqual(config.allowedOrigins, [
+      'http://127.0.0.1',
+      'http://localhost',
+      'http://[::1]',
+      'https://127.0.0.1',
+      'https://localhost',
+      'https://[::1]',
+    ]);
     assert.equal(config.trustProxy, false);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('loopback origin defaults include only the supplied port variants', () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+
+    const config = getHttpSecurityConfig(3000);
+    assert.deepEqual(config.allowedOrigins, [
+      'http://127.0.0.1',
+      'http://localhost',
+      'http://[::1]',
+      'https://127.0.0.1',
+      'https://localhost',
+      'https://[::1]',
+      'http://127.0.0.1:3000',
+      'http://localhost:3000',
+      'http://[::1]:3000',
+      'https://127.0.0.1:3000',
+      'https://localhost:3000',
+      'https://[::1]:3000',
+    ]);
+    assert.equal(new Set(config.allowedOrigins).size, config.allowedOrigins.length);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('blank explicit origins use the non-hardened loopback defaults', () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', '   ');
+
+    const config = getHttpSecurityConfig();
+    assert.deepEqual(config.allowedOrigins, [
+      'http://127.0.0.1',
+      'http://localhost',
+      'http://[::1]',
+      'https://127.0.0.1',
+      'https://localhost',
+      'https://[::1]',
+    ]);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('explicit allowed origins are trimmed and replace loopback defaults', () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', ' https://app.example.com , http://localhost:5173 ');
+
+    const config = getHttpSecurityConfig(3000);
+    assert.deepEqual(config.allowedOrigins, [
+      'https://app.example.com',
+      'http://localhost:5173',
+    ]);
 
     envManager.restore();
   }, results);
@@ -98,6 +160,21 @@ async function runTests() {
       'https://app.example.com',
       'https://admin.example.com',
     ]);
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('hardened mode does not treat loopback defaults as an explicit allowed-origin list', () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+    envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+
+    const config = getHttpSecurityConfig(3000);
+    assert.deepEqual(config.allowedOrigins, []);
+    assert.throws(
+      () => validateHttpSecurityConfig(config),
+      /MCP_HTTP_ALLOWED_ORIGINS/
+    );
 
     envManager.restore();
   }, results);
@@ -199,6 +276,23 @@ async function runTests() {
     } as any;
     assert.equal(isOriginAllowed('https://evil.example.com', config), false);
     assert.equal(isOriginAllowed('https://app.example.com', config), true);
+  }, results);
+
+  await testFunction('origin allowlist requires exact present Origin values', () => {
+    const config = {
+      harden: false,
+      restrictOrigins: true,
+      allowedOrigins: ['http://localhost'],
+    } as any;
+    assert.equal(isOriginAllowed(undefined, config), true);
+    assert.equal(isOriginAllowed(null as unknown as string, config), false);
+    assert.equal(isOriginAllowed('', config), false);
+    assert.equal(isOriginAllowed('not an origin', config), false);
+    assert.equal(isOriginAllowed('http://localhost,http://127.0.0.1', config), false);
+    assert.equal(isOriginAllowed('HTTP://localhost', config), false);
+    assert.equal(isOriginAllowed('http://localhost/', config), false);
+    assert.equal(isOriginAllowed('http://127.0.0.1', config), false);
+    assert.equal(isOriginAllowed('http://localhost', config), true);
   }, results);
 
   await testFunction('validateHttpSecurityConfig throws when harden=true but no auth token', () => {

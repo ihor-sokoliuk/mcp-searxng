@@ -346,6 +346,8 @@ Stateful sessions remain the default. Set `MCP_HTTP_STATELESS=true` when a deplo
 
 Stateless requests are bounded by global and per-client-IP in-flight limits plus a request lifetime. See [CONFIGURATION.md](CONFIGURATION.md#http-transport) for defaults, overload and timeout responses, proxy-aware fairness, and the complete compatibility contract.
 
+**Origin validation and upgrade notice:** Every present `Origin` on `/mcp` is validated in all modes; an absent `Origin` remains valid for non-browser clients. In non-hardened mode, an unset `MCP_HTTP_ALLOWED_ORIGINS` defaults to the exact HTTP/HTTPS loopback origins `http://127.0.0.1`, `https://127.0.0.1`, `http://localhost`, `https://localhost`, `http://[::1]`, and `https://[::1]`, both portless and with the configured `MCP_HTTP_PORT`. A non-empty `MCP_HTTP_ALLOWED_ORIGINS` replaces those defaults. Entries are trimmed but otherwise literal; matching is exact, case-sensitive literal matching, including scheme and port. Malformed, scheme-less, path-bearing, trailing slash, or differently-cased values silently do not match and must be corrected. Hardened mode still requires an explicit allowlist and adds authentication plus Host enforcement. An invalid present `Origin` on `/mcp` receives a fixed, non-reflecting 403 before parser, authentication, rate limiting, or transport construction. `/health` is outside the MCP 403 boundary but uses the narrowed global CORS allowlist. Before upgrading, existing non-hardened browser deployments using non-loopback Origins must set `MCP_HTTP_ALLOWED_ORIGINS` or receive a fixed 403. This change addresses the Origin security requirement; legacy transport compatibility remains and is not a claim of full MCP 2026-07-28 transport compliance.
+
 **Test it:**
 
 ```bash

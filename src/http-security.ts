@@ -54,17 +54,42 @@ function defaultAllowedHosts(port?: number): string[] {
   return hosts;
 }
 
+function defaultAllowedOrigins(port?: number): string[] {
+  const origins = [
+    "http://127.0.0.1",
+    "http://localhost",
+    "http://[::1]",
+    "https://127.0.0.1",
+    "https://localhost",
+    "https://[::1]",
+  ];
+  if (port !== undefined) {
+    origins.push(
+      `http://127.0.0.1:${port}`,
+      `http://localhost:${port}`,
+      `http://[::1]:${port}`,
+      `https://127.0.0.1:${port}`,
+      `https://localhost:${port}`,
+      `https://[::1]:${port}`,
+    );
+  }
+  return origins;
+}
+
 export function getHttpSecurityConfig(port?: number): HttpSecurityConfig {
   const harden = isEnabled(process.env.MCP_HTTP_HARDEN);
   const authToken = process.env.MCP_HTTP_AUTH_TOKEN;
-  const allowedOrigins = parseCsv(process.env.MCP_HTTP_ALLOWED_ORIGINS);
+  const explicitAllowedOrigins = parseCsv(process.env.MCP_HTTP_ALLOWED_ORIGINS);
+  const allowedOrigins = explicitAllowedOrigins.length > 0
+    ? explicitAllowedOrigins
+    : harden ? [] : defaultAllowedOrigins(port);
   const allowedHosts = parseCsv(process.env.MCP_HTTP_ALLOWED_HOSTS);
 
   return {
     harden,
     requireAuth: harden,
     authToken,
-    restrictOrigins: harden,
+    restrictOrigins: true,
     allowedOrigins,
     enableDnsRebindingProtection: harden,
     allowedHosts: allowedHosts.length > 0 ? allowedHosts : defaultAllowedHosts(port),
@@ -107,7 +132,7 @@ export function isOriginAllowed(origin: string | undefined, config: HttpSecurity
     return true;
   }
 
-  if (!origin) {
+  if (origin === undefined) {
     return true;
   }
 
