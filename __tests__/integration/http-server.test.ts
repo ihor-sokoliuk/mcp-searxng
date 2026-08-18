@@ -245,14 +245,205 @@ async function runTests() {
     assert.equal(res.body.server, 'ihor-sokoliuk/mcp-searxng');
   }, results);
 
-  await testFunction('GET /health includes CORS headers', async () => {
-    const app = await createHttpServer(() => createTestMcpServer());
-    const res = await request(app)
-      .get('/health')
-      .set('Origin', 'http://example.com');
+  await testFunction('origin boundary rejects every present invalid Origin before parsers, CORS, limits, auth, or server construction', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_AUTH_TOKEN');
+    envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+    envManager.delete('MCP_HTTP_STATELESS');
+    envManager.set('MCP_RATE_INIT_MAX', '1');
+    let constructions = 0;
 
-    assert.equal(res.status, 200);
-    assert.ok(res.headers['access-control-allow-origin']);
+    try {
+      const app = await createHttpServer(() => {
+        constructions += 1;
+        return createTestMcpServer();
+      }, 43123);
+      const expected = {
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Invalid Origin header' },
+        id: null,
+      };
+      const invalidOrigins = [
+        'null',
+        'not an origin',
+        'http://localhost:43123,http://127.0.0.1:43123',
+        'HTTP://localhost:43123',
+        'http://localhost:43123/',
+        '',
+      ];
+      const responses = await captureConsoleOutput(async () => {
+        const methodResponses = await Promise.all([
+          request(app).options('/MCP')
+            .set('Origin', invalidOrigins[0])
+            .set('Access-Control-Request-Method', 'POST'),
+          request(app).post('/mcp/')
+            .set('Origin', invalidOrigins[1])
+            .set('Content-Type', 'application/json')
+            .send('{"jsonrpc":"2.0"'),
+          request(app).get('/mcp/anything').set('Origin', invalidOrigins[2]),
+          request(app).delete('/mcp').set('Origin', invalidOrigins[3]),
+          request(app).patch('/mcp').set('Origin', invalidOrigins[4]),
+          request(app).post('/mcp').set('Origin', invalidOrigins[5]),
+        ]);
+        for (const res of methodResponses) {
+          assert.equal(res.status, 403);
+          assert.deepEqual(res.body, expected);
+          assert.equal(res.headers['access-control-allow-origin'], undefined);
+          assert.equal(res.headers['ratelimit-limit'], undefined);
+          assert.equal(res.headers['ratelimit-remaining'], undefined);
+          assert.ok(!Object.keys(res.headers).some(header => /rate-?limit/i.test(header)));
+        }
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const res = await request(app).post('/mcp').set('Origin', 'https://attacker.example');
+          assert.equal(res.status, 403);
+          assert.deepEqual(res.body, expected);
+          assert.equal(res.headers['ratelimit-limit'], undefined);
+        }
+      });
+      assert.deepEqual(responses, []);
+      assert.equal(constructions, 0);
+
+      const outside = await request(app).post('/mcp-extra')
+        .set('Origin', 'https://attacker.example');
+      assert.equal(outside.status, 404);
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('stateless origin boundary rejects attacker Origins before construction in compatibility mode', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+    envManager.set('MCP_HTTP_STATELESS', 'true');
+    let constructions = 0;
+
+    try {
+      const app = await createHttpServer(() => {
+        constructions += 1;
+        return createTestMcpServer();
+      }, 43123);
+      const res = await request(app).post('/mcp')
+        .set('Origin', 'https://attacker.example')
+        .set('Content-Type', 'application/json')
+        .send('{"jsonrpc":"2.0"');
+      assert.equal(res.status, 403);
+      assert.deepEqual(res.body, {
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Invalid Origin header' },
+        id: null,
+      });
+      assert.equal(constructions, 0);
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('origin boundary permits absent Origins and reflects only exact allowed Origins', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOWED_ORIGINS');
+
+    try {
+      const app = await createHttpServer(() => createTestMcpServer(), 43123);
+      const allowedOrigins = [
+        'http://127.0.0.1',
+        'http://localhost',
+        'http://[::1]',
+        'https://127.0.0.1',
+        'https://localhost',
+        'https://[::1]',
+        'http://127.0.0.1:43123',
+        'http://localhost:43123',
+        'http://[::1]:43123',
+        'https://127.0.0.1:43123',
+        'https://localhost:43123',
+        'https://[::1]:43123',
+      ];
+      for (const allowedOrigin of allowedOrigins) {
+        const options = await request(app).options('/mcp')
+          .set('Origin', allowedOrigin)
+          .set('Access-Control-Request-Method', 'POST')
+          .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version');
+        assert.equal(options.status, 204);
+        assert.equal(options.headers['access-control-allow-origin'], allowedOrigin);
+        assert.match(options.headers.vary || '', /Origin/);
+        const allowHeaders = (options.headers['access-control-allow-headers'] || '').toLowerCase();
+        for (const header of ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version']) {
+          assert.ok(allowHeaders.includes(header));
+        }
+      }
+
+      const post = await request(app).post('/mcp')
+        .set('Origin', 'http://localhost:43123')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0', id: 1, method: 'initialize',
+          params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'origin-test', version: '1.0.0' } },
+        });
+      assert.equal(post.status, 200);
+      assert.equal(post.headers['access-control-allow-origin'], 'http://localhost:43123');
+      assert.match(post.headers.vary || '', /Origin/);
+
+      const absent = await request(app).post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0', id: 2, method: 'initialize',
+          params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'no-origin-test', version: '1.0.0' } },
+        });
+      assert.equal(absent.status, 200);
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('explicit origins replace loopback defaults and invalid Origin wins over hardened authentication', async () => {
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://app.example.com');
+
+    try {
+      const explicitApp = await createHttpServer(() => createTestMcpServer(), 43123);
+      const loopback = await request(explicitApp).post('/mcp')
+        .set('Origin', 'http://localhost:43123');
+      assert.equal(loopback.status, 403);
+      const explicitOptions = await request(explicitApp).options('/mcp')
+        .set('Origin', 'https://app.example.com')
+        .set('Access-Control-Request-Method', 'POST');
+      assert.equal(explicitOptions.status, 204);
+      assert.equal(explicitOptions.headers['access-control-allow-origin'], 'https://app.example.com');
+      assert.match(explicitOptions.headers.vary || '', /Origin/);
+
+      const explicitPost = await request(explicitApp).post('/mcp')
+        .set('Origin', 'https://app.example.com')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0', id: 1, method: 'initialize',
+          params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'explicit-origin-test', version: '1.0.0' } },
+        });
+      assert.equal(explicitPost.status, 200);
+      assert.equal(explicitPost.headers['access-control-allow-origin'], 'https://app.example.com');
+      assert.match(explicitPost.headers.vary || '', /Origin/);
+
+      envManager.set('MCP_HTTP_HARDEN', 'true');
+      envManager.set('MCP_HTTP_AUTH_TOKEN', 'secret-token');
+      const hardenedApp = await createHttpServer(() => createTestMcpServer());
+      for (const authorization of [undefined, 'Bearer wrong-token']) {
+        const invalidOrigin = await request(hardenedApp).post('/mcp')
+          .set('Origin', 'https://attacker.example')
+          .set('Content-Type', 'application/json')
+          .set(authorization === undefined ? {} : { Authorization: authorization })
+          .send('{"jsonrpc":"2.0"');
+        assert.equal(invalidOrigin.status, 403);
+        assert.deepEqual(invalidOrigin.body, {
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Invalid Origin header' },
+          id: null,
+        });
+      }
+    } finally {
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('hardened mode keeps GET /health unauthenticated with fixed metadata', async () => {
@@ -276,29 +467,20 @@ async function runTests() {
       assert.equal(res.body.server, 'ihor-sokoliuk/mcp-searxng');
       assert.equal(res.body.transport, 'http');
       assert.equal(typeof res.body.version, 'string');
+      assert.equal(res.headers['access-control-allow-origin'], undefined);
+      assert.match(res.headers.vary || '', /Origin/);
+
+      const allowedHealth = await request(app)
+        .get('/health')
+        .set('Origin', 'https://app.example.com');
+      assert.equal(allowedHealth.status, 200);
+      assert.equal(allowedHealth.headers['access-control-allow-origin'], 'https://app.example.com');
+      assert.match(allowedHealth.headers.vary || '', /Origin/);
     } finally {
       envManager.restore();
     }
   }, results);
 
-  await testFunction('CORS allows expected headers', async () => {
-    const app = await createHttpServer(() => createTestMcpServer());
-    const res = await request(app)
-      .options('/mcp')
-      .set('Origin', 'http://example.com')
-      .set('Access-Control-Request-Method', 'POST')
-      .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version');
-
-    assert.equal(res.status, 204, 'OPTIONS preflight should succeed');
-    const allowHeaders = (res.headers['access-control-allow-headers'] || '').toLowerCase();
-    const expected = ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version'];
-    for (const header of expected) {
-      assert.ok(
-        allowHeaders.includes(header),
-        `Expected '${header}' in Access-Control-Allow-Headers, got: ${allowHeaders}`
-      );
-    }
-  }, results);
 
   await testFunction('stateless POST limiter selection uses the request body and ignores session headers', async () => {
     envManager.set('MCP_HTTP_STATELESS', 'true');

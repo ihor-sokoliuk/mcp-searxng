@@ -203,12 +203,29 @@ export async function createHttpServer(
     app.set('trust proxy', security.trustProxy);
   }
 
+  const originBoundary: express.RequestHandler = (req, res, next) => {
+    if (!isOriginAllowed(req.headers.origin, security)) {
+      res.status(403).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Invalid Origin header" },
+        id: null,
+      });
+      return;
+    }
+    next();
+  };
+
+  app.use('/mcp', originBoundary);
+  app.use((_req, res, next) => {
+    res.vary('Origin');
+    next();
+  });
   app.use(express.json());
   
   // Add CORS support for web clients
   app.use(cors({
     origin: (origin, callback) => {
-      if (isOriginAllowed(origin || undefined, security)) {
+      if (isOriginAllowed(origin, security)) {
         callback(null, true);
         return;
       }
@@ -241,15 +258,6 @@ export async function createHttpServer(
       res.status(403).json({
         jsonrpc: "2.0",
         error: { code: -32000, message: `Invalid Host header: ${host}` },
-        id: null,
-      });
-      return true;
-    }
-    const origin = req.headers.origin;
-    if (origin && !isOriginAllowed(origin, security)) {
-      res.status(403).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: `Invalid Origin header: ${origin}` },
         id: null,
       });
       return true;
