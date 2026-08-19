@@ -14,6 +14,7 @@ import { searchCache } from '../../src/search-cache.js';
 import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import {
   clearSearxngInstanceStateForTests,
+  isSearxngInstanceCooledDown,
   recordSearxngInstanceFailure,
 } from '../../src/searxng-instances.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -67,6 +68,34 @@ function getSingleResponseFormatWarning(calls: any[]): string {
   assert.ok(message.includes('SEARXNG_DEFAULT_RESPONSE_FORMAT'), message);
   assert.ok(message.includes('text or json'), message);
   return message;
+}
+
+function createStreamResponse(
+  chunks: Uint8Array[],
+  options: { status?: number; statusText?: string; errorAfterChunks?: boolean } = {},
+): Response {
+  let index = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index < chunks.length) {
+        controller.enqueue(chunks[index++]);
+        return;
+      }
+      if (options.errorAfterChunks) {
+        controller.error(new Error('partial response stream failed'));
+        return;
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: options.status ?? 200,
+    statusText: options.statusText ?? 'OK',
+  });
+}
+
+function utf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
 }
 
 async function runTests() {
@@ -336,24 +365,7 @@ async function runTests() {
     
     const mockServer = createMockServer();
     
-    // Simulate a real single-use body: once json() consumes it, text() fails.
-    // The buggy path (text() after json()) would lose the preview entirely.
-    fetchMocker.mock(async () => {
-      let bodyConsumed = false;
-      return {
-        ok: true,
-        json: async () => {
-          bodyConsumed = true;
-          throw new Error('Invalid JSON');
-        },
-        text: async () => {
-          if (bodyConsumed) {
-            throw new TypeError('Body is unusable: Body has already been read');
-          }
-          return 'Invalid JSON response';
-        }
-      } as any;
-    });
+    fetchMocker.mock(async () => new Response('Invalid JSON response'));
 
     try {
       await performWebSearch(mockServer as any, 'test query');
@@ -396,32 +408,14 @@ async function runTests() {
 
       const requestUrl = new URL(url.toString());
       if (requestUrl.pathname.endsWith('/config')) {
-        return {
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          json: async () => ({
-            categories: ['general'],
-            engines: [],
-          }),
-        } as Response;
+        return new Response(JSON.stringify({ categories: ['general'], engines: [] }));
       }
 
       if (requestUrl.searchParams.get('format') === 'json') {
-        return {
-          ok: false,
-          status: 403,
-          statusText: 'Forbidden',
-          text: async () => 'JSON format is disabled',
-        } as Response;
+        return new Response('JSON format is disabled', { status: 403, statusText: 'Forbidden' });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => searxngHtmlFixture,
-      } as Response;
+      return new Response(searxngHtmlFixture);
     });
 
     const result = await performWebSearch(mockServer as any, 'html query', 2, 'week', 'en', 1, undefined, undefined, 'general', undefined, 'json');
@@ -460,20 +454,10 @@ async function runTests() {
       const requestUrl = new URL(url.toString());
 
       if (requestUrl.searchParams.get('format') === 'json') {
-        return {
-          ok: false,
-          status: 403,
-          statusText: 'Forbidden',
-          text: async () => 'JSON format is disabled',
-        } as Response;
+        return new Response('JSON format is disabled', { status: 403, statusText: 'Forbidden' });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => searxngHtmlFixture,
-      } as Response;
+      return new Response(searxngHtmlFixture);
     });
 
     await performWebSearch(server as any, 'fallback log');
@@ -499,21 +483,10 @@ async function runTests() {
     fetchMocker.mock(async () => {
       fetchCount++;
       if (fetchCount === 1) {
-        return {
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          json: async () => { throw new Error('Unexpected token < in JSON'); },
-          text: async () => '<!doctype html><html><body>JSON disabled</body></html>',
-        } as any;
+        return new Response('<!doctype html><html><body>JSON disabled</body></html>');
       }
 
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => searxngHtmlFixture,
-      } as Response;
+      return new Response(searxngHtmlFixture);
     });
 
     const result = await performWebSearch(mockServer as any, 'non json query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
@@ -537,21 +510,10 @@ async function runTests() {
     fetchMocker.mock(async (url) => {
       fetchedUrls.push(url.toString());
       if (fetchedUrls.length === 1) {
-        return {
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          json: async () => { throw new Error('Unexpected token < in JSON'); },
-          text: async () => '<!doctype html><html><body>JSON disabled</body></html>',
-        } as any;
+        return new Response('<!doctype html><html><body>JSON disabled</body></html>');
       }
 
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => searxngHtmlFixture,
-      } as Response;
+      return new Response(searxngHtmlFixture);
     });
 
     await performWebSearch(mockServer as any, 'non json creds', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json');
@@ -576,12 +538,7 @@ async function runTests() {
     let fetchCount = 0;
     fetchMocker.mock(async () => {
       fetchCount++;
-      return {
-        ok: false,
-        status: 403,
-        statusText: 'Forbidden',
-        text: async () => 'JSON format is disabled',
-      } as Response;
+      return new Response('JSON format is disabled', { status: 403, statusText: 'Forbidden' });
     });
 
     try {
@@ -604,12 +561,7 @@ async function runTests() {
     let fetchCount = 0;
     fetchMocker.mock(async () => {
       fetchCount++;
-      return {
-        ok: false,
-        status: 401,
-        statusText: 'Unauthorized',
-        text: async () => 'Authentication required',
-      } as Response;
+      return new Response('Authentication required', { status: 401, statusText: 'Unauthorized' });
     });
 
     try {
@@ -633,20 +585,10 @@ async function runTests() {
     fetchMocker.mock(async () => {
       fetchCount++;
       if (fetchCount === 1) {
-        return {
-          ok: false,
-          status: 404,
-          statusText: 'Not Found',
-          text: async () => 'JSON endpoint not found',
-        } as Response;
+        return new Response('JSON endpoint not found', { status: 404, statusText: 'Not Found' });
       }
 
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => searxngHtmlFixture,
-      } as Response;
+      return new Response(searxngHtmlFixture);
     });
 
     const result = await performWebSearch(mockServer as any, 'html query');
@@ -1417,12 +1359,11 @@ async function runTests() {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
     const mockServer = createMockServer();
-    fetchMocker.mock(async () => ({
-      ok: false,
+    fetchMocker.mock(async () => createStreamResponse([], {
       status: 500,
       statusText: 'Internal Server Error',
-      text: async () => { throw new Error('text() failed'); }
-    } as any));
+      errorAfterChunks: true,
+    }));
 
     try {
       await performWebSearch(mockServer as any, 'test query');
@@ -1439,13 +1380,7 @@ async function runTests() {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
     const mockServer = createMockServer();
-    fetchMocker.mock(async () => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      json: async () => { throw new Error('JSON parse failed'); },
-      text: async () => { throw new Error('text() also failed'); }
-    } as any));
+    fetchMocker.mock(async () => createStreamResponse([], { errorAfterChunks: true }));
 
     try {
       await performWebSearch(mockServer as any, 'test query');
@@ -2650,7 +2585,7 @@ async function runTests() {
       ],
     };
     const mockServer = createMockServer();
-    fetchMocker.mock(async () => ({ ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(source), json: async () => source } as Response));
+    fetchMocker.mock(async () => new Response(JSON.stringify(source)));
     try {
       const json = JSON.parse(await performWebSearch(mockServer as any, 'clone', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'full'));
       assert.deepEqual(json.answers, ['raw answer']);
@@ -3126,6 +3061,32 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('network failure diagnostics never include the search query', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://network-log.example.com');
+    const sentinelQuery = 'query-marker-5d9d2c';
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    fetchMocker.mock(async () => {
+      throw new Error('simulated network failure');
+    });
+
+    try {
+      await assert.rejects(() => performWebSearch(server as any, sentinelQuery));
+      const errorLogs = getLoggingCalls().filter((call) => call.level === 'error');
+      assert.ok(errorLogs.length > 0, 'Expected an error-level network diagnostic');
+      for (const errorLog of errorLogs) {
+        assert.ok(
+          !JSON.stringify(errorLog.data).includes(sentinelQuery),
+          `Query leaked into error diagnostic: ${JSON.stringify(errorLog.data)}`,
+        );
+      }
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
   await testFunction('cooled down instance is skipped during failover', async () => {
     clearSearxngInstanceStateForTests();
     envManager.set('SEARXNG_URL', 'https://cooled.example.com;https://healthy.example.com');
@@ -3307,6 +3268,98 @@ async function runTests() {
 
     fetchMocker.restore();
     envManager.restore();
+  }, results);
+
+  await testFunction('search accepts an exact response-body limit and rejects the next byte without caching or recording success', async () => {
+    searchCache.clear();
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://bounded.example.com');
+    const exactBody = JSON.stringify({
+      results: [{ title: 'Exact', content: 'bounded', url: 'https://example.com/exact', score: 1 }],
+    });
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(exactBody)));
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      return createStreamResponse([utf8(fetchCount === 1 ? exactBody : `${exactBody} `)]);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'exact body');
+      envManager.set('SEARXNG_URL', 'https://bounded.example.com;https://cooled.example.com');
+      recordSearxngInstanceFailure('https://bounded.example.com');
+      recordSearxngInstanceFailure('https://bounded.example.com');
+      recordSearxngInstanceFailure('https://cooled.example.com');
+      recordSearxngInstanceFailure('https://cooled.example.com');
+      recordSearxngInstanceFailure('https://cooled.example.com');
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'next byte'),
+        /SearXNG response exceeds configured byte limit/,
+      );
+      assert.equal(isSearxngInstanceCooledDown('https://bounded.example.com'), true);
+
+      clearSearxngInstanceStateForTests();
+      envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(exactBody) + 1));
+      await performWebSearch(mockServer as any, 'next byte');
+      assert.equal(fetchCount, 3, 'an oversize response must not be stored in the search cache');
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
+  await testFunction('search rejects partial and invalid bounded JSON before cache writes', async () => {
+    searchCache.clear();
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://partial.example.com');
+    const mockServer = createMockServer();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      if (fetchCount === 1) {
+        return createStreamResponse([utf8('{"results":')], { errorAfterChunks: true });
+      }
+      return createStreamResponse([utf8(JSON.stringify({ results: [] }))]);
+    });
+
+    try {
+      await assert.rejects(() => performWebSearch(mockServer as any, 'partial body'));
+      await performWebSearch(mockServer as any, 'partial body');
+      assert.equal(fetchCount, 2, 'a failed partial body must not create a cache entry');
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
+  await testFunction('HTTP error previews are bounded, redact URL credentials, and mark truncation', async () => {
+    envManager.set('SEARXNG_URL', 'https://user:pass@preview.example.com');
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', '8');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async () => createStreamResponse(
+      [utf8('https://user:pass@body.example.com/this-response-is-deliberately-long')],
+      { status: 400, statusText: 'Bad Request' },
+    ));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'preview body'),
+        (error: Error) => {
+          assert.match(error.message, /400/);
+          assert.match(error.message, /\[Response body truncated\]/);
+          assert.ok(!error.message.includes('user:pass@'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
   }, results);
 
   printTestSummary(results, 'Search Module');

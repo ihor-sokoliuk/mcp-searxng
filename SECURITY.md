@@ -41,6 +41,28 @@ The primary security surface areas are:
 
 ## Security Features
 
+### SearXNG Response-Body Limits
+
+`SEARXNG_MAX_RESPONSE_BYTES` bounds the bytes this MCP client retains from each
+successful SearXNG search JSON response, HTML fallback, `/config`, and
+`/autocompleter` response. It defaults to 5 MiB and accepts only strict
+integers from 1 through 16 MiB; an invalid value falls back to the default with
+one value-free warning per MCP server. This is a per-response retained-byte
+admission limit, not an aggregate or concurrency limit, and it does not change,
+deploy, restart, reconfigure, or impose settings on the SearXNG service.
+
+For non-success search responses, the client retains at most the lower of the
+configured limit and 64 KiB for a credential-sanitized diagnostic preview,
+preserves the HTTP status, and appends the fixed `[Response body truncated]`
+marker when that preview is cut short. Non-success `/config` and
+`/autocompleter` bodies are canceled rather than disclosed. Search deadlines
+cover headers, body streaming, decoding, and parsing; JSON and HTML fallback
+deadlines are separate and additive, as are per-instance failover attempts.
+The fixed 5-second `/config` and `/autocompleter` deadlines include body
+consumption. Oversize, stalled, partial, malformed, and read failures do not
+populate successful caches or health state and use the existing failure,
+negative-cache, or empty-array behavior.
+
 ### SSRF Protection (`web_url_read`)
 
 Private and internal URLs are **blocked by default** in all transport modes. The following are rejected:

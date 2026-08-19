@@ -7,6 +7,12 @@ import { logMessage } from "./logging.js";
 import { searchCache } from "./search-cache.js";
 import { parseStrictInteger } from "./env-int.js";
 import {
+  cancelAuxiliaryResponseBody,
+  readSearxngResponseBody,
+  resolveSearxngResponseMaxBytes,
+} from "./searxng-response.js";
+import { sanitizeDiagnosticText } from "./diagnostic-sanitizer.js";
+import {
   getHealthySearxngInstances,
   getSearxngInstances,
   isSearxngFanoutEnabled,
@@ -157,33 +163,42 @@ function parseHtmlSearchResults(html: string, query: string): SearXNGWeb {
   };
 }
 
-async function fetchWithSearchTimeout(
+async function fetchWithSearchTimeout<T>(
   mcpServer: McpServer,
   url: URL,
   requestOptions: RequestInit,
   timeoutMs: number,
-  query: string,
   searxngUrl: string,
-): Promise<Response> {
+  handleResponse: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const rawUrl = url.toString();
   const redactedUrl = redactSearxngInstanceUrl(rawUrl);
+  const diagnosticUrl = new URL(redactedUrl);
+  diagnosticUrl.search = "";
+  diagnosticUrl.hash = "";
 
   try {
     logMessage(mcpServer, "info", `Making request to: ${redactedUrl}`);
-    return await fetchSearxng(rawUrl, {
+    const response = await fetchSearxng(rawUrl, {
       ...requestOptions,
       signal: controller.signal,
     });
+    return await handleResponse(response);
   } catch (error: any) {
+    if (error instanceof MCPSearXNGError) {
+      throw error;
+    }
     const safeMessage = typeof error?.message === "string"
-      ? error.message.replaceAll(rawUrl, redactedUrl)
+      ? error.message.replaceAll(rawUrl, diagnosticUrl.toString())
       : error?.message;
     const safeError = new Error(safeMessage);
     (safeError as any).code = error?.code;
     (safeError as any).cause = error?.cause;
-    logMessage(mcpServer, "error", `Network error during search request: ${safeMessage}`, { query, url: redactedUrl });
+    logMessage(mcpServer, "error", `Network error during search request: ${safeMessage}`, {
+      url: diagnosticUrl.toString(),
+    });
     const context: ErrorContext = {
       url: redactedUrl,
       searxngUrl: redactSearxngInstanceUrl(searxngUrl),
@@ -195,6 +210,28 @@ async function fetchWithSearchTimeout(
   }
 }
 
+async function throwBoundedServerError(
+  response: Response,
+  maxResponseBytes: number,
+  context: ErrorContext,
+): Promise<never> {
+  let responseBody = "[Could not read response body]";
+  let truncated = false;
+  try {
+    const preview = await readSearxngResponseBody(response, maxResponseBytes, { preview: true });
+    responseBody = sanitizeDiagnosticText(preview.text);
+    truncated = preview.truncated;
+  } catch {
+    // The status remains more useful than an unavailable diagnostic preview.
+  }
+
+  const serverError = createServerError(response.status, response.statusText, responseBody, context);
+  if (truncated) {
+    serverError.message += " [Response body truncated]";
+  }
+  throw serverError;
+}
+
 async function fetchHtmlFallbackSearch(
   mcpServer: McpServer,
   jsonUrl: URL,
@@ -202,28 +239,29 @@ async function fetchHtmlFallbackSearch(
   timeoutMs: number,
   query: string,
   searxngUrl: string,
+  maxResponseBytes: number,
 ): Promise<SearXNGWeb> {
   const htmlUrl = buildHtmlFallbackUrl(jsonUrl);
   logMessage(mcpServer, "info", `Retrying search with HTML fallback: ${redactSearxngInstanceUrl(htmlUrl.toString())}`);
 
-  const response = await fetchWithSearchTimeout(mcpServer, htmlUrl, requestOptions, timeoutMs, query, searxngUrl);
-  if (!response.ok) {
-    let responseBody: string;
-    try {
-      responseBody = await response.text();
-    } catch {
-      responseBody = '[Could not read response body]';
-    }
-
-    const context: ErrorContext = {
-      url: redactSearxngInstanceUrl(htmlUrl.toString()),
-      searxngUrl: redactSearxngInstanceUrl(searxngUrl),
-    };
-    throw createServerError(response.status, response.statusText, responseBody, context);
-  }
-
-  const html = await response.text();
-  return parseHtmlSearchResults(html, query);
+  return fetchWithSearchTimeout(
+    mcpServer,
+    htmlUrl,
+    requestOptions,
+    timeoutMs,
+    searxngUrl,
+    async (response) => {
+      const context: ErrorContext = {
+        url: redactSearxngInstanceUrl(htmlUrl.toString()),
+        searxngUrl: redactSearxngInstanceUrl(searxngUrl),
+      };
+      if (!response.ok) {
+        return throwBoundedServerError(response, maxResponseBytes, context);
+      }
+      const { text } = await readSearxngResponseBody(response, maxResponseBytes);
+      return parseHtmlSearchResults(text, query);
+    },
+  );
 }
 
 function hasItems<T>(items: T[] | undefined): items is T[] {
@@ -278,6 +316,7 @@ type SearchRequest = {
   effectiveSafesearch?: number;
   filters: NormalizedFilters;
   timeoutMs: number;
+  maxResponseBytes: number;
 };
 
 type InstanceSearchResult = {
@@ -556,57 +595,61 @@ async function fetchSearchFromInstance(
   const url = buildSearchUrl(instanceUrl, request);
   const requestOptions = buildSearchRequestOptions(url);
   const requestUrl = stripSearxngInstanceUrlUserinfo(url);
-  const response = await fetchWithSearchTimeout(mcpServer, requestUrl, requestOptions, request.timeoutMs, request.query, instanceUrl);
-
-  let data: SearXNGWeb;
-
-  if (!response.ok) {
-    if (isHtmlFallbackEnabled() && shouldFallbackForStatus(response.status)) {
-      data = await fetchHtmlFallbackSearch(mcpServer, requestUrl, requestOptions, request.timeoutMs, request.query, instanceUrl);
-    } else {
-      let responseBody: string;
-      try {
-        responseBody = await response.text();
-      } catch {
-        responseBody = '[Could not read response body]';
-      }
-
-      const context: ErrorContext = {
-        url: redactSearxngInstanceUrl(url.toString()),
-        searxngUrl: redactSearxngInstanceUrl(instanceUrl)
-      };
-      throw createServerError(response.status, response.statusText, responseBody, context);
-    }
-  } else {
-    // Read the body as text once, then parse — a Response body is single-use, so
-    // calling response.text() after response.json() consumed it always throws and
-    // would leave the error preview empty.
-    let responseText: string;
-    try {
-      responseText = await response.text();
-    } catch {
-      responseText = '[Could not read response text]';
-    }
-
-    try {
-      data = JSON.parse(responseText) as SearXNGWeb;
-    } catch {
-      if (isHtmlFallbackEnabled()) {
-        data = await fetchHtmlFallbackSearch(mcpServer, requestUrl, requestOptions, request.timeoutMs, request.query, instanceUrl);
-      } else {
-        throw createJSONError(responseText);
-      }
-    }
-  }
-
-  if (!data.results) {
-    throw createDataError();
-  }
-
-  return {
+  return fetchWithSearchTimeout(
+    mcpServer,
+    requestUrl,
+    requestOptions,
+    request.timeoutMs,
     instanceUrl,
-    data,
-  };
+    async (response) => {
+      let data: SearXNGWeb;
+
+      if (!response.ok) {
+        if (isHtmlFallbackEnabled() && shouldFallbackForStatus(response.status)) {
+          await cancelAuxiliaryResponseBody(response);
+          data = await fetchHtmlFallbackSearch(
+            mcpServer,
+            requestUrl,
+            requestOptions,
+            request.timeoutMs,
+            request.query,
+            instanceUrl,
+            request.maxResponseBytes,
+          );
+        } else {
+          return throwBoundedServerError(response, request.maxResponseBytes, {
+            url: redactSearxngInstanceUrl(url.toString()),
+            searxngUrl: redactSearxngInstanceUrl(instanceUrl),
+          });
+        }
+      } else {
+        const { text } = await readSearxngResponseBody(response, request.maxResponseBytes);
+        try {
+          data = JSON.parse(text) as SearXNGWeb;
+        } catch {
+          if (isHtmlFallbackEnabled()) {
+            data = await fetchHtmlFallbackSearch(
+              mcpServer,
+              requestUrl,
+              requestOptions,
+              request.timeoutMs,
+              request.query,
+              instanceUrl,
+              request.maxResponseBytes,
+            );
+          } else {
+            throw createJSONError(sanitizeDiagnosticText(text));
+          }
+        }
+      }
+
+      if (!data.results) {
+        throw createDataError();
+      }
+
+      return { instanceUrl, data };
+    },
+  );
 }
 
 function hasSearchResults(data: SearXNGWeb): boolean {
@@ -802,6 +845,7 @@ export async function performWebSearch(
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
 
   const SEARCH_TIMEOUT_MS = getSearchTimeoutMs(mcpServer);
+  const responseMaxBytes = resolveSearxngResponseMaxBytes(mcpServer);
   const instances = getSearxngInstances();
   const fanoutEnabled = isSearxngFanoutEnabled();
   const includeProvenance = instances.length > 1;
@@ -813,6 +857,7 @@ export async function performWebSearch(
     effectiveSafesearch,
     filters,
     timeoutMs: SEARCH_TIMEOUT_MS,
+    maxResponseBytes: responseMaxBytes,
   };
   const cacheArgs: Record<string, unknown> = {
     query,

@@ -35,6 +35,7 @@ import { runTests as runVersionTests } from './unit/version.test.js';
 import { runTests as runHttpSecurityTests } from './unit/http-security.test.js';
 import { runTests as runPackedConsumerTests } from './unit/packed-consumer.test.js';
 import { runTests as runDocumentationTests } from './unit/documentation.test.js';
+import { runTests as runSearxngResponseTests } from './unit/searxng-response.test.js';
 import { runTests as runFuzzTests } from './fuzz/search-params.fuzz.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
@@ -76,6 +77,7 @@ const testSuites: TestSuite[] = [
   { name: 'HTTP Security', category: 'unit', run: runHttpSecurityTests },
   { name: 'Packed Consumer Verification', category: 'unit', run: runPackedConsumerTests },
   { name: 'Documentation', category: 'unit', run: runDocumentationTests },
+  { name: 'SearXNG Response', category: 'unit', run: runSearxngResponseTests },
   { name: 'Fuzz Properties', category: 'unit', run: runFuzzTests },
 
   // Integration Tests

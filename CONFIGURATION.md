@@ -43,8 +43,13 @@ Percent-encode special characters in usernames or passwords before placing them 
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a SearXNG search response. The request is aborted and a network error is returned if the server does not respond within this window. Invalid, non-positive, or out-of-range values (above `2147483647`) fall back to the default. |
+| `SEARXNG_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds for each SearXNG search attempt, covering response headers, body streaming, decoding, and parsing. The request is aborted and a network error is returned if the server does not complete within this window. Invalid, non-positive, or out-of-range values (above `2147483647`) fall back to the default. |
 | `FETCH_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a `web_url_read` fetch. The request is aborted and an error is returned if the server does not respond within this window. |
+| `SEARXNG_MAX_RESPONSE_BYTES` | No | `5242880` | Maximum retained bytes read from each SearXNG response: successful search JSON, HTML fallback, `/config`, and `/autocompleter`. It is a per-response admission limit, not an aggregate or concurrency cap. |
+
+`SEARXNG_MAX_RESPONSE_BYTES` accepts only a strict integer after surrounding JavaScript whitespace is trimmed. A leading `+` and leading zeros are accepted; `-0`, other non-positive values, fractions, exponents, suffixes, unsafe integers, and values outside the inclusive `1` through `16777216` range are invalid. Unset or blank uses `5242880` silently. An invalid value uses that default and emits one value-free warning per MCP server.
+
+Search JSON and HTML fallback each receive their own full `SEARXNG_TIMEOUT_MS` deadline, so the fallback deadline is separate and additive; replica failover remains per instance and additive as well. `/config` and `/autocompleter` retain their fixed 5-second deadlines through body consumption. Oversized, stalled, partial, malformed, or read-failed responses do not populate successful caches or health state and follow the existing failure, negative-cache, or empty-array path.
 
 ## Tool Schema
 
@@ -426,6 +431,7 @@ This combined MCP client configuration shows the supported option groups in one 
         "AUTH_PASSWORD": "legacy-fallback-password",
         "SEARXNG_FANOUT": "false",
         "SEARXNG_TIMEOUT_MS": "10000",
+        "SEARXNG_MAX_RESPONSE_BYTES": "5242880",
         "FETCH_TIMEOUT_MS": "10000",
         "SEARXNG_LITE_TOOLS": "false",
         "SEARXNG_DEFAULT_LANGUAGE": "en",

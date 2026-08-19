@@ -74,6 +74,22 @@ function makeSecondaryConfig() {
   };
 }
 
+function configResponse(body: string, init: ResponseInit = {}): Response {
+  return new Response(body, { status: 200, ...init });
+}
+
+function streamedConfigResponse(chunks: Uint8Array[]): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200 });
+}
+
 async function runTests() {
   console.log('🧪 Testing: instance-info.ts\n');
 
@@ -581,6 +597,188 @@ async function runTests() {
 
     fetchMocker.restore();
     envManager.restore();
+  }, results);
+
+  await testFunction('accepts a /config response exactly at the configured byte limit', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://exact-limit.example.com');
+    const mockServer = createMockServer();
+    const body = JSON.stringify(makeConfig());
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(body)));
+    fetchMocker.mock(async () => configResponse(body));
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any));
+
+    assert.equal(payload.available, true);
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('returns sanitized unavailable payload and negative-caches a /config response one byte over its limit', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://over-limit.example.com');
+    const mockServer = createMockServer();
+    const body = JSON.stringify(makeConfig());
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(body) - 1));
+    let attempts = 0;
+    fetchMocker.mock(async () => {
+      attempts++;
+      return streamedConfigResponse([Buffer.from(body)]);
+    });
+
+    const first = JSON.parse(await fetchInstanceInfo(mockServer as any));
+    const second = JSON.parse(await fetchInstanceInfo(mockServer as any));
+
+    assert.equal(first.available, false);
+    assert.equal(first.instancesUnreachable[0].sourceUrl, 'https://over-limit.example.com');
+    assert.ok(!JSON.stringify(first).includes(body.slice(0, 16)));
+    assert.equal(second.available, false);
+    assert.equal(attempts, 1, 'failed oversized response should use the negative cache');
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('treats partial and malformed streamed /config JSON as unavailable without populating the success cache', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://malformed-config.example.com');
+    const mockServer = createMockServer();
+    let attempts = 0;
+    fetchMocker.mock(async () => {
+      attempts++;
+      return streamedConfigResponse([Buffer.from('{"categories":')]);
+    });
+
+    const first = JSON.parse(await fetchInstanceInfo(mockServer as any));
+    const second = JSON.parse(await fetchInstanceInfo(mockServer as any));
+
+    assert.equal(first.available, false);
+    assert.equal(second.available, false);
+    assert.equal(attempts, 1);
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('cancels non-success /config response bodies and preserves the HTTP unavailable result when cancellation rejects', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://forbidden-config.example.com');
+    const mockServer = createMockServer();
+    let cancelAttempts = 0;
+    const response = configResponse('not disclosed', { status: 403, statusText: 'Forbidden' });
+    Object.defineProperty(response, 'body', {
+      value: {
+        cancel: async () => {
+          cancelAttempts++;
+          throw new Error('cleanup failed');
+        },
+      },
+    });
+    fetchMocker.mock(async () => response);
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any));
+
+    assert.equal(cancelAttempts, 1);
+    assert.deepEqual(payload.instancesUnreachable, [{
+      sourceUrl: 'https://forbidden-config.example.com',
+      message: 'SearXNG /config is unavailable: HTTP 403 Forbidden',
+      status: 403,
+    }]);
+    assert.ok(!JSON.stringify(payload).includes('not disclosed'));
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('resolves one response limit for all configured instances before fanout begins', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://first-limit.example.com;https://second-limit.example.com');
+    const mockServer = createMockServer();
+    const body = JSON.stringify(makeConfig());
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(body) - 1));
+    let attempts = 0;
+    fetchMocker.mock(async () => {
+      attempts++;
+      if (attempts === 1) {
+        envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(body) + 1));
+      }
+      return streamedConfigResponse([Buffer.from(body)]);
+    });
+
+    const payload = JSON.parse(await fetchInstanceInfo(mockServer as any));
+
+    assert.equal(payload.available, false);
+    assert.equal(attempts, 2);
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('keeps the fixed request timeout active while a headers-first /config body stalls', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://stalled-config.example.com');
+    const mockServer = createMockServer();
+    const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+    let observedSignal: AbortSignal | undefined;
+    fetchMocker.mock(async (_url, options) => {
+      observedSignal = options?.signal ?? undefined;
+      let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+      const response = new Response(new ReadableStream<Uint8Array>({
+        start(streamController) {
+          controller = streamController;
+        },
+      }), { status: 200 });
+      observedSignal?.addEventListener('abort', () => controller?.error(observedSignal?.reason), { once: true });
+      return response;
+    });
+    Object.defineProperty(AbortSignal, 'timeout', {
+      configurable: true,
+      value: () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error('bounded test timeout')), 5);
+        return controller.signal;
+      },
+    });
+
+    try {
+      const payload = JSON.parse(await fetchInstanceInfo(mockServer as any));
+      assert.ok(observedSignal, 'expected the /config request signal');
+      assert.equal(observedSignal.aborted, true);
+      assert.equal(payload.available, false);
+    } finally {
+      if (timeoutDescriptor) {
+        Object.defineProperty(AbortSignal, 'timeout', timeoutDescriptor);
+      }
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('does not log malformed /config response bytes when JSON parsing fails', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://log-user:log-pass@malformed-log.example.com/opaque?trace=UNSAFE_QUERY_SENTINEL');
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    const malformedBodySentinel = 'UNSAFE_CONFIG_BODY_SENTINEL_4c2f';
+    const originalJsonParse = JSON.parse;
+    fetchMocker.mock(async () => configResponse(`{"broken":"${malformedBodySentinel}"`));
+    JSON.parse = ((text: string) => {
+      if (text.includes(malformedBodySentinel)) {
+        throw new Error(`Unable to parse ${malformedBodySentinel}`);
+      }
+      return originalJsonParse(text);
+    }) as typeof JSON.parse;
+
+    try {
+      const payload = await fetchInstanceInfo(server as any);
+      const serializedLogs = JSON.stringify(getLoggingCalls());
+
+      assert.equal(JSON.parse(payload).available, false);
+      assert.ok(!payload.includes(malformedBodySentinel));
+      assert.ok(!serializedLogs.includes(malformedBodySentinel), serializedLogs);
+      assert.ok(!serializedLogs.includes('log-user'), serializedLogs);
+      assert.ok(!serializedLogs.includes('log-pass'), serializedLogs);
+      assert.ok(!serializedLogs.includes('UNSAFE_QUERY_SENTINEL'), serializedLogs);
+    } finally {
+      JSON.parse = originalJsonParse;
+      fetchMocker.restore();
+      envManager.restore();
+    }
   }, results);
 
   printTestSummary(results, 'Instance Info Module');
