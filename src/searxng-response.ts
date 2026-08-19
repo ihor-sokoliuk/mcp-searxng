@@ -8,6 +8,7 @@ export const PREVIEW_MAX_SEARXNG_RESPONSE_BYTES = 64 * 1024;
 
 const INVALID_RESPONSE_BODY_MESSAGE = "Invalid SearXNG response body";
 const RESPONSE_TOO_LARGE_MESSAGE = "SearXNG response exceeds configured byte limit";
+const responseLimitErrors = new WeakSet<Error>();
 let warnedInvalidConfigurationServers = new WeakSet<object>();
 
 export interface SearxngResponseReadOptions {
@@ -88,6 +89,117 @@ function abortReason(signal: AbortSignal): unknown {
   return error;
 }
 
+function responseTooLargeError(): Error {
+  const error = new Error(RESPONSE_TOO_LARGE_MESSAGE);
+  responseLimitErrors.add(error);
+  return error;
+}
+
+interface ResponseAccumulator {
+  chunks: Uint8Array[];
+  bytesRead: number;
+  bytesRetained: number;
+}
+
+interface AbortReadRace {
+  dispose(): void;
+  read(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<ReadableStreamReadResult<Uint8Array>>;
+  throwIfAborted(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void>;
+}
+
+function createAbortReadRace(signal: AbortSignal | undefined): AbortReadRace {
+  let abortRequested = false;
+  let abortedWith: unknown;
+  let abortHandler: (() => void) | undefined;
+  let abortPromise: Promise<never> | undefined;
+
+  if (signal !== undefined) {
+    abortPromise = new Promise<never>((_resolve, reject) => {
+      abortHandler = () => {
+        abortRequested = true;
+        abortedWith = abortReason(signal);
+        reject(abortedWith);
+      };
+      if (signal.aborted) abortHandler();
+      else signal.addEventListener("abort", abortHandler, { once: true });
+    });
+  }
+
+  return {
+    dispose: () => {
+      if (signal !== undefined && abortHandler !== undefined) signal.removeEventListener("abort", abortHandler);
+    },
+    read: (reader) => abortPromise === undefined
+      ? reader.read()
+      : Promise.race([reader.read(), abortPromise]),
+    throwIfAborted: async (reader) => {
+      if (abortRequested) {
+        await bestEffortCancel(reader, abortedWith);
+        throw abortedWith;
+      }
+    },
+  };
+}
+
+function buildReadResult(accumulator: ResponseAccumulator, truncated: boolean): SearxngResponseReadResult {
+  return {
+    text: new TextDecoder("utf-8").decode(concatenateChunks(accumulator.chunks, accumulator.bytesRetained)),
+    bytesRead: accumulator.bytesRead,
+    truncated,
+  };
+}
+
+async function retainResponseChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  value: Uint8Array | undefined,
+  effectiveLimit: number,
+  preview: boolean,
+  accumulator: ResponseAccumulator,
+): Promise<SearxngResponseReadResult | undefined> {
+  if (!value) return undefined;
+
+  accumulator.bytesRead += value.byteLength;
+  const remaining = effectiveLimit - accumulator.bytesRetained;
+  if (value.byteLength <= remaining) {
+    accumulator.chunks.push(value);
+    accumulator.bytesRetained += value.byteLength;
+    return undefined;
+  }
+
+  if (preview && remaining > 0) {
+    accumulator.chunks.push(value.subarray(0, remaining));
+    accumulator.bytesRetained += remaining;
+  }
+  await bestEffortCancel(reader);
+  if (preview) return buildReadResult(accumulator, true);
+  throw responseTooLargeError();
+}
+
+async function consumeResponseBody(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  effectiveLimit: number,
+  preview: boolean,
+  signal: AbortSignal | undefined,
+): Promise<SearxngResponseReadResult> {
+  const accumulator: ResponseAccumulator = { chunks: [], bytesRead: 0, bytesRetained: 0 };
+  const abortRace = createAbortReadRace(signal);
+
+  try {
+    while (true) {
+      const { done, value } = await abortRace.read(reader);
+      if (done) return buildReadResult(accumulator, false);
+      const truncated = await retainResponseChunk(reader, value, effectiveLimit, preview, accumulator);
+      if (truncated !== undefined) return truncated;
+    }
+  } catch (error) {
+    if (error instanceof Error && responseLimitErrors.has(error)) throw error;
+    await abortRace.throwIfAborted(reader);
+    throw error;
+  } finally {
+    abortRace.dispose();
+  }
+}
+
 export async function readSearxngResponseBody(
   response: Response,
   maxBytes: number,
@@ -102,82 +214,12 @@ export async function readSearxngResponseBody(
   const previewLimit = options.previewMaxBytes ?? PREVIEW_MAX_SEARXNG_RESPONSE_BYTES;
   const effectiveLimit = preview ? Math.min(maxBytes, previewLimit) : maxBytes;
   const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytesRetained = 0;
-  let bytesRead = 0;
-  let abortRequested = false;
-  let abortedWith: unknown;
-  let abortHandler: (() => void) | undefined;
-  let abortPromise: Promise<never> | undefined;
-  const signal = options.signal;
-
-  if (signal !== undefined) {
-    abortPromise = new Promise<never>((_resolve, reject) => {
-      abortHandler = () => {
-        abortRequested = true;
-        abortedWith = abortReason(signal);
-        reject(abortedWith);
-      };
-      if (signal.aborted) {
-        abortHandler();
-      } else {
-        signal.addEventListener("abort", abortHandler, { once: true });
-      }
-    });
-  }
 
   try {
-    while (true) {
-      const readPromise = reader.read();
-      const { done, value } = abortPromise === undefined
-        ? await readPromise
-        : await Promise.race([readPromise, abortPromise]);
-      if (done) {
-        break;
-      }
-      if (!value) {
-        continue;
-      }
-
-      bytesRead += value.byteLength;
-      const remaining = effectiveLimit - bytesRetained;
-      if (value.byteLength > remaining) {
-        if (preview && remaining > 0) {
-          chunks.push(value.subarray(0, remaining));
-          bytesRetained += remaining;
-        }
-        await bestEffortCancel(reader);
-        if (preview) {
-          return {
-            text: new TextDecoder("utf-8").decode(concatenateChunks(chunks, bytesRetained)),
-            bytesRead,
-            truncated: true,
-          };
-        }
-        throw new Error(RESPONSE_TOO_LARGE_MESSAGE);
-      }
-
-      chunks.push(value);
-      bytesRetained += value.byteLength;
-    }
-  } catch (error) {
-    if (abortRequested) {
-      await bestEffortCancel(reader, abortedWith);
-      throw abortedWith;
-    }
-    throw error;
+    return await consumeResponseBody(reader, effectiveLimit, preview, options.signal);
   } finally {
-    if (signal !== undefined && abortHandler !== undefined) {
-      signal.removeEventListener("abort", abortHandler);
-    }
     reader.releaseLock();
   }
-
-  return {
-    text: new TextDecoder("utf-8").decode(concatenateChunks(chunks, bytesRetained)),
-    bytesRead,
-    truncated: false,
-  };
 }
 
 export async function cancelAuxiliaryResponseBody(response: Response): Promise<void> {
