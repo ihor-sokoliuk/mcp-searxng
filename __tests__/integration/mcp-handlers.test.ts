@@ -213,7 +213,10 @@ async function runTests() {
     fetchMocker.mock(async (url, _opts) => {
       capturedUrl = url as string;
       const body = JSON.stringify({ results: [{ title: 'R', url: 'https://x.com', content: 'c', score: 1 }] });
-      return { ok: true, json: async () => JSON.parse(body), text: async () => body } as any;
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     });
     const { client } = await connect();
 

@@ -1,6 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { logMessage } from "./logging.js";
 import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
+import {
+  cancelAuxiliaryResponseBody,
+  readSearxngResponseBody,
+  resolveSearxngResponseMaxBytes,
+} from "./searxng-response.js";
 import { getSearxngInstances, redactSearxngInstanceUrl, stripSearxngInstanceUrlUserinfo } from "./searxng-instances.js";
 
 type SearXNGConfig = Record<string, any>;
@@ -259,7 +264,45 @@ function cacheFailure(base: string, message: string, status?: number): void {
   });
 }
 
-async function requestInstanceConfig(mcpServer: McpServer, base: string): Promise<ConfigResult> {
+function safeInstanceLogTarget(base: string): string {
+  try {
+    const url = new URL(base);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return "[invalid SearXNG URL]";
+  }
+}
+
+async function readConfigResponseBody(response: Response, maxBytes: number, signal: AbortSignal): Promise<string> {
+  if (signal.aborted) {
+    await cancelAuxiliaryResponseBody(response);
+    throw signal.reason;
+  }
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      void cancelAuxiliaryResponseBody(response);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+  try {
+    const result = await Promise.race([
+      readSearxngResponseBody(response, maxBytes),
+      aborted,
+    ]);
+    signal.throwIfAborted?.();
+    return result.text;
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+
+async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResponseBytes: number): Promise<ConfigResult> {
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
     const url = new URL("config", parsedBase);
@@ -271,6 +314,7 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
 
     const response = await fetchSearxng(requestUrl.toString(), requestOptions);
     if (!response.ok) {
+      await cancelAuxiliaryResponseBody(response);
       const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
       return {
         available: false,
@@ -280,12 +324,10 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
       };
     }
 
-    const config = await response.json() as SearXNGConfig;
+    const config = JSON.parse(await readConfigResponseBody(response, maxResponseBytes, requestOptions.signal!)) as SearXNGConfig;
     return { available: true, config, sourceUrl: base };
-  } catch (error) {
-    const rawMessage = error instanceof Error ? error.message : String(error);
-    const safeMessage = rawMessage.replaceAll(base, redactSearxngInstanceUrl(base));
-    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${redactSearxngInstanceUrl(base)}: ${safeMessage}`);
+  } catch {
+    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${safeInstanceLogTarget(base)}: request or response processing failed.`);
     const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
     return {
       available: false,
@@ -295,7 +337,11 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string): Promis
   }
 }
 
-async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Promise<ConfigResult> {
+async function fetchConfigFromInstance(
+  mcpServer: McpServer,
+  base: string,
+  maxResponseBytes: number,
+): Promise<ConfigResult> {
   const cached = cachedConfigs.get(base);
   if (cached) {
     return { available: true, config: cached, sourceUrl: base };
@@ -306,7 +352,7 @@ async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Prom
     return cachedFailure;
   }
 
-  const result = await requestInstanceConfig(mcpServer, base);
+  const result = await requestInstanceConfig(mcpServer, base, maxResponseBytes);
   if (result.available) {
     cachedConfigs.set(base, result.config);
     cachedConfigFailures.delete(base);
@@ -318,6 +364,7 @@ async function fetchConfigFromInstance(mcpServer: McpServer, base: string): Prom
 }
 
 async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<AggregateConfigResult> {
+  const maxResponseBytes = resolveSearxngResponseMaxBytes(mcpServer);
   const instances = getSearxngInstances();
   if (instances.length === 0) {
     return {
@@ -332,7 +379,9 @@ async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<Aggr
     cachedConfigFailures.clear();
   }
 
-  const results = await Promise.all(instances.map((instance) => fetchConfigFromInstance(mcpServer, instance)));
+  const results = await Promise.all(
+    instances.map((instance) => fetchConfigFromInstance(mcpServer, instance, maxResponseBytes)),
+  );
   const configs = results
     .filter((result): result is { available: true; config: SearXNGConfig; sourceUrl: string } => result.available)
     .map(({ config, sourceUrl }) => ({ config, sourceUrl }));

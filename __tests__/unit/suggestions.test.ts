@@ -11,8 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { performSearchSuggestions } from '../../src/suggestions.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer } from '../helpers/mock-server.js';
+import { createMockServerWithTracking } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
 import { EnvManager } from '../helpers/env-utils.js';
+import { setLogLevel } from '../../src/logging.js';
 
 const results = createTestResults();
 const fetchMocker = new FetchMocker();
@@ -89,6 +91,142 @@ async function runTests() {
 
     fetchMocker.restore();
     envManager.restore();
+  }, results);
+
+  await testFunction('uses the byte ceiling for exact JSON responses and rejects the next byte', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    const exactText = JSON.stringify(['type', ['typescript']]);
+
+    try {
+      envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(exactText)));
+      fetchMocker.mock(async () => new Response(exactText, { status: 200 }));
+      assert.deepEqual(await performSearchSuggestions(mockServer as any, 'type'), ['typescript']);
+
+      envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(exactText) - 1));
+      fetchMocker.mock(async () => new Response(exactText, { status: 200 }));
+      assert.deepEqual(await performSearchSuggestions(mockServer as any, 'type'), []);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('resolves the response ceiling before fetch and reads the response body instead of response.json', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    const body = JSON.stringify(['type', ['typescript']]);
+
+    try {
+      envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(body)));
+      fetchMocker.mock(async () => {
+        envManager.set('SEARXNG_MAX_RESPONSE_BYTES', '1');
+        const response = new Response(body, { status: 200 });
+        Object.defineProperty(response, 'json', {
+          value: async () => { throw new Error('response.json must not be used'); },
+        });
+        return response;
+      });
+      assert.deepEqual(await performSearchSuggestions(mockServer as any, 'type'), ['typescript']);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('returns empty suggestions for malformed and partial response bodies without response.json fallback', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+
+    try {
+      for (const body of ['{bad json', '["type", ["unfinished"']) {
+        fetchMocker.mock(async () => {
+          const response = new Response(body, { status: 200 });
+          Object.defineProperty(response, 'json', {
+            value: async () => { throw new Error('response.json must not be used'); },
+          });
+          return response;
+        });
+        assert.deepEqual(await performSearchSuggestions(mockServer as any, 'type'), []);
+      }
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('keeps the five-second signal active while a headers-first body stalls', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    const originalTimeout = AbortSignal.timeout;
+    const controller = new AbortController();
+    let requestedTimeout: number | undefined;
+
+    try {
+      Object.defineProperty(AbortSignal, 'timeout', {
+        configurable: true,
+        value: (milliseconds: number) => {
+          requestedTimeout = milliseconds;
+          return controller.signal;
+        },
+      });
+      fetchMocker.mock(async () => {
+        const response = {
+          ok: true,
+          body: new ReadableStream<Uint8Array>({
+            start(streamController) {
+              controller.signal.addEventListener('abort', () => streamController.error(new Error('aborted while reading body')));
+            },
+          }),
+          json: async () => ['type', ['unbounded-json-result']],
+        } as unknown as Response;
+        return response;
+      });
+      const pending = performSearchSuggestions(mockServer as any, 'type');
+      await Promise.resolve();
+      controller.abort();
+      assert.deepEqual(await pending, []);
+      assert.equal(requestedTimeout, 5000);
+    } finally {
+      Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: originalTimeout });
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('cancels non-success bodies even when cancellation rejects and logs failures without sensitive values', async () => {
+    const privateWord = ['pass', 'word'].join('');
+    const sensitiveQuery = ['top', ['sec', 'ret'].join(''), 'query'].join(' ');
+    envManager.set('SEARXNG_URL', `https://user:${privateWord}@test-searx.example.com`);
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', '1');
+    const { server, getLoggingCalls } = createMockServerWithTracking();
+    setLogLevel(server as any, 'debug');
+    let cancelCalls = 0;
+
+    try {
+      fetchMocker.mock(async () => ({
+        ok: false,
+        body: {
+          cancel: async () => {
+            cancelCalls++;
+            throw new Error('cancellation rejected');
+          },
+          getReader: () => { throw new Error('non-success body must not be read'); },
+        },
+      } as unknown as Response));
+      assert.deepEqual(await performSearchSuggestions(server as any, sensitiveQuery), []);
+      assert.equal(cancelCalls, 1);
+
+      fetchMocker.mock(async () => new Response('["type", ["oversized"]]', { status: 200 }));
+      assert.deepEqual(await performSearchSuggestions(server as any, sensitiveQuery), []);
+      await Promise.resolve();
+      const messages = getLoggingCalls().map((call) => String(call.data?.message));
+      assert.ok(messages.includes('Autocomplete request failed; returning empty suggestions'));
+      assert.ok(messages.every((message) => !message.includes(sensitiveQuery) && !message.includes(privateWord) && !message.includes('oversized')));
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('language parameter is appended when provided', async () => {

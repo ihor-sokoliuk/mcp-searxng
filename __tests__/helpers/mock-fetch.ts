@@ -34,22 +34,15 @@ export function createMockFetch(options: FetchMockOptions = {}) {
       throw throwError;
     }
 
-    return {
-      ok,
+    // Give consumers a real, readable body stream. Preserve the helper's
+    // historical json override for callers that deliberately pass both forms.
+    const response = new Response(body || (json !== null ? JSON.stringify(json) : ''), {
       status,
       statusText,
-      // text() and json() come from one body on a real Response — mirror json
-      // into text when only json is given so a text-first reader stays consistent.
-      text: async () => {
-        if (body) {
-          return body;
-        }
-        if (json !== null) {
-          return JSON.stringify(json);
-        }
-        return '';
-      },
-      json: async () => {
+    });
+    Object.defineProperty(response, 'ok', { value: ok });
+    Object.defineProperty(response, 'json', {
+      value: async () => {
         if (json !== null) {
           return json;
         }
@@ -57,8 +50,9 @@ export function createMockFetch(options: FetchMockOptions = {}) {
           return JSON.parse(body);
         }
         throw new Error('No JSON content');
-      }
-    } as Response;
+      },
+    });
+    return response;
   };
 }
 
@@ -73,13 +67,10 @@ export function createCapturingMockFetch() {
     capturedUrl = url.toString();
     capturedOptions = options;
     
-    return {
-      ok: true,
+    return new Response(JSON.stringify({ results: [] }), {
       status: 200,
       statusText: 'OK',
-      text: async () => JSON.stringify({ results: [] }),
-      json: async () => ({ results: [] })
-    } as Response;
+    });
   };
 
   return {
