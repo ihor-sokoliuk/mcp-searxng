@@ -17,6 +17,7 @@ const results = createTestResults();
 const encoder = new TextEncoder();
 
 interface StreamOptions {
+  cancelAborts?: AbortController;
   cancelRejects?: boolean;
   leaveOpen?: boolean;
   readRejects?: boolean;
@@ -40,6 +41,7 @@ function responseWithChunks(chunks: Uint8Array[], options: StreamOptions = {}) {
     cancel(reason) {
       cancelCalls++;
       cancelReason = reason;
+      options.cancelAborts?.abort(new Error("cancel-triggered abort"));
       if (options.cancelRejects) return Promise.reject(new Error("cancel failed"));
       return undefined;
     },
@@ -136,6 +138,18 @@ async function runTests() {
     );
     assert.equal(overflowWithCancelFailure.getCancelCalls(), 1);
     assert.equal(overflowWithCancelFailure.response.body!.locked, false);
+
+    const cancellationAbortController = new AbortController();
+    const cancellationAbort = responseWithChunks([encoder.encode("abcd")], {
+      leaveOpen: true,
+      cancelAborts: cancellationAbortController,
+    });
+    await assert.rejects(
+      () => readSearxngResponseBody(cancellationAbort.response, 3, { signal: cancellationAbortController.signal }),
+      /SearXNG response exceeds configured byte limit/,
+    );
+    assert.equal(cancellationAbort.getCancelCalls(), 1);
+    assert.equal(cancellationAbort.response.body!.locked, false);
   }, results);
 
   await testFunction("complete mode measures raw UTF-8 bytes before decoding with actual bodies", async () => {
