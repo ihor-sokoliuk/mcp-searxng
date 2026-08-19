@@ -16,37 +16,39 @@ import { createTestResults, exitWithResults, printTestSummary, testFunction } fr
 const results = createTestResults();
 const encoder = new TextEncoder();
 
-function responseWithChunks(chunks: Uint8Array[], options: { cancelRejects?: boolean; readRejects?: boolean } = {}) {
+interface StreamOptions {
+  cancelRejects?: boolean;
+  leaveOpen?: boolean;
+  readRejects?: boolean;
+  pending?: boolean;
+}
+
+function responseWithChunks(chunks: Uint8Array[], options: StreamOptions = {}) {
   let cancelCalls = 0;
-  let releaseCalls = 0;
-  let index = 0;
-  const reader = {
-    async read(): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let cancelReason: unknown;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
       if (options.readRejects) {
-        throw new Error("read failed");
+        controller.error(new Error("read failed"));
+        return;
       }
-      const value = chunks[index++];
-      return value === undefined ? { done: true, value: undefined } : { done: false, value };
+      if (!options.pending) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        if (!options.leaveOpen) controller.close();
+      }
     },
-    async cancel(): Promise<void> {
+    cancel(reason) {
       cancelCalls++;
-      if (options.cancelRejects) {
-        throw new Error("cancel failed");
-      }
+      cancelReason = reason;
+      if (options.cancelRejects) return Promise.reject(new Error("cancel failed"));
+      return undefined;
     },
-    releaseLock(): void {
-      releaseCalls++;
-    },
-  };
+  });
+  const response = new Response(stream);
   return {
-    response: {
-      body: {
-        getReader: () => reader,
-        cancel: () => reader.cancel(),
-      },
-    } as Response,
+    response,
     getCancelCalls: () => cancelCalls,
-    getReleaseCalls: () => releaseCalls,
+    getCancelReason: () => cancelReason,
   };
 }
 
@@ -62,6 +64,16 @@ function createLogger() {
   };
 }
 
+async function expectPromptAbort(promise: Promise<unknown>, reason: Error): Promise<void> {
+  await assert.rejects(
+    Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("abort was not prompt")), 50)),
+    ]),
+    (error: unknown) => error === reason,
+  );
+}
+
 async function runTests() {
   console.log("🧪 Testing: searxng-response.ts\n");
 
@@ -71,7 +83,7 @@ async function runTests() {
     assert.equal(PREVIEW_MAX_SEARXNG_RESPONSE_BYTES, 64 * 1024);
   }, results);
 
-  await testFunction("resolves only accepted response-size configuration and warns once without raw values", async () => {
+  await testFunction("pins accepted and rejected response-size configuration forms with value-free once-only warnings", async () => {
     const previous = process.env.SEARXNG_MAX_RESPONSE_BYTES;
     const logger = createLogger();
     resetSearxngResponseConfigWarningsForTesting();
@@ -82,18 +94,21 @@ async function runTests() {
       assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), 1);
       process.env.SEARXNG_MAX_RESPONSE_BYTES = " 16777216 ";
       assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), HARD_MAX_SEARXNG_RESPONSE_BYTES);
+      process.env.SEARXNG_MAX_RESPONSE_BYTES = "+5242880";
+      assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), 5242880);
+      process.env.SEARXNG_MAX_RESPONSE_BYTES = "0005242880";
+      assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), 5242880);
       process.env.SEARXNG_MAX_RESPONSE_BYTES = "  ";
       assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), DEFAULT_SEARXNG_RESPONSE_MAX_BYTES);
-      process.env.SEARXNG_MAX_RESPONSE_BYTES = "0";
-      assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), DEFAULT_SEARXNG_RESPONSE_MAX_BYTES);
-      process.env.SEARXNG_MAX_RESPONSE_BYTES = "16777217";
-      assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), DEFAULT_SEARXNG_RESPONSE_MAX_BYTES);
-      process.env.SEARXNG_MAX_RESPONSE_BYTES = "5.5";
-      assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), DEFAULT_SEARXNG_RESPONSE_MAX_BYTES);
+      for (const invalid of ["0", "16777217", "5.5", "-0", "1e3", "5MB", "9007199254740992"]) {
+        process.env.SEARXNG_MAX_RESPONSE_BYTES = invalid;
+        assert.equal(resolveSearxngResponseMaxBytes(logger.server as any), DEFAULT_SEARXNG_RESPONSE_MAX_BYTES);
+      }
       await Promise.resolve();
       assert.equal(logger.messages.length, 1);
-      assert.ok(!logger.messages[0].includes("16777217"));
+      assert.ok(!logger.messages[0].includes("9007199254740992"));
       resetSearxngResponseConfigWarningsForTesting();
+      process.env.SEARXNG_MAX_RESPONSE_BYTES = "5MB";
       resolveSearxngResponseMaxBytes(logger.server as any);
       await Promise.resolve();
       assert.equal(logger.messages.length, 2);
@@ -104,44 +119,48 @@ async function runTests() {
     }
   }, results);
 
-  await testFunction("complete mode accepts exact bytes, rejects the next byte, and releases its lock", async () => {
+  await testFunction("complete mode accepts exact bytes, rejects the next byte, cancels, and unlocks actual bodies", async () => {
     const exact = responseWithChunks([encoder.encode("abc")]);
     assert.deepEqual(await readSearxngResponseBody(exact.response, 3), {
       text: "abc", bytesRead: 3, truncated: false,
     });
-    assert.equal(exact.getReleaseCalls(), 1);
-    const overflow = responseWithChunks([encoder.encode("abcd")]);
+    assert.equal(exact.response.body!.locked, false);
+    const overflow = responseWithChunks([encoder.encode("abcd")], { leaveOpen: true });
     await assert.rejects(() => readSearxngResponseBody(overflow.response, 3), /SearXNG response exceeds configured byte limit/);
     assert.equal(overflow.getCancelCalls(), 1);
-    assert.equal(overflow.getReleaseCalls(), 1);
-    const overflowWithCancelFailure = responseWithChunks([encoder.encode("abcd")], { cancelRejects: true });
+    assert.equal(overflow.response.body!.locked, false);
+    const overflowWithCancelFailure = responseWithChunks([encoder.encode("abcd")], { cancelRejects: true, leaveOpen: true });
     await assert.rejects(
       () => readSearxngResponseBody(overflowWithCancelFailure.response, 3),
       /SearXNG response exceeds configured byte limit/,
     );
-    assert.equal(overflowWithCancelFailure.getReleaseCalls(), 1);
+    assert.equal(overflowWithCancelFailure.getCancelCalls(), 1);
+    assert.equal(overflowWithCancelFailure.response.body!.locked, false);
   }, results);
 
-  await testFunction("complete mode measures raw UTF-8 bytes before decoding", async () => {
+  await testFunction("complete mode measures raw UTF-8 bytes before decoding with actual bodies", async () => {
     const response = responseWithChunks([new Uint8Array([0xe2]), new Uint8Array([0x82, 0xac])]);
     assert.deepEqual(await readSearxngResponseBody(response.response, 3), {
       text: "€", bytesRead: 3, truncated: false,
     });
+    assert.equal(response.response.body!.locked, false);
     const partial = responseWithChunks([new Uint8Array([0xe2]), new Uint8Array([0x82])]);
     assert.equal((await readSearxngResponseBody(partial.response, 2)).text, "�");
+    assert.equal(partial.response.body!.locked, false);
   }, results);
 
-  await testFunction("preview mode truncates at its effective limit and preserves cancellation result", async () => {
-    const truncated = responseWithChunks([encoder.encode("abcd")]);
+  await testFunction("preview mode truncates at its effective limit, cancels, and unlocks actual bodies", async () => {
+    const truncated = responseWithChunks([encoder.encode("abcd")], { leaveOpen: true });
     assert.deepEqual(await readSearxngResponseBody(truncated.response, 10, { preview: true, previewMaxBytes: 3 }), {
       text: "abc", bytesRead: 4, truncated: true,
     });
     assert.equal(truncated.getCancelCalls(), 1);
-    assert.equal(truncated.getReleaseCalls(), 1);
-    const cancelRejects = responseWithChunks([encoder.encode("abcd")], { cancelRejects: true });
+    assert.equal(truncated.response.body!.locked, false);
+    const cancelRejects = responseWithChunks([encoder.encode("abcd")], { cancelRejects: true, leaveOpen: true });
     const result = await readSearxngResponseBody(cancelRejects.response, 3, { preview: true });
     assert.equal(result.truncated, true);
-    assert.equal(cancelRejects.getReleaseCalls(), 1);
+    assert.equal(cancelRejects.getCancelCalls(), 1);
+    assert.equal(cancelRejects.response.body!.locked, false);
   }, results);
 
   await testFunction("null body is empty while an absent body is rejected without text fallback", async () => {
@@ -152,13 +171,37 @@ async function runTests() {
     await assert.rejects(() => readSearxngResponseBody(invalidResponse, 3), /Invalid SearXNG response body/);
   }, results);
 
-  await testFunction("reader failures release the lock and auxiliary cancellation never surfaces cancellation failures", async () => {
+  await testFunction("reader failures unlock actual bodies and auxiliary cancellation hides cancellation rejection", async () => {
     const rejectedRead = responseWithChunks([], { readRejects: true });
     await assert.rejects(() => readSearxngResponseBody(rejectedRead.response, 3), /read failed/);
-    assert.equal(rejectedRead.getReleaseCalls(), 1);
-    const auxiliary = responseWithChunks([], { cancelRejects: true });
+    assert.equal(rejectedRead.response.body!.locked, false);
+    const auxiliary = responseWithChunks([], { pending: true, cancelRejects: true });
     await cancelAuxiliaryResponseBody(auxiliary.response);
     assert.equal(auxiliary.getCancelCalls(), 1);
+    assert.equal(auxiliary.response.body!.locked, false);
+  }, results);
+
+  await testFunction("signal abort cancels through the reader, unlocks the actual body, and keeps abort stable when cancel rejects", async () => {
+    const controller = new AbortController();
+    const reason = new Error("caller aborted");
+    const pending = responseWithChunks([], { pending: true });
+    const read = readSearxngResponseBody(pending.response, 3, { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort(reason);
+    await expectPromptAbort(read, reason);
+    assert.equal(pending.getCancelCalls(), 1);
+    assert.equal(pending.getCancelReason(), reason);
+    assert.equal(pending.response.body!.locked, false);
+
+    const rejectingController = new AbortController();
+    const rejectingReason = new Error("caller aborted with rejecting cancel");
+    const rejecting = responseWithChunks([], { pending: true, cancelRejects: true });
+    const rejectingRead = readSearxngResponseBody(rejecting.response, 3, { signal: rejectingController.signal });
+    await Promise.resolve();
+    rejectingController.abort(rejectingReason);
+    await expectPromptAbort(rejectingRead, rejectingReason);
+    assert.equal(rejecting.getCancelCalls(), 1);
+    assert.equal(rejecting.response.body!.locked, false);
   }, results);
 
   printTestSummary(results, "SearXNG Response Module");

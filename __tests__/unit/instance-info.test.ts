@@ -716,31 +716,44 @@ async function runTests() {
     const mockServer = createMockServer();
     const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
     let observedSignal: AbortSignal | undefined;
+    let attempts = 0;
+    const timeoutReason = new Error('bounded test timeout');
+    const cancellationReasons: unknown[] = [];
+    let responseBody: ReadableStream<Uint8Array> | undefined;
     fetchMocker.mock(async (_url, options) => {
+      attempts++;
       observedSignal = options?.signal ?? undefined;
-      let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-      const response = new Response(new ReadableStream<Uint8Array>({
-        start(streamController) {
-          controller = streamController;
+      responseBody = new ReadableStream<Uint8Array>({
+        cancel(reason) {
+          cancellationReasons.push(reason);
         },
-      }), { status: 200 });
-      observedSignal?.addEventListener('abort', () => controller?.error(observedSignal?.reason), { once: true });
-      return response;
+      });
+      return new Response(responseBody, { status: 200 });
     });
     Object.defineProperty(AbortSignal, 'timeout', {
       configurable: true,
       value: () => {
         const controller = new AbortController();
-        setTimeout(() => controller.abort(new Error('bounded test timeout')), 5);
+        setTimeout(() => controller.abort(timeoutReason), 5);
         return controller.signal;
       },
     });
 
     try {
-      const payload = JSON.parse(await fetchInstanceInfo(mockServer as any));
+      const payload = JSON.parse(await Promise.race([
+        fetchInstanceInfo(mockServer as any),
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error('stalled /config response did not become unavailable promptly')), 250);
+        }),
+      ]));
+      const cachedPayload = JSON.parse(await fetchInstanceInfo(mockServer as any));
       assert.ok(observedSignal, 'expected the /config request signal');
       assert.equal(observedSignal.aborted, true);
       assert.equal(payload.available, false);
+      assert.equal(cachedPayload.available, false);
+      assert.equal(attempts, 1, 'a timed-out response must not populate the successful cache');
+      assert.deepEqual(cancellationReasons, [timeoutReason]);
+      assert.equal(responseBody?.locked, false, 'the shared reader must release its body lock after cancellation');
     } finally {
       if (timeoutDescriptor) {
         Object.defineProperty(AbortSignal, 'timeout', timeoutDescriptor);

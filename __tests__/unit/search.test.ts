@@ -3311,6 +3311,56 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('HTML fallback accepts an exact response-body limit and rejects the next byte without caching or recording success', async () => {
+    searchCache.clear();
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://fallback-bounded.example.com');
+    envManager.set('SEARXNG_HTML_FALLBACK', 'true');
+    const exactBody = searxngHtmlFixture;
+    envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(exactBody)));
+    const mockServer = createMockServer();
+    let jsonFetchCount = 0;
+    let htmlFetchCount = 0;
+    fetchMocker.mock(async (url) => {
+      const requestUrl = new URL(url.toString());
+      if (requestUrl.searchParams.get('format') === 'json') {
+        jsonFetchCount++;
+        return new Response('JSON format is disabled', { status: 403, statusText: 'Forbidden' });
+      }
+
+      htmlFetchCount++;
+      return createStreamResponse([utf8(htmlFetchCount === 1 ? exactBody : `${exactBody} `)]);
+    });
+
+    try {
+      const exactResult = await performWebSearch(mockServer as any, 'fallback exact body');
+      assert.ok(exactResult.includes('Alpha Result'));
+
+      envManager.set('SEARXNG_URL', 'https://fallback-bounded.example.com;https://cooled.example.com');
+      recordSearxngInstanceFailure('https://fallback-bounded.example.com');
+      recordSearxngInstanceFailure('https://fallback-bounded.example.com');
+      recordSearxngInstanceFailure('https://cooled.example.com');
+      recordSearxngInstanceFailure('https://cooled.example.com');
+      recordSearxngInstanceFailure('https://cooled.example.com');
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'fallback next byte'),
+        /SearXNG response exceeds configured byte limit/,
+      );
+      assert.equal(isSearxngInstanceCooledDown('https://fallback-bounded.example.com'), true);
+
+      clearSearxngInstanceStateForTests();
+      envManager.set('SEARXNG_MAX_RESPONSE_BYTES', String(Buffer.byteLength(exactBody) + 1));
+      await performWebSearch(mockServer as any, 'fallback next byte');
+      assert.equal(htmlFetchCount, 3, 'an oversize HTML fallback response must not be stored in the search cache');
+      assert.equal(jsonFetchCount, 3, 'each HTML fallback attempt must begin with the JSON request');
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
   await testFunction('search rejects partial and invalid bounded JSON before cache writes', async () => {
     searchCache.clear();
     clearSearxngInstanceStateForTests();

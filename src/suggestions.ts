@@ -28,8 +28,9 @@ export async function performSearchSuggestions(
   const requestUrl = stripSearxngInstanceUrlUserinfo(url);
 
   try {
+    const signal = AbortSignal.timeout(5000);
     const requestOptions: RequestInit = {
-      signal: AbortSignal.timeout(5000),
+      signal,
     };
     applySearchRequestConfig(requestOptions, url.toString());
 
@@ -39,7 +40,7 @@ export async function performSearchSuggestions(
       return [];
     }
 
-    const { text } = await readSearxngResponseBody(response, responseMaxBytes);
+    const { text } = await readSearxngResponseBody(response, responseMaxBytes, { signal });
     const data = JSON.parse(text) as [string, string[]];
     return Array.isArray(data[1]) ? data[1] : [];
   } catch {

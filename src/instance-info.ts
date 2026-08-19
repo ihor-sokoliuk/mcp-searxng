@@ -273,43 +273,13 @@ function safeInstanceLogTarget(base: string): string {
   }
 }
 
-async function readConfigResponseBody(response: Response, maxBytes: number, signal: AbortSignal): Promise<string> {
-  if (signal.aborted) {
-    await cancelAuxiliaryResponseBody(response);
-    throw signal.reason;
-  }
-
-  let onAbort: (() => void) | undefined;
-  const aborted = new Promise<never>((_, reject) => {
-    onAbort = () => {
-      void cancelAuxiliaryResponseBody(response);
-      reject(signal.reason);
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-
-  try {
-    const result = await Promise.race([
-      readSearxngResponseBody(response, maxBytes),
-      aborted,
-    ]);
-    signal.throwIfAborted?.();
-    return result.text;
-  } finally {
-    if (onAbort) {
-      signal.removeEventListener("abort", onAbort);
-    }
-  }
-}
-
 async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResponseBytes: number): Promise<ConfigResult> {
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
     const url = new URL("config", parsedBase);
     const requestUrl = stripSearxngInstanceUrlUserinfo(url);
-    const requestOptions: RequestInit = {
-      signal: AbortSignal.timeout(5000),
-    };
+    const timeoutSignal = AbortSignal.timeout(5000);
+    const requestOptions: RequestInit = { signal: timeoutSignal };
     applySearchRequestConfig(requestOptions, url.toString());
 
     const response = await fetchSearxng(requestUrl.toString(), requestOptions);
@@ -324,7 +294,8 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResp
       };
     }
 
-    const config = JSON.parse(await readConfigResponseBody(response, maxResponseBytes, requestOptions.signal!)) as SearXNGConfig;
+    const { text } = await readSearxngResponseBody(response, maxResponseBytes, { signal: timeoutSignal });
+    const config = JSON.parse(text) as SearXNGConfig;
     return { available: true, config, sourceUrl: base };
   } catch {
     logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${safeInstanceLogTarget(base)}: request or response processing failed.`);

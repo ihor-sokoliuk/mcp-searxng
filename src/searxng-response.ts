@@ -13,6 +13,7 @@ let warnedInvalidConfigurationServers = new WeakSet<object>();
 export interface SearxngResponseReadOptions {
   preview?: boolean;
   previewMaxBytes?: number;
+  signal?: AbortSignal;
 }
 
 export interface SearxngResponseReadResult {
@@ -70,12 +71,21 @@ function responseBodyOrThrow(response: Response): ReadableStream<Uint8Array> | n
   return response.body;
 }
 
-async function bestEffortCancel(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+async function bestEffortCancel(reader: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown): Promise<void> {
   try {
-    await reader.cancel();
+    await reader.cancel(reason);
   } catch {
     // A cancelled network body is best effort; it must not replace the bounded result.
   }
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  if (signal.reason !== undefined) {
+    return signal.reason;
+  }
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 export async function readSearxngResponseBody(
@@ -95,10 +105,33 @@ export async function readSearxngResponseBody(
   const chunks: Uint8Array[] = [];
   let bytesRetained = 0;
   let bytesRead = 0;
+  let abortRequested = false;
+  let abortedWith: unknown;
+  let abortHandler: (() => void) | undefined;
+  let abortPromise: Promise<never> | undefined;
+  const signal = options.signal;
+
+  if (signal !== undefined) {
+    abortPromise = new Promise<never>((_resolve, reject) => {
+      abortHandler = () => {
+        abortRequested = true;
+        abortedWith = abortReason(signal);
+        reject(abortedWith);
+      };
+      if (signal.aborted) {
+        abortHandler();
+      } else {
+        signal.addEventListener("abort", abortHandler, { once: true });
+      }
+    });
+  }
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const readPromise = reader.read();
+      const { done, value } = abortPromise === undefined
+        ? await readPromise
+        : await Promise.race([readPromise, abortPromise]);
       if (done) {
         break;
       }
@@ -127,7 +160,16 @@ export async function readSearxngResponseBody(
       chunks.push(value);
       bytesRetained += value.byteLength;
     }
+  } catch (error) {
+    if (abortRequested) {
+      await bestEffortCancel(reader, abortedWith);
+      throw abortedWith;
+    }
+    throw error;
   } finally {
+    if (signal !== undefined && abortHandler !== undefined) {
+      signal.removeEventListener("abort", abortHandler);
+    }
     reader.releaseLock();
   }
 
