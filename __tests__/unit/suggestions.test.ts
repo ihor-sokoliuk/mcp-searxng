@@ -155,12 +155,16 @@ async function runTests() {
     }
   }, results);
 
-  await testFunction('keeps the five-second signal active while a headers-first body stalls', async () => {
+  await testFunction('cancels a stalled response body with the five-second request signal', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
     const mockServer = createMockServer();
     const originalTimeout = AbortSignal.timeout;
     const controller = new AbortController();
+    const abortReason = new Error('autocomplete deadline elapsed');
     let requestedTimeout: number | undefined;
+    let cancelCalls = 0;
+    let cancellationReason: unknown;
+    let responseBody: ReadableStream<Uint8Array> | undefined;
 
     try {
       Object.defineProperty(AbortSignal, 'timeout', {
@@ -171,22 +175,30 @@ async function runTests() {
         },
       });
       fetchMocker.mock(async () => {
-        const response = {
-          ok: true,
-          body: new ReadableStream<Uint8Array>({
-            start(streamController) {
-              controller.signal.addEventListener('abort', () => streamController.error(new Error('aborted while reading body')));
-            },
-          }),
-          json: async () => ['type', ['unbounded-json-result']],
-        } as unknown as Response;
+        const stalledStream = new ReadableStream<Uint8Array>({
+          cancel(reason) {
+            cancelCalls++;
+            cancellationReason = reason;
+          },
+        });
+        const response = new Response(stalledStream, { status: 200 });
+        responseBody = response.body ?? undefined;
         return response;
       });
       const pending = performSearchSuggestions(mockServer as any, 'type');
       await Promise.resolve();
-      controller.abort();
-      assert.deepEqual(await pending, []);
+      controller.abort(abortReason);
+      const result = await Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error('autocomplete did not finish after its abort signal')), 100);
+        }),
+      ]);
+      assert.deepEqual(result, []);
       assert.equal(requestedTimeout, 5000);
+      assert.equal(cancelCalls, 1);
+      assert.equal(cancellationReason, abortReason);
+      assert.equal(responseBody?.locked, false);
     } finally {
       Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: originalTimeout });
       fetchMocker.restore();

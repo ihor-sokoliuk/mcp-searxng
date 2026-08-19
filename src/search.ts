@@ -120,6 +120,19 @@ function buildHtmlFallbackUrl(jsonUrl: URL): URL {
   return htmlUrl;
 }
 
+function getSearchDiagnosticUrl(redactedUrl: string): string {
+  try {
+    const diagnosticUrl = new URL(redactedUrl);
+    diagnosticUrl.search = "";
+    diagnosticUrl.hash = "";
+    return diagnosticUrl.toString();
+  } catch {
+    // redactSearxngInstanceUrl already removes userinfo. Retain that safe value
+    // while stripping any query or fragment if URL construction ever fails.
+    return redactedUrl.split(/[?#]/u, 1)[0];
+  }
+}
+
 function parseHtmlSearchResults(html: string, query: string): SearXNGWeb {
   const root = parse(html);
   const articles = root.querySelectorAll("article.result");
@@ -175,11 +188,10 @@ async function fetchWithSearchTimeout<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const rawUrl = url.toString();
   const redactedUrl = redactSearxngInstanceUrl(rawUrl);
-  const diagnosticUrl = new URL(redactedUrl);
-  diagnosticUrl.search = "";
-  diagnosticUrl.hash = "";
+  let diagnosticUrl = redactedUrl;
 
   try {
+    diagnosticUrl = getSearchDiagnosticUrl(redactedUrl);
     logMessage(mcpServer, "info", `Making request to: ${redactedUrl}`);
     const response = await fetchSearxng(rawUrl, {
       ...requestOptions,
@@ -191,13 +203,13 @@ async function fetchWithSearchTimeout<T>(
       throw error;
     }
     const safeMessage = typeof error?.message === "string"
-      ? error.message.replaceAll(rawUrl, diagnosticUrl.toString())
+      ? error.message.replaceAll(rawUrl, diagnosticUrl)
       : error?.message;
     const safeError = new Error(safeMessage);
     (safeError as any).code = error?.code;
     (safeError as any).cause = error?.cause;
     logMessage(mcpServer, "error", `Network error during search request: ${safeMessage}`, {
-      url: diagnosticUrl.toString(),
+      url: diagnosticUrl,
     });
     const context: ErrorContext = {
       url: redactedUrl,
