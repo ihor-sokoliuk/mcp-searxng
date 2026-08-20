@@ -12,9 +12,13 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { spawn } from 'node:child_process';
 import http from 'node:http';
 import type { Socket } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   checkSkipConditions,
   INIT_PARAMS,
@@ -68,6 +72,56 @@ async function startHeadersThenStallServer(
   });
 }
 
+async function startAdmissionHttpCli(stateless = false): Promise<{ url: URL; close: () => Promise<void> }> {
+  const port = await new Promise<number>((resolve, reject) => {
+    const reservation = http.createServer();
+    reservation.once('error', reject);
+    reservation.listen(0, '127.0.0.1', () => {
+      const address = reservation.address();
+      if (!address || typeof address === 'string') {
+        reservation.close(() => reject(new Error('Could not reserve a loopback port')));
+        return;
+      }
+      reservation.close((error) => error ? reject(error) : resolve(address.port));
+    });
+  });
+  const child = spawn(process.execPath, ['dist/cli.js'], {
+    env: {
+      ...process.env,
+      MCP_HTTP_HOST: '127.0.0.1',
+      MCP_HTTP_PORT: String(port),
+      MCP_TOOL_RATE_WINDOW_MS: '60000',
+      MCP_TOOL_RATE_MAX: '1',
+      MCP_TOOL_MAX_IN_FLIGHT: '1',
+      MCP_HTTP_STATELESS: stateless ? 'true' : 'false',
+      SEARXNG_URL: 'https://test-searx.example.com',
+    },
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  const url = new URL(`http://127.0.0.1:${port}/mcp`);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`Admission HTTP CLI exited early with ${child.exitCode}`);
+    try {
+      const response = await fetch(new URL('/health', url));
+      if (response.ok) break;
+    } catch { /* server is still starting */ }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (Date.now() >= deadline) throw new Error('Admission HTTP CLI did not become healthy');
+  return {
+    url,
+    close: async () => {
+      if (child.exitCode !== null) return;
+      const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+      child.kill('SIGTERM');
+      await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, 5000))]);
+      if (child.exitCode === null) child.kill('SIGKILL');
+    },
+  };
+}
+
 // Default fetch timeout in src/search.ts and src/url-reader.ts
 const FETCH_TIMEOUT_MS = 10000;
 // Allow 3s extra for process startup, JSON parsing, etc.
@@ -116,6 +170,89 @@ async function runTests() {
     console.log(skip);
     return { passed: 0, failed: 0, errors: [] };
   }
+
+  await testFunction('STDIO applies the configured tool admission budget without corrupting JSON-RPC output', async () => {
+    const responses = await spawnWithMessagesAsync(
+      [
+        { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+        { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'not_a_tool', arguments: {} } },
+        { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'must-not-run' } } },
+      ],
+      'https://test-searx.example.com',
+      10_000,
+      { MCP_TOOL_RATE_WINDOW_MS: '60000', MCP_TOOL_RATE_MAX: '1', MCP_TOOL_MAX_IN_FLIGHT: '1' },
+    );
+
+    assert.ok(responses[1]?.result?.serverInfo, JSON.stringify(responses));
+    assert.ok(responses[2]?.error, JSON.stringify(responses));
+    assert.equal(responses[3]?.result?.isError, true, JSON.stringify(responses));
+    assert.equal(responses[3]?.result?.content?.[0]?.text, 'Server busy. Retry later with backoff.');
+  }, results);
+
+  await testFunction('built STDIO recovers its tool rate budget after a fixed-window rollover', async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ['dist/cli.js'],
+      cwd: process.cwd(),
+      env: {
+        ...getDefaultEnvironment(),
+        MCP_TOOL_RATE_WINDOW_MS: '5000',
+        MCP_TOOL_RATE_MAX: '1',
+        MCP_TOOL_MAX_IN_FLIGHT: '1',
+        SEARXNG_URL: 'https://test-searx.example.com',
+      },
+      stderr: 'pipe',
+    });
+    const client = new Client({ name: 'tool-admission-stdio-recovery', version: '1.0.0' });
+    try {
+      await client.connect(transport);
+      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }), /Unknown tool/);
+      const rejection = await client.callTool({ name: 'not_a_tool', arguments: {} });
+      assert.equal(rejection.isError, true);
+      assert.equal((rejection.content[0] as { text: string }).text, 'Server busy. Retry later with backoff.');
+      await new Promise((resolve) => setTimeout(resolve, 5100));
+      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }), /Unknown tool/);
+    } finally {
+      await client.close();
+    }
+  }, results);
+
+  await testFunction('HTTP applies the same stable tool admission rejection', async () => {
+    const server = await startAdmissionHttpCli();
+    const client = new Client({ name: 'tool-admission-e2e', version: '1.0.0' });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(server.url));
+      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }));
+      const rejection = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'must-not-run' } });
+      assert.equal(rejection.isError, true);
+      assert.equal((rejection.content[0] as { text: string }).text, 'Server busy. Retry later with backoff.');
+      assert.equal((await client.listTools()).tools.length, 4);
+      assert.equal((await client.listResources()).resources.length, 2);
+      assert.equal((await client.readResource({ uri: 'help://usage-guide' })).contents.length, 1);
+      await client.setLoggingLevel('debug');
+      assert.equal((await fetch(new URL('/health', server.url))).ok, true);
+      const stillExhausted = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'still-must-not-run' } });
+      assert.equal(stillExhausted.isError, true);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }, results);
+
+  await testFunction('stateless HTTP requests share the same process tool budget', async () => {
+    const server = await startAdmissionHttpCli(true);
+    const client = new Client({ name: 'tool-admission-stateless-e2e', version: '1.0.0' });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(server.url));
+      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }), /Unknown tool/);
+      const rejection = await client.callTool({ name: 'not_a_tool', arguments: {} });
+      assert.equal(rejection.isError, true);
+      assert.equal((rejection.content[0] as { text: string }).text, 'Server busy. Retry later with backoff.');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }, results);
 
   await testFunction('web_url_read times out against a hanging server', async () => {
     const { url, close } = await startHangingServer();

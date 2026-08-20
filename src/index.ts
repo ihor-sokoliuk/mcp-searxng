@@ -39,10 +39,84 @@ import {
   sanitizeErrorForTransport,
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
-import { parseStrictInteger } from "./env-int.js";
+import { parseBoundedInteger, parseStrictInteger } from "./env-int.js";
 import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
 
 import { packageVersion } from "./version.js";
+
+export const TOOL_ADMISSION_REJECTION_MESSAGE = "Server busy. Retry later with backoff.";
+
+export interface ToolAdmissionConfig {
+  rateWindowMs: number;
+  rateMax: number;
+  maxInFlight: number;
+}
+
+export interface ToolAdmissionResult {
+  reason?: "rate" | "concurrency";
+  release?: () => void;
+}
+
+/** SDK-neutral, process-local admission state shared by every MCP transport. */
+export class ToolAdmissionController {
+  private windowStartedAt: number | undefined;
+  private rateCount = 0;
+  private inFlight = 0;
+
+  constructor(
+    private readonly config: ToolAdmissionConfig,
+    private readonly now: () => number = () => performance.now(),
+  ) {}
+
+  admit(): ToolAdmissionResult {
+    const now = this.now();
+    if (this.windowStartedAt === undefined || now - this.windowStartedAt >= this.config.rateWindowMs) {
+      this.windowStartedAt = now;
+      this.rateCount = 0;
+    }
+
+    if (this.rateCount >= this.config.rateMax) {
+      return { reason: "rate" };
+    }
+    this.rateCount += 1;
+
+    if (this.inFlight >= this.config.maxInFlight) {
+      return { reason: "concurrency" };
+    }
+    this.inFlight += 1;
+
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this.inFlight -= 1;
+      },
+    };
+  }
+}
+
+const TOOL_ADMISSION_ENV = [
+  ["MCP_TOOL_RATE_WINDOW_MS", "rateWindowMs", 60000, 1000, 2147483647],
+  ["MCP_TOOL_RATE_MAX", "rateMax", 300, 1, 10000],
+  ["MCP_TOOL_MAX_IN_FLIGHT", "maxInFlight", 16, 1, 256],
+] as const;
+
+export function createToolAdmissionController(): ToolAdmissionController {
+  const values: Record<string, number> = {};
+  for (const [name, property, fallback, minimum, maximum] of TOOL_ADMISSION_ENV) {
+    const parsed = parseBoundedInteger(process.env[name], fallback, minimum, maximum);
+    if (parsed.invalid) {
+      writeDiagnostic("warn", `Ignoring invalid ${name}. Using default ${fallback}.`);
+    }
+    values[property] = parsed.value;
+  }
+  return new ToolAdmissionController({
+    rateWindowMs: values.rateWindowMs,
+    rateMax: values.rateMax,
+    maxInFlight: values.maxInFlight,
+  });
+}
 
 // Type guard for URL reading args
 export function isWebUrlReadArgs(args: unknown): args is {
@@ -130,7 +204,7 @@ function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
  * Creates and configures a new McpServer with all handlers registered.
  * Called once per HTTP session, or once for STDIO mode.
  */
-export function createMcpServer(): McpServer {
+export function createMcpServer(admissionController: ToolAdmissionController): McpServer {
   const mcpServer = new McpServer(
     {
       name: "ihor-sokoliuk/mcp-searxng",
@@ -163,10 +237,20 @@ export function createMcpServer(): McpServer {
 
   // Call tool handler
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    const { name, arguments: args } = request.params;
-    logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+    const admission = admissionController.admit();
+    if (!admission.release) {
+      return {
+        content: [{ type: "text", text: TOOL_ADMISSION_REJECTION_MESSAGE }],
+        isError: true,
+      };
+    }
 
+    let name: string | undefined;
+    let args: unknown;
     try {
+      ({ name, arguments: args } = request.params);
+      logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+
       if (name === "searxng_web_search") {
         if (!isSearXNGWebSearchArgs(args)) {
           throw new Error("Invalid arguments for web search");
@@ -276,6 +360,8 @@ export function createMcpServer(): McpServer {
         error: safeError.stack,
       });
       throw safeError;
+    } finally {
+      admission.release();
     }
   });
 
@@ -354,6 +440,7 @@ export function createMcpServer(): McpServer {
 // Main function
 export async function main() {
   initializeDiagnosticSanitizer();
+  const toolAdmissionController = createToolAdmissionController();
   const browserSolverIssue = validateBrowserSolverEnvironment();
   if (browserSolverIssue) {
     throw new Error(browserSolverIssue);
@@ -370,7 +457,7 @@ export async function main() {
 
     const host = resolveBindHost(process.env.MCP_HTTP_HOST);
     writeDiagnostic("log", `Starting HTTP transport on ${host}:${port}`);
-    const app = await createHttpServer(createMcpServer, port);
+    const app = await createHttpServer(() => createMcpServer(toolAdmissionController), port);
     
     const httpServer = app.listen(port, host, () => {
       writeDiagnostic("log", `HTTP server listening on ${host}:${port}`);
@@ -392,7 +479,7 @@ export async function main() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   } else {
     // Default STDIO transport — single session, single server
-    const mcpServer = createMcpServer();
+    const mcpServer = createMcpServer(toolAdmissionController);
 
     // Show helpful message when running in terminal
     if (process.stdin.isTTY) {

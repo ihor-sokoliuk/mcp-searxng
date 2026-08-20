@@ -280,6 +280,24 @@ Environment configuration is captured when the process starts. Restart the
 server after rotating or changing SearXNG Basic Auth credentials so both
 requests and diagnostic redaction use the new values.
 
+### Tool Invocation Admission
+
+The server applies one process-wide admission boundary to MCP `tools/call`
+requests from STDIO and both HTTP transport modes. This is distinct from the
+HTTP request rate limiter: protocol initialization, discovery, resources,
+logging, and health checks remain available even when the tool budget is
+exhausted. Tool admission uses a fixed monotonic window plus a hard no-queue
+in-flight ceiling. Rejection is a stable retry-with-backoff tool result and
+does not expose arguments, credentials, configured limits, counters, or timing
+details.
+
+The shared process budget is intentionally fail-closed, not a fairness
+guarantee: one session can starve another, and a handler that never settles
+retains its slot until restart. Configure the `MCP_TOOL_*` limits for the
+deployment, require client backoff, and use separate process replicas where
+tenant isolation is needed. See [Tool Invocation Admission](CONFIGURATION.md#tool-invocation-admission-all-transports)
+for defaults, ranges, and fixed-window boundary behavior.
+
 Because credentials may be embedded in it, treat the whole `SEARXNG_URL` as a secret: `AUTH_PASSWORD` remains available as a legacy global fallback when a `SEARXNG_URL` entry has no userinfo, and `MCP_HTTP_AUTH_TOKEN`, proxy credentials, and any credentials embedded in `SEARXNG_URL` are secrets. Avoid committing them to source control. Use secret management (Docker secrets, environment injection at runtime, or a secrets manager) in production.
 
 If an older release emitted SearXNG credentials into logs or client-visible
