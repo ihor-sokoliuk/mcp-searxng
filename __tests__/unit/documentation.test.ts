@@ -396,6 +396,8 @@ export async function runTests(): Promise<TestResult> {
     assertCiCommonJob(ci);
     assertCodeqlActionPins(codeql);
     assertCodeqlActionPins(scorecard);
+    assertCodeqlActionPins(dockerPublish);
+    assertCodeqlActionPins(dockerRebuild);
     assertDockerLoginPin(dockerPublish);
     assertDockerLoginPin(dockerRebuild);
     assertDependabotUnpdfPolicy(dependabot);
