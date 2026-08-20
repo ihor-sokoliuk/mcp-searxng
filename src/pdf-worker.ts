@@ -27,7 +27,20 @@ export const PDF_DOCUMENT_OPTIONS = Object.freeze({
 type PdfDocumentProxy = Awaited<
   ReturnType<(typeof import("unpdf"))["getDocumentProxy"]>
 >;
+type PdfLoadingTask = Pick<PdfDocumentProxy["loadingTask"], "destroy">;
 type PdfPageProxy = Awaited<ReturnType<PdfDocumentProxy["getPage"]>>;
+type PdfDocumentLoader = (
+  pdfBytes: Uint8Array,
+  options: typeof PDF_DOCUMENT_OPTIONS,
+) => Promise<PdfDocumentProxy>;
+
+export async function teardownPdfLoadingTask(loadingTask: PdfLoadingTask | undefined): Promise<void> {
+  try {
+    await loadingTask?.destroy();
+  } catch {
+    // The extraction result is authoritative; teardown failures stay inside the worker.
+  }
+}
 
 function containsExternalFetchMarker(error: unknown): boolean {
   let current = error;
@@ -132,8 +145,19 @@ function classifyParserError(error: unknown): PdfWorkerResult {
     : { version: 1, kind: "parse_error" };
 }
 
-async function extract(): Promise<PdfWorkerResult> {
-  if (!isPdfWorkerInput(workerData)) {
+async function loadPdfDocument(
+  pdfBytes: Uint8Array,
+  options: typeof PDF_DOCUMENT_OPTIONS,
+): Promise<PdfDocumentProxy> {
+  const { getDocumentProxy } = await import("unpdf");
+  return getDocumentProxy(pdfBytes, options);
+}
+
+export async function extractPdfWorkerInput(
+  input: unknown,
+  loadDocument: PdfDocumentLoader = loadPdfDocument,
+): Promise<PdfWorkerResult> {
+  if (!isPdfWorkerInput(input)) {
     return { version: 1, kind: "parse_error" };
   }
 
@@ -147,22 +171,17 @@ async function extract(): Promise<PdfWorkerResult> {
   try {
     // Import after the guards are active so parser dependencies cannot retain
     // unguarded references to Node network primitives during module loading.
-    const { getDocumentProxy } = await import("unpdf");
-    pdf = await getDocumentProxy(new Uint8Array(workerData.pdfBytes), PDF_DOCUMENT_OPTIONS);
-    return await extractDocumentText(pdf, workerData.maxTextBytes);
+    pdf = await loadDocument(new Uint8Array(input.pdfBytes), PDF_DOCUMENT_OPTIONS);
+    return await extractDocumentText(pdf, input.maxTextBytes);
   } catch (error) {
     return classifyParserError(error);
   } finally {
+    await teardownPdfLoadingTask(pdf?.loadingTask);
     restoreNetwork();
-    try {
-      await pdf?.destroy();
-    } catch {
-      // The extraction result is authoritative; teardown failures stay inside the worker.
-    }
   }
 }
 
 const outputPort = parentPort;
 if (outputPort) {
-  void extract().then((result) => outputPort.postMessage(result));
+  void extractPdfWorkerInput(workerData).then((result) => outputPort.postMessage(result));
 }

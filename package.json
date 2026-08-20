@@ -32,7 +32,7 @@
         "dist"
     ],
     "engines": {
-        "node": ">=20"
+        "node": ">=22"
     },
     "scripts": {
         "build": "tsc && shx chmod +x dist/*.js",
@@ -58,7 +58,7 @@
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "^6.1.13",
         "undici": "7.29.0",
-        "unpdf": "1.7.0"
+        "unpdf": "1.8.1"
     },
     "devDependencies": {
         "@types/node": "22.20.1",
