@@ -352,6 +352,48 @@ After a stateless request consumes its rate-limit token and passes authorization
 
 The in-memory store is per-process; for horizontally scaled deployments replace it with a shared Redis store via `express-rate-limit`'s `store` option.
 
+## Tool Invocation Admission (all transports)
+
+Tool invocation admission is a separate, process-local protection for MCP
+`tools/call` work. It applies uniformly to STDIO, stateful HTTP sessions, and
+stateless HTTP requests; it does not replace or change the HTTP request limiter
+above. One busy session or transport can consume the shared process budget.
+
+| Variable | Required | Default | Accepted range | Description |
+|---|---|---:|---|---|
+| `MCP_TOOL_RATE_WINDOW_MS` | No | `60000` | `1000`-`2147483647` | Fixed admission window in milliseconds. |
+| `MCP_TOOL_RATE_MAX` | No | `300` | `1`-`10000` | Tool-call attempts admitted per fixed window. |
+| `MCP_TOOL_MAX_IN_FLIGHT` | No | `16` | `1`-`256` | Hard no-queue ceiling for accepted tool calls executing at once. |
+
+Values use the same strict safe-integer grammar as the HTTP rate controls:
+surrounding whitespace, a leading `+` or `-`, and leading zeros are accepted,
+but suffixes, fractions, exponents, unsafe integers, and out-of-range values
+are rejected. Blank or unset values use their defaults silently. Each invalid
+nonblank value falls back to its default and emits one startup-only stderr
+warning naming the variable and fallback, never the supplied value. Values are
+read once when the process starts.
+
+```bash
+MCP_TOOL_RATE_WINDOW_MS=60000
+MCP_TOOL_RATE_MAX=300
+MCP_TOOL_MAX_IN_FLIGHT=16
+```
+
+The window starts lazily with the first tool attempt and uses a monotonic clock.
+It is an ordinary fixed window, so calls immediately on both sides of a window
+boundary can produce a burst of up to twice the configured maximum. Every tool
+attempt consumes a rate token, including malformed, unknown, and concurrency-
+rejected calls. After rate admission, execution must acquire an in-flight slot;
+there is no queue. A rejected call receives the stable retry-with-backoff tool
+error without configured limits, counters, timing details, arguments, or other
+call data.
+
+Size the limits for expected workload and have clients back off on rejection.
+Use separate process replicas when stronger tenant isolation is required. A
+never-settling handler intentionally retains its in-flight slot until process
+restart; this policy does not add a watchdog or alter existing cancellation and
+timeout timing.
+
 When HTTP mode runs behind a trusted reverse proxy, set `MCP_HTTP_TRUST_PROXY` so Express can resolve the client IP from proxy headers before rate-limit keys and request logs are computed. For a single trusted proxy hop, use `MCP_HTTP_TRUST_PROXY=1`. Leave it unset for direct exposure; enabling it without a trusted proxy lets clients spoof `X-Forwarded-For`. This setting is distinct from outbound `HTTP_PROXY` / `HTTPS_PROXY`, which control this server's requests to SearXNG or URLs.
 
 Requests whose client IP cannot be resolved share one fail-closed capacity bucket. This prevents missing identity data from bypassing the per-IP cap, but such requests can receive HTTP 503 when another unresolved-IP request occupies that bucket.
