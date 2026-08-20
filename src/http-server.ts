@@ -302,7 +302,7 @@ export async function createHttpServer(
     if (security.allowedHosts.length > 0 && (!host || !security.allowedHosts.includes(host))) {
       res.status(403).json({
         jsonrpc: "2.0",
-        error: { code: -32000, message: `Invalid Host header: ${host}` },
+        error: { code: -32000, message: "Invalid Host header" },
         id: null,
       });
       return true;
