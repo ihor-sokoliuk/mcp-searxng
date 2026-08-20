@@ -205,6 +205,10 @@ function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
  * Called once per HTTP session, or once for STDIO mode.
  */
 export function createMcpServer(admissionController: ToolAdmissionController): McpServer {
+  if (!admissionController) {
+    throw new TypeError("Tool admission controller is required");
+  }
+
   const mcpServer = new McpServer(
     {
       name: "ihor-sokoliuk/mcp-searxng",
@@ -458,7 +462,7 @@ export async function main() {
     const host = resolveBindHost(process.env.MCP_HTTP_HOST);
     writeDiagnostic("log", `Starting HTTP transport on ${host}:${port}`);
     const app = await createHttpServer(() => createMcpServer(toolAdmissionController), port);
-    
+
     const httpServer = app.listen(port, host, () => {
       writeDiagnostic("log", `HTTP server listening on ${host}:${port}`);
       // Health/MCP URLs shown as localhost for developer convenience

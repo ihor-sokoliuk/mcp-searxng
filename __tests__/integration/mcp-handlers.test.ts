@@ -142,6 +142,13 @@ async function withPrivateUrlReadsAllowed(test: () => Promise<void>) {
 async function runTests() {
   console.log('🧪 Integration Testing: MCP handler dispatch (InMemoryTransport)\n');
 
+  await testFunction('createMcpServer fails fast without the required admission controller', () => {
+    assert.throws(
+      () => createMcpServer(undefined as never),
+      /Tool admission controller is required/,
+    );
+  }, results);
+
   await testFunction('bounded tool admission configuration uses strict safe defaults', () => {
     assert.equal(parseStrictInteger(' +001 '), 1);
     assert.equal(parseStrictInteger('1e3'), undefined);
