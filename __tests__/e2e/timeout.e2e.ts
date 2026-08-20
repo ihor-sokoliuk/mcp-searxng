@@ -215,9 +215,10 @@ function assertLegacyStdioSurface(): void {
   assert.equal(responses[3]?.result?.resources?.length, 2);
   assert.equal(responses[4]?.result?.contents?.length, 1);
   assert.equal(responses[5]?.result?.contents?.length, 1);
-  for (const id of [6, 7, 8, 9]) {
-    assert.ok(responses[id]?.result || responses[id]?.error, JSON.stringify(responses));
-  }
+  assert.ok(
+    [6, 7, 8, 9].every((id) => Boolean(responses[id]?.result ?? responses[id]?.error)),
+    JSON.stringify(responses),
+  );
 }
 
 async function runTests() {
