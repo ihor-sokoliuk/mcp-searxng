@@ -291,9 +291,10 @@ in-flight ceiling. Rejection is a stable retry-with-backoff tool result and
 does not expose arguments, credentials, configured limits, counters, or timing
 details.
 
-The shared process budget is intentionally fail-closed, not a fairness
-guarantee: one session can starve another, and a handler that never settles
-retains its slot until restart. Configure the `MCP_TOOL_*` limits for the
+The shared process budget intentionally bounds total work rather than providing
+per-client fairness. Consequently, one session may exhaust another session's
+capacity, and a handler that never settles retains its slot until restart.
+Configure the `MCP_TOOL_*` limits for the
 deployment, require client backoff, and use separate process replicas where
 tenant isolation is needed. See [Tool Invocation Admission](CONFIGURATION.md#tool-invocation-admission-all-transports)
 for defaults, ranges, and fixed-window boundary behavior.
