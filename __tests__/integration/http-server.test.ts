@@ -1823,6 +1823,58 @@ async function runTests() {
     assert.equal(blocked.body.error.code, -32029);
   }, results);
 
+  await testFunction('Rate limiting: modern POSTs cannot borrow a live legacy session bucket', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_SESSION_MAX', '11');
+    envManager.set('MCP_RATE_WINDOW_MS', '60000');
+    const app = await createHttpServer((modern) => createMcpServer(new ToolAdmissionController({
+      rateWindowMs: 60_000,
+      rateMax: 100,
+      maxInFlight: 4,
+    }), modern));
+
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {},
+          clientInfo: { name: 'rate-limit-era-client', version: '1.0.0' } }
+      });
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.equal(initRes.status, 200);
+    assert.ok(sessionId, 'legacy initialize should return a session id');
+
+    const modernBody = (id: number) => ({
+      jsonrpc: '2.0', id, method: 'server/discover',
+      params: {
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      },
+    });
+    const modernPost = (id: number) => request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json')
+      .set('MCP-Protocol-Version', '2026-07-28')
+      .set('MCP-Method', 'server/discover')
+      .set('mcp-session-id', sessionId)
+      .send(modernBody(id));
+
+    const accepted = await modernPost(2);
+    const blocked = await modernPost(3);
+    envManager.restore();
+
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers['ratelimit-limit'], '2');
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-limit'], '2');
+    assert.equal(blocked.body.error.code, -32029);
+  }, results);
+
   await testFunction('Rate limiting: non-live session identifiers use the init limiter', async () => {
     envManager.set('MCP_RATE_INIT_MAX', '7');
     envManager.set('MCP_RATE_SESSION_MAX', '11');

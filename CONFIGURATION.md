@@ -339,7 +339,7 @@ In stateless mode, every POST creates a fresh MCP server and transport, ignores 
 
 ## Rate Limiting (HTTP mode)
 
-Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit. In stateful mode, POST requests with a currently live session use the session limit, other POST requests use the initialization limit, and GET/DELETE requests always use the session limit. In stateless mode, only a single parsed request object recognized by the SDK as `initialize` uses the initialization limit; all other POST bodies, including notifications and batches, use the session limit, and GET/DELETE still use the session limit. Malformed or oversized JSON is rejected by parsing before rate limiting or MCP server construction.
+Rate limiting is always active in HTTP mode to prevent resource exhaustion. Before the MCP handler runs, each request is counted by resolved client IP against exactly one limit. In stateful mode, retained legacy POST requests with a currently live session use the session limit; modern sessionless POST requests and all other POST requests use the initialization limit, even if they present a live legacy `mcp-session-id`. GET/DELETE requests always use the session limit. In stateless mode, only a single parsed request object recognized by the SDK as `initialize` uses the initialization limit; all other POST bodies, including notifications and batches, use the session limit, and GET/DELETE still use the session limit. Malformed or oversized JSON is rejected by parsing before rate limiting or MCP server construction.
 
 Each `MCP_RATE_*` value must be a positive decimal safe integer after JavaScript whitespace trimming. A leading `+` and leading zeros are accepted; fractions, suffixes, exponents, hexadecimal forms, non-positive values, and integers above `Number.MAX_SAFE_INTEGER` are rejected. An invalid value uses the documented default and emits one startup warning per variable without copying the raw value into diagnostics. Blank or unset variables use the default silently.
 
@@ -348,8 +348,8 @@ Before this correction, spellings such as `20requests`, `12.5`, or `1e3` could b
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MCP_RATE_WINDOW_MS` | No | `60000` | Sliding window duration in milliseconds for all rate limits |
-| `MCP_RATE_INIT_MAX` | No | `20` | Max POST `/mcp` requests per window when `mcp-session-id` is missing or does not identify a currently live session. Guards initialization, invalid, unknown-session, and stale-session flooding. |
-| `MCP_RATE_SESSION_MAX` | No | `300` | Max POST `/mcp` requests for currently live sessions and all GET/DELETE `/mcp` requests per window, including GET/DELETE requests with missing or invalid session IDs. Intentionally generous for AI agents. |
+| `MCP_RATE_INIT_MAX` | No | `20` | Max POST `/mcp` requests for modern sessionless traffic and requests without a currently live retained legacy session in stateful mode, plus SDK-recognized initialize requests in stateless mode. Guards initialization, invalid, unknown-session, stale-session, and legacy-session-header borrowing. |
+| `MCP_RATE_SESSION_MAX` | No | `300` | Max POST `/mcp` requests for currently live retained legacy sessions and all GET/DELETE `/mcp` requests per window, including GET/DELETE requests with missing or invalid session IDs. Intentionally generous for AI agents. |
 
 Requests exceeding a limit receive HTTP 429 with a JSON-RPC error body (`code: -32029`). `/health` has a fixed limit of 60 requests per minute. Standard `RateLimit-*` headers are included on all responses.
 

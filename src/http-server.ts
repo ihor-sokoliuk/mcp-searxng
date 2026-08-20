@@ -427,9 +427,14 @@ export async function createHttpServer(
       return;
     }
     const sessionId = req.headers['mcp-session-id'];
+    const claimsModernProtocol = req.headers['mcp-protocol-version'] === MODERN_PROTOCOL_VERSION
+      || modernRequestWithClaim(req.body) !== undefined;
     // Node comma-joins duplicate custom headers. Only one exact live session ID
-    // selects the generous bucket; every other value stays initialization-limited.
-    const selectedLimiter = typeof sessionId === 'string' && sessions.has(sessionId)
+    // on a retained legacy request selects the generous bucket. Modern requests
+    // are sessionless and cannot borrow capacity through a legacy session header.
+    const selectedLimiter = !claimsModernProtocol
+      && typeof sessionId === 'string'
+      && sessions.has(sessionId)
       ? sessionLimiter
       : initLimiter;
     selectedLimiter(req, res, next);
