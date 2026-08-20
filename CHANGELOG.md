@@ -5,6 +5,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [1.16.0] - 2026-08-19
+
+### Added
+
+- **Bounded SearXNG response-body consumption:** Search JSON and HTML fallback, `/config`, and suggestions now share a streaming response reader with a configurable `SEARXNG_MAX_RESPONSE_BYTES` ceiling (5 MiB by default). Request deadlines remain active until body consumption finishes, diagnostic previews are capped at 64 KiB, and oversized, partial, stalled, cancelled, or malformed bodies are rejected without parsing, caching, or health credit. Abort identity and credential redaction are preserved. ([#250](https://github.com/ihor-sokoliuk/mcp-searxng/pull/250))
+
+  **Migration note:** Operators may set `SEARXNG_MAX_RESPONSE_BYTES` to a positive safe integer. Unset, blank, zero, negative, fractional, exponent, unit-suffixed, or unsafe values use the documented 5 MiB default with a value-free warning.
+
+### Security
+
+- **Origin validation now covers every Streamable HTTP request:** Every present `Origin` is checked before MCP routing in compatibility, stateful, and stateless modes. Absent Origin remains supported for non-browser clients; safe loopback defaults and explicit `MCP_HTTP_ALLOWED_ORIGINS` replacement allowlists preserve intended browser access. ([#249](https://github.com/ihor-sokoliuk/mcp-searxng/pull/249))
+
+### Build / CI
+
+- **Node.js 24 LTS is tested and used for trusted publishing:** Required CI now runs on Node.js 20 and 24, while npm and container publishing use Node.js 24. The package continues to support its documented Node.js 20 floor. ([#248](https://github.com/ihor-sokoliuk/mcp-searxng/pull/248))
+
 ## [1.15.0] - 2026-08-11
 
 ### Added
