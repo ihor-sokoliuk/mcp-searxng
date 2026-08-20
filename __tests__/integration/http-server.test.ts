@@ -108,6 +108,123 @@ async function assertAllowedMcpPreflight(
   assert.ok(!allowHeaders.includes('x-attacker'));
 }
 
+async function createModernHttpHarness() {
+  const factoryEras: boolean[] = [];
+  const app = await createHttpServer((modern) => {
+    factoryEras.push(modern === true);
+    return createMcpServer(new ToolAdmissionController({
+      rateWindowMs: 60_000,
+      rateMax: 100,
+      maxInFlight: 4,
+    }), modern);
+  });
+  const envelope = {
+    'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+    'io.modelcontextprotocol/clientCapabilities': {},
+  };
+  const modernPost = (body: unknown, method: string, name?: string, sessionId?: string) => {
+    let pending = request(app).post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json')
+      .set('MCP-Protocol-Version', '2026-07-28')
+      .set('MCP-Method', method);
+    if (name) pending = pending.set('MCP-Name', name);
+    if (sessionId) pending = pending.set('MCP-Session-Id', sessionId);
+    return pending.send(body);
+  };
+  return { envelope, factoryEras, modernPost };
+}
+
+type ModernHttpHarness = Awaited<ReturnType<typeof createModernHttpHarness>>;
+
+async function assertModernDiscoveryAndResources({ envelope, modernPost }: ModernHttpHarness): Promise<void> {
+  const discovery = await modernPost({
+    jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: envelope },
+  }, 'server/discover');
+  assert.equal(discovery.status, 200);
+  assert.deepEqual(discovery.body.result.supportedVersions, ['2026-07-28']);
+
+  const tools = await modernPost({
+    jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope },
+  }, 'tools/list');
+  assert.equal(tools.status, 200);
+  assert.deepEqual(tools.body.result.tools.map((tool: { name: string }) => tool.name), [
+    'searxng_web_search', 'searxng_search_suggestions', 'searxng_instance_info', 'web_url_read',
+  ]);
+
+  const resources = await modernPost({
+    jsonrpc: '2.0', id: 3, method: 'resources/list', params: { _meta: envelope },
+  }, 'resources/list', undefined, 'ignored-legacy-session');
+  assert.equal(resources.status, 200);
+  assert.equal(resources.headers['mcp-session-id'], undefined);
+  assert.deepEqual(resources.body.result.resources.map((resource: { uri: string }) => resource.uri), [
+    'config://server-config', 'help://usage-guide',
+  ]);
+
+  const help = await modernPost({
+    jsonrpc: '2.0', id: 4, method: 'resources/read',
+    params: { _meta: envelope, uri: 'help://usage-guide' },
+  }, 'resources/read', 'help://usage-guide');
+  assert.equal(help.status, 200);
+  assert.equal(help.body.result.contents[0].uri, 'help://usage-guide');
+  assert.equal(help.body.result.resultType, 'complete');
+}
+
+async function assertModernRequestLogs({ envelope, modernPost }: ModernHttpHarness): Promise<void> {
+  const quietCall = await modernPost({
+    jsonrpc: '2.0', id: 5, method: 'tools/call',
+    params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'quiet' } },
+  }, 'tools/call', 'searxng_web_search');
+  assert.equal(quietCall.status, 200);
+  assert.doesNotMatch(quietCall.text, /notifications\/message/);
+  assert.match(quietCall.text, /"isError":true/);
+  assert.match(quietCall.text, /"resultType":"complete"/);
+
+  const debugCall = await modernPost({
+    jsonrpc: '2.0', id: 6, method: 'tools/call',
+    params: {
+      _meta: { ...envelope, [LOG_LEVEL_META_KEY]: 'debug' },
+      name: 'searxng_web_search',
+      arguments: { query: 'debug' },
+    },
+  }, 'tools/call', 'searxng_web_search');
+  assert.equal(debugCall.status, 200);
+  assert.match(debugCall.text, /notifications\/message/);
+  assert.match(debugCall.text, /Handling call_tool request: searxng_web_search/);
+  assert.match(debugCall.text, /"resultType":"complete"/);
+
+  const [overlappingQuiet, overlappingDebug] = await Promise.all([
+    modernPost({
+      jsonrpc: '2.0', id: 7, method: 'tools/call',
+      params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'overlap-quiet' } },
+    }, 'tools/call', 'searxng_web_search'),
+    modernPost({
+      jsonrpc: '2.0', id: 8, method: 'tools/call',
+      params: {
+        _meta: { ...envelope, [LOG_LEVEL_META_KEY]: 'debug' },
+        name: 'searxng_web_search',
+        arguments: { query: 'overlap-debug' },
+      },
+    }, 'tools/call', 'searxng_web_search'),
+  ]);
+  assert.equal(overlappingQuiet.status, 200);
+  assert.doesNotMatch(overlappingQuiet.text, /notifications\/message/);
+  assert.equal(overlappingDebug.status, 200);
+  assert.match(overlappingDebug.text, /Handling call_tool request: searxng_web_search/);
+}
+
+async function assertModernHttpSurface(): Promise<void> {
+  const harness = await createModernHttpHarness();
+  await assertModernDiscoveryAndResources(harness);
+  envManager.set('SEARXNG_URL', 'ftp://search.example.com');
+  try {
+    await assertModernRequestLogs(harness);
+  } finally {
+    envManager.restore();
+  }
+  assert.deepEqual(harness.factoryEras, [true, true, true, true, true, true, true, true]);
+}
+
 async function runTests() {
   console.log('🧪 Integration Testing: http-server.ts\n');
 
@@ -174,110 +291,11 @@ async function runTests() {
     );
   }, results);
 
-  await testFunction('modern HTTP requests compose the official handler and retain the four-tool surface', async () => {
-    const factoryEras: boolean[] = [];
-    const app = await createHttpServer((modern) => {
-      factoryEras.push(modern === true);
-      return createMcpServer(new ToolAdmissionController({
-        rateWindowMs: 60_000,
-        rateMax: 100,
-        maxInFlight: 4,
-      }), modern);
-    });
-    const envelope = {
-      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
-      'io.modelcontextprotocol/clientCapabilities': {},
-    };
-    const modernPost = (body: unknown, method: string, name?: string, sessionId?: string) => {
-      let pending = request(app).post('/mcp')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json')
-        .set('MCP-Protocol-Version', '2026-07-28')
-        .set('MCP-Method', method);
-      if (name) pending = pending.set('MCP-Name', name);
-      if (sessionId) pending = pending.set('MCP-Session-Id', sessionId);
-      return pending.send(body);
-    };
-
-    const discovery = await modernPost({
-      jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: envelope },
-    }, 'server/discover');
-    assert.equal(discovery.status, 200);
-    assert.deepEqual(discovery.body.result.supportedVersions, ['2026-07-28']);
-
-    const tools = await modernPost({
-      jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope },
-    }, 'tools/list');
-    assert.equal(tools.status, 200);
-    assert.deepEqual(tools.body.result.tools.map((tool: { name: string }) => tool.name), [
-      'searxng_web_search', 'searxng_search_suggestions', 'searxng_instance_info', 'web_url_read',
-    ]);
-
-    const resources = await modernPost({
-      jsonrpc: '2.0', id: 3, method: 'resources/list', params: { _meta: envelope },
-    }, 'resources/list', undefined, 'ignored-legacy-session');
-    assert.equal(resources.status, 200);
-    assert.equal(resources.headers['mcp-session-id'], undefined);
-    assert.deepEqual(resources.body.result.resources.map((resource: { uri: string }) => resource.uri), [
-      'config://server-config', 'help://usage-guide',
-    ]);
-
-    const help = await modernPost({
-      jsonrpc: '2.0', id: 4, method: 'resources/read',
-      params: { _meta: envelope, uri: 'help://usage-guide' },
-    }, 'resources/read', 'help://usage-guide');
-    assert.equal(help.status, 200);
-    assert.equal(help.body.result.contents[0].uri, 'help://usage-guide');
-    assert.equal(help.body.result.resultType, 'complete');
-
-    envManager.set('SEARXNG_URL', 'ftp://search.example.com');
-    try {
-      const quietCall = await modernPost({
-        jsonrpc: '2.0', id: 5, method: 'tools/call',
-        params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'quiet' } },
-      }, 'tools/call', 'searxng_web_search');
-      assert.equal(quietCall.status, 200);
-      assert.doesNotMatch(quietCall.text, /notifications\/message/);
-      assert.match(quietCall.text, /"isError":true/);
-      assert.match(quietCall.text, /"resultType":"complete"/);
-
-      const debugCall = await modernPost({
-        jsonrpc: '2.0', id: 6, method: 'tools/call',
-        params: {
-          _meta: { ...envelope, [LOG_LEVEL_META_KEY]: 'debug' },
-          name: 'searxng_web_search',
-          arguments: { query: 'debug' },
-        },
-      }, 'tools/call', 'searxng_web_search');
-      assert.equal(debugCall.status, 200);
-      assert.match(debugCall.text, /notifications\/message/);
-      assert.match(debugCall.text, /Handling call_tool request: searxng_web_search/);
-      assert.match(debugCall.text, /"resultType":"complete"/);
-
-      const [overlappingQuiet, overlappingDebug] = await Promise.all([
-        modernPost({
-          jsonrpc: '2.0', id: 7, method: 'tools/call',
-          params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'overlap-quiet' } },
-        }, 'tools/call', 'searxng_web_search'),
-        modernPost({
-          jsonrpc: '2.0', id: 8, method: 'tools/call',
-          params: {
-            _meta: { ...envelope, [LOG_LEVEL_META_KEY]: 'debug' },
-            name: 'searxng_web_search',
-            arguments: { query: 'overlap-debug' },
-          },
-        }, 'tools/call', 'searxng_web_search'),
-      ]);
-      assert.equal(overlappingQuiet.status, 200);
-      assert.doesNotMatch(overlappingQuiet.text, /notifications\/message/);
-      assert.equal(overlappingDebug.status, 200);
-      assert.match(overlappingDebug.text, /Handling call_tool request: searxng_web_search/);
-    } finally {
-      envManager.restore();
-    }
-
-    assert.deepEqual(factoryEras, [true, true, true, true, true, true, true, true]);
-  }, results);
+  await testFunction(
+    'modern HTTP requests compose the official handler and retain the four-tool surface',
+    assertModernHttpSurface,
+    results,
+  );
 
   await testFunction('stateless HTTP configuration defaults are disabled and bounded', async () => {
     envManager.delete('MCP_HTTP_STATELESS');

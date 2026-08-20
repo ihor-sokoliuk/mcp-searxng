@@ -74,6 +74,47 @@ function wireJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+const FROZEN_FULL_TOOL_SNAPSHOTS = [
+  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
+    query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
+    time_range: { type: 'string', minimum: undefined, maximum: undefined, enum: ['day', 'week', 'month', 'year'], default: undefined },
+    language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
+    safesearch: { type: 'string', minimum: undefined, maximum: undefined, enum: ['0', '1', '2'], default: undefined },
+    min_score: { type: 'number', minimum: 0, maximum: 1, enum: undefined, default: undefined },
+    num_results: { type: 'number', minimum: 1, maximum: 20, enum: undefined, default: undefined },
+    categories: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    engines: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    response_format: { type: 'string', minimum: undefined, maximum: undefined, enum: ['text', 'json'], default: undefined },
+    result_detail: { type: 'string', minimum: undefined, maximum: undefined, enum: ['compact', 'full'], default: undefined },
+  } },
+  { name: 'web_url_read', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['url'], properties: {
+    url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    startChar: { type: 'number', minimum: 0, maximum: undefined, enum: undefined, default: undefined },
+    maxLength: { type: 'number', minimum: 1, maximum: undefined, enum: undefined, default: undefined },
+    section: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    paragraphRange: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    readHeadings: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+  } },
+  { name: 'searxng_search_suggestions', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
+    query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
+  } },
+  { name: 'searxng_instance_info', annotations: { readOnlyHint: true, openWorldHint: true }, required: [], properties: {
+    includeEngines: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
+    includeDisabled: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
+    category: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    refresh: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
+  } },
+];
+
+const FROZEN_LITE_TOOL_SNAPSHOTS = [
+  { name: 'searxng_web_search', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+  { name: 'web_url_read', annotations: undefined, required: ['url'], properties: { url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+  { name: 'searxng_search_suggestions', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+  { name: 'searxng_instance_info', annotations: undefined, required: [], properties: {} },
+];
+
 /** Spin up a fresh Client↔Server pair for each test. Call client.close() when done. */
 function createTestAdmissionController() {
   return new ToolAdmissionController({
@@ -556,47 +597,8 @@ async function runTests() {
       '0d0bb57c16c482517642677de2ec590cda44bff70aead56b6c5110dc6764e782',
       'lite tool definitions changed from the frozen pre-migration structure',
     );
-    const fullExpected = [
-      { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
-        query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
-        time_range: { type: 'string', minimum: undefined, maximum: undefined, enum: ['day', 'week', 'month', 'year'], default: undefined },
-        language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
-        safesearch: { type: 'string', minimum: undefined, maximum: undefined, enum: ['0', '1', '2'], default: undefined },
-        min_score: { type: 'number', minimum: 0, maximum: 1, enum: undefined, default: undefined },
-        num_results: { type: 'number', minimum: 1, maximum: 20, enum: undefined, default: undefined },
-        categories: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        engines: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        response_format: { type: 'string', minimum: undefined, maximum: undefined, enum: ['text', 'json'], default: undefined },
-        result_detail: { type: 'string', minimum: undefined, maximum: undefined, enum: ['compact', 'full'], default: undefined },
-      } },
-      { name: 'web_url_read', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['url'], properties: {
-        url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        startChar: { type: 'number', minimum: 0, maximum: undefined, enum: undefined, default: undefined },
-        maxLength: { type: 'number', minimum: 1, maximum: undefined, enum: undefined, default: undefined },
-        section: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        paragraphRange: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        readHeadings: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-      } },
-      { name: 'searxng_search_suggestions', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
-        query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
-      } },
-      { name: 'searxng_instance_info', annotations: { readOnlyHint: true, openWorldHint: true }, required: [], properties: {
-        includeEngines: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
-        includeDisabled: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
-        category: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
-        refresh: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
-      } },
-    ];
-    const liteExpected = [
-      { name: 'searxng_web_search', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
-      { name: 'web_url_read', annotations: undefined, required: ['url'], properties: { url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
-      { name: 'searxng_search_suggestions', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
-      { name: 'searxng_instance_info', annotations: undefined, required: [], properties: {} },
-    ];
-    const fullExpectedInServedOrder = [fullExpected[0], fullExpected[2], fullExpected[3], fullExpected[1]];
-    const liteExpectedInServedOrder = [liteExpected[0], liteExpected[2], liteExpected[3], liteExpected[1]];
+    const fullExpectedInServedOrder = [FROZEN_FULL_TOOL_SNAPSHOTS[0], FROZEN_FULL_TOOL_SNAPSHOTS[2], FROZEN_FULL_TOOL_SNAPSHOTS[3], FROZEN_FULL_TOOL_SNAPSHOTS[1]];
+    const liteExpectedInServedOrder = [FROZEN_LITE_TOOL_SNAPSHOTS[0], FROZEN_LITE_TOOL_SNAPSHOTS[2], FROZEN_LITE_TOOL_SNAPSHOTS[3], FROZEN_LITE_TOOL_SNAPSHOTS[1]];
 
     delete process.env.SEARXNG_LITE_TOOLS;
     const full = await connect();
