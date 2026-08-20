@@ -1,10 +1,9 @@
-/* eslint-disable security/detect-object-injection -- all dynamic keys are validated against the fixed SDK runtime allowlist. */
-const REQUIRED_SDK_RUNTIME = Object.freeze({
-  '@modelcontextprotocol/core': '2.0.0',
-  '@modelcontextprotocol/node': '2.0.0',
-  '@modelcontextprotocol/server': '2.0.0',
-  zod: '4.2.0',
-});
+const REQUIRED_SDK_RUNTIME = new Map([
+  ['@modelcontextprotocol/core', '2.0.0'],
+  ['@modelcontextprotocol/node', '2.0.0'],
+  ['@modelcontextprotocol/server', '2.0.0'],
+  ['zod', '4.2.0'],
+]);
 const EXPECTED_TOOLS = Object.freeze([
   'searxng_web_search',
   'web_url_read',
@@ -52,10 +51,11 @@ function recordSdkRuntimeVersion(name, dependency, versions) {
     fail('unsafe_dependency_tree', `${name} is marked extraneous`);
   }
   parseStableSemver(dependency.version);
-  if (dependency.version !== REQUIRED_SDK_RUNTIME[name]) {
+  const requiredVersion = REQUIRED_SDK_RUNTIME.get(name);
+  if (dependency.version !== requiredVersion) {
     fail(
       'unsafe_dependency_tree',
-      `${name} version ${dependency.version} must be ${REQUIRED_SDK_RUNTIME[name]}`,
+      `${name} version ${dependency.version} must be ${requiredVersion}`,
     );
   }
   versions.push({ name, version: dependency.version });
@@ -75,7 +75,7 @@ function visitDependencyNode(node, versions) {
       dependencyValue,
       `dependency ${name} is malformed`,
     );
-    if (Object.hasOwn(REQUIRED_SDK_RUNTIME, name)) {
+    if (REQUIRED_SDK_RUNTIME.has(name)) {
       recordSdkRuntimeVersion(name, dependency, versions);
     }
     visitDependencyNode(dependency, versions);
@@ -88,7 +88,7 @@ export function assertSafeDependencyTree(tree) {
   visitDependencyNode(tree, versions);
   const uniqueVersions = new Map(versions.map((entry) => [entry.name, entry]));
   const found = new Set(uniqueVersions.keys());
-  const missing = Object.keys(REQUIRED_SDK_RUNTIME).filter((name) => !found.has(name));
+  const missing = [...REQUIRED_SDK_RUNTIME.keys()].filter((name) => !found.has(name));
   if (missing.length > 0) {
     fail('unsafe_dependency_tree', `required SDK runtime dependency is missing: ${missing.join(', ')}`);
   }
