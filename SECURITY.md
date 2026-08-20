@@ -180,7 +180,7 @@ Hardened mode protects the MCP protocol endpoint (`/mcp`) with:
 - **Origin allowlist** — `/mcp` requests from unlisted browser origins are rejected
 - **DNS rebinding protection** — the `Host` header is validated against `MCP_HTTP_ALLOWED_HOSTS`. The default allows loopback access on the configured port (`127.0.0.1`, `localhost`, `[::1]` and their `:PORT` forms). A custom list is matched exactly against `Host`: an entry matches only when it carries the same port the client or proxy sends (e.g. `app.example.com:8443`).
 
-With `MCP_HTTP_STATELESS=true`, bearer authorization and the hardened Host and Origin checks run before any per-request MCP server is constructed. Rate limiting also runs before construction, followed by the stateless capacity controls. Modern and legacy stateless requests share that capacity, while `/health` and MCP control traffic remain available during tool-admission exhaustion.
+Bearer authorization and the hardened Host and Origin checks run before any per-request MCP server is constructed. Rate limiting also runs before construction, followed by the stateless capacity controls. Modern HTTP requests are always per-request and are always bounded by `MCP_HTTP_STATELESS_MAX_IN_FLIGHT`, `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP`, and `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS`. With `MCP_HTTP_STATELESS=true`, retained legacy POST requests use the same per-request model and share that capacity. `/health` and MCP control traffic remain available during tool-admission exhaustion.
 
 HTTP and STDIO support modern `2026-07-28` and legacy `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`. Modern HTTP is sessionless POST-only; legacy stateful and stateless behavior retains the documented session and 405 boundaries.
 

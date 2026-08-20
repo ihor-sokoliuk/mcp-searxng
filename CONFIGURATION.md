@@ -315,6 +315,8 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 
 Both transports support modern `2026-07-28` plus legacy `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`. Modern HTTP requests are sessionless POSTs; legacy HTTP requests retain the stateful default or the configured legacy stateless mode.
 
+Modern HTTP requests always use an isolated per-request server and are bounded by `MCP_HTTP_STATELESS_MAX_IN_FLIGHT`, `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP`, and `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS`, even when `MCP_HTTP_STATELESS` is false. Setting `MCP_HTTP_STATELESS=true` extends that per-request serving model and the shared capacity controls to retained legacy POST requests.
+
 The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-07-28 request that omits that header: it returns the standard HTTP 400 HeaderMismatch response. The guard will be removed only after upgrading to a stable SDK containing upstream PR 2594 and proving that the SDK itself returns the same response.
 
 | Variable | Required | Default | Description |
@@ -322,10 +324,10 @@ The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-
 | `MCP_HTTP_PORT` | No | — | Port number to enable HTTP transport (e.g. `3000`) |
 | `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. Works in pair with `MCP_HTTP_PORT` only. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
 | `MCP_HTTP_TRUST_PROXY` | No | `false` | Express `trust proxy` setting for deployments behind a trusted reverse proxy. Use `true`, a trusted hop count such as `1`, or a proxy subnet/preset such as `loopback` or `10.0.0.0/8`. Unset, `false`, or `0` disables it (the secure default). |
-| `MCP_HTTP_STATELESS` | No | `false` | Set to the exact value `true` to create an isolated MCP server and transport for every `POST /mcp`. `false`, blank, or unset disables it; any other nonblank value warns and uses `false`. Intended for deployments that cannot preserve process-local sessions. |
-| `MCP_HTTP_STATELESS_MAX_IN_FLIGHT` | No | `16` (range `1`-`256`) | Global maximum number of admitted stateless POST requests in flight. Invalid values use the default. |
-| `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP` | No | `8` (range `1`-global cap) | Per-client-IP in-flight maximum. Values above the normalized global cap are reduced to that cap. |
-| `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` | No | `900000` (range `1000`-`2147483647`) | Maximum lifetime of an admitted stateless POST, including server construction, MCP handling, and an active response stream. |
+| `MCP_HTTP_STATELESS` | No | `false` | Set to the exact value `true` to create an isolated MCP server and transport for every retained legacy `POST /mcp`; modern POSTs are always isolated. `false`, blank, or unset retains legacy stateful mode; any other nonblank value warns and uses `false`. Intended for deployments that cannot preserve process-local legacy sessions. |
+| `MCP_HTTP_STATELESS_MAX_IN_FLIGHT` | No | `16` (range `1`-`256`) | Global maximum number of admitted modern or legacy-stateless POST requests in flight. Invalid values use the default. |
+| `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP` | No | `8` (range `1`-global cap) | Per-client-IP in-flight maximum for modern or legacy-stateless POSTs. Values above the normalized global cap are reduced to that cap. |
+| `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` | No | `900000` (range `1000`-`2147483647`) | Maximum lifetime of an admitted modern or legacy-stateless POST, including server construction, MCP handling, and an active response stream. |
 
 **HTTP endpoints (when HTTP mode is active):**
 - Modern: `POST /mcp` — sessionless MCP protocol
