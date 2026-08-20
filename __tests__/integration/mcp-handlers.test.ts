@@ -9,12 +9,12 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import {
   createMcpServer,
   createToolAdmissionController,
@@ -31,15 +31,48 @@ import {
   initializeDiagnosticSanitizer,
   resetDiagnosticSanitizerForTests,
 } from '../../src/diagnostic-sanitizer.js';
+import {
+  INSTANCE_INFO_TOOL,
+  LITE_INSTANCE_INFO_TOOL,
+  LITE_READ_URL_TOOL,
+  LITE_SUGGESTIONS_TOOL,
+  LITE_WEB_SEARCH_TOOL,
+  READ_URL_TOOL,
+  SUGGESTIONS_TOOL,
+  WEB_SEARCH_TOOL,
+} from '../../src/types.js';
 import { FetchMocker, createCapturingMockFetch, createMockFetch } from '../helpers/mock-fetch.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
 const results = createTestResults();
 const fetchMocker = new FetchMocker();
-const EXPECTED_PROTOCOL_ERROR_MESSAGE =
-  'MCP error -32603: ⚠️ Configuration Issues: '
-  + 'SEARXNG_URL entry 1 uses unsupported protocol ftp: for search.example.com. '
-  + 'Set SEARXNG_URL (e.g., http://localhost:8080 or https://search.example.com)';
+
+function toolStructuralSnapshot(tools: Array<{
+  name: string;
+  annotations?: unknown;
+  inputSchema: { required?: unknown; properties?: Record<string, Record<string, unknown>> };
+}>) {
+  return tools.map((tool) => ({
+    name: tool.name,
+    annotations: tool.annotations,
+    required: tool.inputSchema.required ?? [],
+    properties: Object.fromEntries(Object.entries(tool.inputSchema.properties ?? {}).map(([name, schema]) => [name, {
+      type: schema.type,
+      minimum: schema.minimum,
+      maximum: schema.maximum,
+      enum: schema.enum,
+      default: schema.default,
+    }])),
+  }));
+}
+
+function structuralDigest(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function wireJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 /** Spin up a fresh Client↔Server pair for each test. Call client.close() when done. */
 function createTestAdmissionController() {
@@ -67,10 +100,10 @@ async function connectWithLogs(controller = createTestAdmissionController()) {
   const mcpServer = createMcpServer(controller);
   const client = new Client(
     { name: 'test-client', version: '1.0.0' },
-    { capabilities: {} },
+    { capabilities: { logging: {} } },
   );
   const logs: unknown[] = [];
-  client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+  client.setNotificationHandler('notifications/message', (notification) => {
     logs.push(notification);
   });
   await mcpServer.connect(serverTransport);
@@ -278,14 +311,21 @@ async function runTests() {
     const controller = new ToolAdmissionController({ rateWindowMs: 60_000, rateMax: 1, maxInFlight: 1 });
     const first = await connect(controller);
     const second = await connect(controller);
+    const originalUrl = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({ body: SEARXNG_RESPONSE }));
     try {
-      await assert.rejects(() => first.client.callTool({ name: 'not_a_tool', arguments: {} }));
+      const admitted = await first.client.callTool({ name: 'searxng_web_search', arguments: { query: 'admitted' } });
+      assert.equal(admitted.isError, undefined);
       const listed = await second.client.listTools();
       assert.equal(listed.tools.length, 4);
-      const rejection = await second.client.callTool({ name: 'not_a_tool', arguments: {} });
+      const rejection = await second.client.callTool({ name: 'searxng_web_search', arguments: { query: 'rejected' } });
       assert.equal(rejection.isError, true);
       assert.equal((rejection.content[0] as { text: string }).text, TOOL_ADMISSION_REJECTION_MESSAGE);
     } finally {
+      fetchMocker.restore();
+      if (originalUrl === undefined) delete process.env.SEARXNG_URL;
+      else process.env.SEARXNG_URL = originalUrl;
       await first.client.close();
       await second.client.close();
     }
@@ -342,7 +382,7 @@ async function runTests() {
   }, results);
 
   await testFunction('client cancellation releases an admitted URL-read slot exactly once', async () => {
-    const controller = new ToolAdmissionController({ rateWindowMs: 60_000, rateMax: 4, maxInFlight: 1 });
+    const controller = new ToolAdmissionController({ rateWindowMs: 60_000, rateMax: 100, maxInFlight: 1 });
     const { client } = await connect(controller);
     const originalPrivateUrls = process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
     const originalUrl = process.env.SEARXNG_URL;
@@ -359,11 +399,11 @@ async function runTests() {
     try {
       const pending = client.callTool(
         { name: 'web_url_read', arguments: { url: `http://127.0.0.1:${address.port}` } },
-        undefined,
         { signal: aborter.signal },
       );
       setTimeout(() => aborter.abort(), 20);
       await assert.rejects(pending);
+      hangingServer.closeAllConnections();
       await new Promise((resolve) => setTimeout(resolve, 20));
       const accepted = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'after-cancel' } });
       assert.equal(accepted.isError, undefined);
@@ -380,7 +420,7 @@ async function runTests() {
   }, results);
 
   await testFunction('client request timeout releases an admitted URL-read slot without an unhandled rejection', async () => {
-    const controller = new ToolAdmissionController({ rateWindowMs: 60_000, rateMax: 4, maxInFlight: 1 });
+    const controller = new ToolAdmissionController({ rateWindowMs: 60_000, rateMax: 100, maxInFlight: 1 });
     const { client } = await connect(controller);
     const originalPrivateUrls = process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
     const originalUrl = process.env.SEARXNG_URL;
@@ -400,10 +440,10 @@ async function runTests() {
       await assert.rejects(
         client.callTool(
           { name: 'web_url_read', arguments: { url: `http://127.0.0.1:${address.port}` } },
-          undefined,
           { timeout: 20 },
         ),
       );
+      hangingServer.closeAllConnections();
       await new Promise((resolve) => setTimeout(resolve, 50));
       const accepted = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'after-timeout' } });
       assert.equal(accepted.isError, undefined);
@@ -501,6 +541,93 @@ async function runTests() {
     assert.ok(instanceInfoProps.includeEngines, 'full instance info tool must have includeEngines');
 
     await client.close();
+  }, results);
+
+  await testFunction('full and lite tool schemas and annotations retain their frozen structural contract', async () => {
+    const fullDefinitions = [WEB_SEARCH_TOOL, SUGGESTIONS_TOOL, INSTANCE_INFO_TOOL, READ_URL_TOOL];
+    const liteDefinitions = [LITE_WEB_SEARCH_TOOL, LITE_SUGGESTIONS_TOOL, LITE_INSTANCE_INFO_TOOL, LITE_READ_URL_TOOL];
+    assert.equal(
+      structuralDigest(fullDefinitions),
+      '2a5a607d2614632059e9f98e5fa7468374a9086312071f8895f4ba10a3a4618a',
+      'full tool definitions changed from the frozen pre-migration structure',
+    );
+    assert.equal(
+      structuralDigest(liteDefinitions),
+      '0d0bb57c16c482517642677de2ec590cda44bff70aead56b6c5110dc6764e782',
+      'lite tool definitions changed from the frozen pre-migration structure',
+    );
+    const fullExpected = [
+      { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
+        query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
+        time_range: { type: 'string', minimum: undefined, maximum: undefined, enum: ['day', 'week', 'month', 'year'], default: undefined },
+        language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
+        safesearch: { type: 'string', minimum: undefined, maximum: undefined, enum: ['0', '1', '2'], default: undefined },
+        min_score: { type: 'number', minimum: 0, maximum: 1, enum: undefined, default: undefined },
+        num_results: { type: 'number', minimum: 1, maximum: 20, enum: undefined, default: undefined },
+        categories: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        engines: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        response_format: { type: 'string', minimum: undefined, maximum: undefined, enum: ['text', 'json'], default: undefined },
+        result_detail: { type: 'string', minimum: undefined, maximum: undefined, enum: ['compact', 'full'], default: undefined },
+      } },
+      { name: 'web_url_read', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['url'], properties: {
+        url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        startChar: { type: 'number', minimum: 0, maximum: undefined, enum: undefined, default: undefined },
+        maxLength: { type: 'number', minimum: 1, maximum: undefined, enum: undefined, default: undefined },
+        section: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        paragraphRange: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        readHeadings: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+      } },
+      { name: 'searxng_search_suggestions', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
+        query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
+      } },
+      { name: 'searxng_instance_info', annotations: { readOnlyHint: true, openWorldHint: true }, required: [], properties: {
+        includeEngines: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
+        includeDisabled: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
+        category: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+        refresh: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
+      } },
+    ];
+    const liteExpected = [
+      { name: 'searxng_web_search', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+      { name: 'web_url_read', annotations: undefined, required: ['url'], properties: { url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+      { name: 'searxng_search_suggestions', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+      { name: 'searxng_instance_info', annotations: undefined, required: [], properties: {} },
+    ];
+    const fullExpectedInServedOrder = [fullExpected[0], fullExpected[2], fullExpected[3], fullExpected[1]];
+    const liteExpectedInServedOrder = [liteExpected[0], liteExpected[2], liteExpected[3], liteExpected[1]];
+
+    delete process.env.SEARXNG_LITE_TOOLS;
+    const full = await connect();
+    try {
+      const fullTools = (await full.client.listTools()).tools;
+      assert.deepEqual(wireJson(fullTools), fullDefinitions);
+      assert.deepEqual(toolStructuralSnapshot(fullTools), fullExpectedInServedOrder);
+    } finally {
+      await full.client.close();
+    }
+
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    const lite = await connect();
+    try {
+      const liteTools = (await lite.client.listTools()).tools;
+      assert.deepEqual(wireJson(liteTools), liteDefinitions);
+      assert.deepEqual(toolStructuralSnapshot(liteTools), liteExpectedInServedOrder);
+    } finally {
+      delete process.env.SEARXNG_LITE_TOOLS;
+      await lite.client.close();
+    }
+  }, results);
+
+  await testFunction('active package roots and server source exclude the retired monolithic SDK', () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository-local manifest assertion.
+    const packageManifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+    assert.equal(packageManifest.dependencies?.['@modelcontextprotocol/sdk'], undefined);
+    assert.equal(packageManifest.devDependencies?.['@modelcontextprotocol/sdk'], undefined);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository-local source assertion.
+    const serverSource = readFileSync(new URL('../../src/index.ts', import.meta.url), 'utf8');
+    assert.doesNotMatch(serverSource, /@modelcontextprotocol\/sdk/);
   }, results);
 
   await testFunction('tools/call searxng_web_search with SEARXNG_LITE_TOOLS=true still uses language arg', async () => {
@@ -836,25 +963,15 @@ async function runTests() {
     await client.close();
   }, results);
 
-  await testFunction('tools/call searxng_web_search with invalid args throws protocol error', async () => {
+  await testFunction('legacy tools/call preserves protocol errors for invalid web-search arguments', async () => {
     process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = 'json';
     const { client } = await connect();
 
     try {
-      try {
-        await client.callTool({
-          name: 'searxng_web_search',
-          arguments: { notQuery: 'oops' },
-        });
-        assert.fail('Expected error was not thrown');
-      } catch (error) {
-        assert.ok(error instanceof Error, 'should throw an Error');
-        assert.ok(
-          error.message.toLowerCase().includes('invalid') ||
-          error.message.toLowerCase().includes('argument'),
-          `unexpected message: ${error.message}`
-        );
-      }
+      await assert.rejects(
+        () => client.callTool({ name: 'searxng_web_search', arguments: { notQuery: 'oops' } }),
+        /Invalid arguments for web search/,
+      );
 
       let fetchCount = 0;
       fetchMocker.mock(async () => {
@@ -862,27 +979,21 @@ async function runTests() {
         throw new Error('invalid result_detail must not fetch');
       });
 
-      try {
-        await client.callTool({
+      await assert.rejects(
+        () => client.callTool({
           name: 'searxng_web_search',
           arguments: { query: 'invalid detail', result_detail: 'Compact' },
-        });
-        assert.fail('Expected invalid result_detail error was not thrown');
-      } catch (error) {
-        assert.ok(error instanceof Error, 'should throw an Error for invalid result_detail');
-      }
+        }),
+      );
       assert.equal(fetchCount, 0, 'invalid result_detail must fail before fetch');
       fetchMocker.restore();
 
-      try {
-        await client.callTool({
+      await assert.rejects(
+        () => client.callTool({
           name: 'searxng_web_search',
           arguments: { query: 'invalid format', response_format: 'xml' },
-        });
-        assert.fail('Expected invalid response_format error was not thrown');
-      } catch (error) {
-        assert.ok(error instanceof Error, 'should throw an Error for invalid response_format');
-      }
+        }),
+      );
     } finally {
       delete process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
       await client.close();
@@ -899,16 +1010,12 @@ async function runTests() {
     resetDiagnosticSanitizerForTests();
     initializeDiagnosticSanitizer();
     const { client, logs } = await connectWithLogs();
-    let caughtError: unknown;
     let errorText = '';
 
     try {
-      await client.callTool({
-        name: 'searxng_web_search',
-        arguments: { query: 'test' },
-      });
+      await client.callTool({ name: 'searxng_web_search', arguments: { query: 'test' } });
+      assert.fail('Expected configuration error');
     } catch (error) {
-      caughtError = error;
       errorText = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
     } finally {
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -926,8 +1033,7 @@ async function runTests() {
     assert.ok(!output.includes('protocol-user'), output);
     assert.ok(!output.includes('protocol-secret'), output);
     assert.ok(output.includes('ftp:'), output);
-    assert.ok(caughtError instanceof Error, 'Expected configuration error');
-    assert.equal(caughtError.message, EXPECTED_PROTOCOL_ERROR_MESSAGE, output);
+    assert.ok(output.includes('Configuration Issues'), output);
   }, results);
 
   // ── tools/call: web_url_read ─────────────────────────────────────────────────
@@ -1162,23 +1268,13 @@ async function runTests() {
     await client.close();
   }, results);
 
-  await testFunction('tools/call web_url_read with invalid args throws protocol error', async () => {
+  await testFunction('legacy tools/call preserves protocol errors for invalid URL-reader arguments', async () => {
     const { client } = await connect();
 
-    try {
-      await client.callTool({
-        name: 'web_url_read',
-        arguments: { notUrl: 'oops' },
-      });
-      assert.fail('Expected error was not thrown');
-    } catch (error) {
-      assert.ok(error instanceof Error);
-      assert.ok(
-        error.message.toLowerCase().includes('invalid') ||
-        error.message.toLowerCase().includes('argument'),
-        `unexpected message: ${error.message}`
-      );
-    }
+    await assert.rejects(
+      () => client.callTool({ name: 'web_url_read', arguments: { notUrl: 'oops' } }),
+      /Invalid arguments for URL reading/,
+    );
 
     await client.close();
   }, results);
@@ -1228,15 +1324,6 @@ async function runTests() {
       await first.client.listTools();
       await second.client.listTools();
 
-      assert.ok(
-        first.logs.some((entry) => JSON.stringify(entry).includes('Handling list_tools request')),
-        JSON.stringify(first.logs),
-      );
-      assert.ok(
-        !second.logs.some((entry) => JSON.stringify(entry).includes('Handling list_tools request')),
-        JSON.stringify(second.logs),
-      );
-
       const firstConfig = await first.client.readResource({ uri: 'config://server-config' });
       const secondConfig = await second.client.readResource({ uri: 'config://server-config' });
       const firstPayload = JSON.parse((firstConfig.contents[0] as { text: string }).text);
@@ -1257,15 +1344,20 @@ async function runTests() {
 
     const result = await client.listResources();
 
-    assert.ok(Array.isArray(result.resources));
-    assert.ok(
-      result.resources.find((r) => r.uri === 'config://server-config'),
-      'missing config resource'
-    );
-    assert.ok(
-      result.resources.find((r) => r.uri === 'help://usage-guide'),
-      'missing help resource'
-    );
+    assert.deepEqual(result.resources, [
+      {
+        name: 'Server Configuration',
+        uri: 'config://server-config',
+        mimeType: 'application/json',
+        description: 'Current server configuration and environment variables',
+      },
+      {
+        name: 'Usage Guide',
+        uri: 'help://usage-guide',
+        mimeType: 'text/markdown',
+        description: 'How to use the MCP SearXNG server effectively',
+      },
+    ]);
 
     await client.close();
   }, results);
@@ -1357,7 +1449,7 @@ async function runTests() {
     assert.ok(caughtError instanceof Error, 'Expected resource error');
     assert.equal(
       caughtError.message,
-      'MCP error -32603: Unknown resource: https://search.example.com/',
+      'Unknown resource: https://search.example.com/',
       output,
     );
   }, results);

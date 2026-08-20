@@ -311,7 +311,11 @@ Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`. It disables all TLS certificate vali
 
 ## HTTP Transport
 
-By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode instead.
+By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode instead. The SDK v2 server accepts modern MCP requests and retains legacy compatibility; modern HTTP clients should send the negotiated `MCP-Protocol-Version` header.
+
+Both transports support modern `2026-07-28` plus legacy `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`. Modern HTTP requests are sessionless POSTs; legacy HTTP requests retain the stateful default or the configured legacy stateless mode.
+
+The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-07-28 request that omits that header: it returns the standard HTTP 400 HeaderMismatch response. The guard will be removed only after upgrading to a stable SDK containing upstream PR 2594 and proving that the SDK itself returns the same response.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -324,13 +328,14 @@ By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTT
 | `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` | No | `900000` (range `1000`-`2147483647`) | Maximum lifetime of an admitted stateless POST, including server construction, MCP handling, and an active response stream. |
 
 **HTTP endpoints (when HTTP mode is active):**
-- Stateful default: `POST/GET/DELETE /mcp` — session-based MCP protocol
+- Modern: `POST /mcp` — sessionless MCP protocol
+- Legacy stateful default: `POST/GET/DELETE /mcp` — session-based MCP protocol
 - With `MCP_HTTP_STATELESS=true`: `POST /mcp` only; GET and DELETE return HTTP 405 with `Allow: POST`
 - `GET /health` — health check
 
 HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-id` on a non-initialize `POST /mcp` receives HTTP 404 with JSON-RPC error code `-32001` and message `"Session not found"`. Clients should recover by running `initialize` again; initialize requests are accepted even when they still carry a stale session header.
 
-In stateless mode, every POST creates a fresh MCP server and transport, ignores incoming `mcp-session-id` headers, and never emits a response session ID. A POST can return negotiated JSON or an SSE stream within that same POST. Cross-request sessions, resumable streams, standalone GET notification streams, and DELETE-based session termination are unavailable. This mode does not require an SDK 2.0 upgrade; it uses the stateless transport contract provided by the currently supported SDK.
+In stateless mode, every POST creates a fresh MCP server and transport, ignores incoming `mcp-session-id` headers, and never emits a response session ID. A POST can return negotiated JSON or an SSE stream within that same POST. Cross-request sessions, resumable streams, standalone GET notification streams, and DELETE-based session termination are unavailable. Modern requests use the SDK v2 request handler; retained legacy requests use the Node transport.
 
 ## Rate Limiting (HTTP mode)
 
@@ -415,7 +420,7 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 
 ### Origin validation and upgrade notice
 
-Every present `Origin` on `/mcp` is validated in all modes; an absent `Origin` remains valid for non-browser clients. In non-hardened mode, an unset `MCP_HTTP_ALLOWED_ORIGINS` defaults to the exact HTTP/HTTPS loopback origins `http://127.0.0.1`, `https://127.0.0.1`, `http://localhost`, `https://localhost`, `http://[::1]`, and `https://[::1]`, both portless and with the configured `MCP_HTTP_PORT`. A non-empty `MCP_HTTP_ALLOWED_ORIGINS` replaces those defaults. Entries are trimmed but otherwise literal; matching is exact, case-sensitive literal matching, including scheme and port. Malformed, scheme-less, path-bearing, trailing slash, or differently-cased values silently do not match and must be corrected. Hardened mode still requires an explicit allowlist and adds authentication plus Host enforcement. An invalid present `Origin` on `/mcp` receives a fixed, non-reflecting 403 before parser, authentication, rate limiting, or transport construction. `/health` is outside the MCP 403 boundary but uses the narrowed global CORS allowlist. Before upgrading, existing non-hardened browser deployments using non-loopback Origins must set `MCP_HTTP_ALLOWED_ORIGINS` or receive a fixed 403. This change addresses the Origin security requirement; legacy transport compatibility remains and is not a claim of full MCP 2026-07-28 transport compliance.
+Every present `Origin` on `/mcp` is validated in all modes; an absent `Origin` remains valid for non-browser clients. In non-hardened mode, an unset `MCP_HTTP_ALLOWED_ORIGINS` defaults to the exact HTTP/HTTPS loopback origins `http://127.0.0.1`, `https://127.0.0.1`, `http://localhost`, `https://localhost`, `http://[::1]`, and `https://[::1]`, both portless and with the configured `MCP_HTTP_PORT`. A non-empty `MCP_HTTP_ALLOWED_ORIGINS` replaces those defaults. Entries are trimmed but otherwise literal; matching is exact, case-sensitive literal matching, including scheme and port. Malformed, scheme-less, path-bearing, trailing slash, or differently-cased values silently do not match and must be corrected. Hardened mode still requires an explicit allowlist and adds authentication plus Host enforcement. An invalid present `Origin` on `/mcp` receives a fixed, non-reflecting 403 before parser, authentication, rate limiting, or transport construction. `/health` is outside the MCP 403 boundary but uses the narrowed global CORS allowlist. Before upgrading, existing non-hardened browser deployments using non-loopback Origins must set `MCP_HTTP_ALLOWED_ORIGINS` or receive a fixed 403. The transport support matrix above defines the modern sessionless and retained legacy boundaries.
 
 ## URL Reader Security
 

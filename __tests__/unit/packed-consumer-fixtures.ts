@@ -5,12 +5,10 @@ export const safeTree = {
     'mcp-searxng': {
       version: '1.12.0',
       dependencies: {
-        '@modelcontextprotocol/sdk': {
-          version: '1.30.0',
-          dependencies: {
-            '@hono/node-server': { version: '2.0.12' },
-          },
-        },
+        '@modelcontextprotocol/core': { version: '2.0.0' },
+        '@modelcontextprotocol/node': { version: '2.0.0' },
+        '@modelcontextprotocol/server': { version: '2.0.0' },
+        zod: { version: '4.2.0' },
       },
     },
   },
@@ -136,12 +134,10 @@ export function treeWithNodeServer(nodeServer: object): object {
       'mcp-searxng': {
         version: '1.12.0',
         dependencies: {
-          '@modelcontextprotocol/sdk': {
-            version: '1.30.0',
-            dependencies: {
-              '@hono/node-server': nodeServer,
-            },
-          },
+          '@modelcontextprotocol/core': { version: '2.0.0' },
+          '@modelcontextprotocol/node': { version: '2.0.0' },
+          '@modelcontextprotocol/server': nodeServer,
+          zod: { version: '4.2.0' },
         },
       },
     },

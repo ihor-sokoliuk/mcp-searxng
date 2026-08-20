@@ -13,7 +13,9 @@ import {
   logMessage, 
   shouldLog, 
   setLogLevel, 
-  getCurrentLogLevel 
+  getCurrentLogLevel,
+  markModernServer,
+  runWithModernLog,
 } from '../../src/logging.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServerWithTracking } from '../helpers/mock-server.js';
@@ -118,6 +120,66 @@ async function runTests() {
     // Should have called notification for each message
     const calls = getLoggingCalls();
     assert.ok(calls.length >= 0); // Notification calls depend on implementation
+  }, results);
+
+  await testFunction('modern request logging delegates level filtering to the request envelope', async () => {
+    const server = createMockServerWithTracking().server as any;
+    const envelope: Array<{ level: string; data: Record<string, unknown> }> = [];
+    markModernServer(server);
+    setLogLevel(server, 'emergency');
+
+    await runWithModernLog(async (level, data) => {
+      envelope.push({ level, data: data as Record<string, unknown> });
+    }, async () => {
+      logMessage(server, 'debug', 'request-scoped debug');
+      logMessage(server, 'error', 'request-scoped failure', { operation: 'search' });
+    });
+
+    assert.deepEqual(envelope, [
+      { level: 'debug', data: { message: 'request-scoped debug' } },
+      { level: 'error', data: { message: 'request-scoped failure', operation: 'search' } },
+    ]);
+  }, results);
+
+  await testFunction('modern request log scopes remain isolated and marked servers fail closed outside a scope', async () => {
+    const first = createMockServerWithTracking().server as any;
+    const second = createMockServerWithTracking().server as any;
+    const firstEnvelope: string[] = [];
+    const secondEnvelope: string[] = [];
+    markModernServer(first);
+    markModernServer(second);
+    setLogLevel(first, 'debug');
+    setLogLevel(second, 'debug');
+
+    const diagnostics: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => diagnostics.push(args);
+    try {
+      logMessage(first, 'error', 'outside modern request secret-safe-marker');
+      logMessage(first, 'error', 'second outside modern request');
+      await Promise.all([
+        runWithModernLog(async (_level, data) => {
+          firstEnvelope.push((data as { message: string }).message);
+        }, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          logMessage(first, 'info', 'first request');
+        }),
+        runWithModernLog(async (_level, data) => {
+          secondEnvelope.push((data as { message: string }).message);
+        }, async () => {
+          logMessage(second, 'info', 'second request');
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }),
+      ]);
+    } finally {
+      console.error = originalError;
+    }
+
+    assert.deepEqual(firstEnvelope, ['first request']);
+    assert.deepEqual(secondEnvelope, ['second request']);
+    assert.equal(diagnostics.length, 1);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /secret-safe-marker/);
+    assert.match(JSON.stringify(diagnostics), /Dropped an MCP log outside its modern request scope/);
   }, results);
 
   await testFunction('logMessage sanitizes text and structured metadata before MCP output', () => {

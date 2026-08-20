@@ -1,8 +1,7 @@
 #!/usr/bin/env tsx
 
 import { strict as assert } from 'node:assert';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { checkSkipConditions, spawnHttpCli, type SpawnedHttpCli } from './helpers/spawn-server.js';

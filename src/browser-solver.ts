@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { fetch as undiciFetch } from "undici";
 import { createConfigurationError, createContentError } from "./error-handler.js";
 import {

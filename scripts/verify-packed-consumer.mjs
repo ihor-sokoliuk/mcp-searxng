@@ -423,7 +423,7 @@ if (
     }
     const outcome = verifyPackedConsumer({ artifactOutput });
     process.stdout.write(
-      `packed-consumer verification passed: adapters=${outcome.adapterVersions.join(',')} audit=${outcome.auditTotal} tools=${outcome.toolCount}\n`,
+      `packed-consumer verification passed: sdk=${outcome.adapterVersions.map(({ name, version }) => `${name}@${version}`).join(',')} audit=${outcome.auditTotal} tools=${outcome.toolCount}\n`,
     );
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

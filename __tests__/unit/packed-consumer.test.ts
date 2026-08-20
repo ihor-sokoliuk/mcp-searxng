@@ -24,29 +24,23 @@ import {
 const results = createTestResults();
 
 async function runDependencyContractTests(): Promise<void> {
-  await testFunction('accepts a clean dependency tree containing only patched adapter copies', () => {
-    assert.deepEqual(assertSafeDependencyTree(safeTree), ['2.0.12']);
-    const duplicateSafeTree = {
-      ...safeTree,
-      dependencies: {
-        ...safeTree.dependencies,
-        '@hono/node-server': { version: '2.0.5' },
-      },
-    };
-    assert.deepEqual(
-      assertSafeDependencyTree(duplicateSafeTree),
-      ['2.0.5', '2.0.12'],
-    );
+  await testFunction('accepts an exact v2 runtime dependency tree', () => {
+    assert.deepEqual(assertSafeDependencyTree(safeTree), [
+      { name: '@modelcontextprotocol/core', version: '2.0.0' },
+      { name: '@modelcontextprotocol/node', version: '2.0.0' },
+      { name: '@modelcontextprotocol/server', version: '2.0.0' },
+      { name: 'zod', version: '4.2.0' },
+    ]);
   }, results);
 
-  await testFunction('rejects every vulnerable, prerelease, missing, or malformed adapter tree', () => {
+  await testFunction('rejects every mismatched, prerelease, missing, or malformed v2 runtime tree', () => {
     assert.throws(
       () => assertSafeDependencyTree(treeWithNodeServer({ version: '1.19.17' })),
       /unsafe_dependency_tree:.*1\.19\.17/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.5-beta.1' })),
-      /unsafe_dependency_tree:.*2\.0\.5-beta\.1/,
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0-beta.1' })),
+      /unsafe_dependency_tree:.*2\.0\.0-beta\.1/,
     );
     assert.throws(
       () => assertSafeDependencyTree({ name: 'consumer', dependencies: {} }),
@@ -64,11 +58,11 @@ async function runDependencyContractTests(): Promise<void> {
 
   await testFunction('rejects invalid, extraneous, npm-problem, and mixed-version trees', () => {
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.12', invalid: true })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', invalid: true })),
       /unsafe_dependency_tree:.*invalid/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.12', extraneous: true })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', extraneous: true })),
       /unsafe_dependency_tree:.*extraneous/,
     );
     assert.throws(
@@ -83,7 +77,7 @@ async function runDependencyContractTests(): Promise<void> {
         ...safeTree,
         dependencies: {
           ...safeTree.dependencies,
-          '@hono/node-server': { version: '1.19.17' },
+          '@modelcontextprotocol/server': { version: '1.19.17' },
         },
       }),
       /unsafe_dependency_tree:.*1\.19\.17/,
@@ -233,7 +227,7 @@ async function runWorkflowContractTests(): Promise<void> {
         {
           name: 'mcp-searxng',
           dependencies: {
-            '@modelcontextprotocol/sdk': '1.30.0',
+            '@modelcontextprotocol/server': '2.0.0',
           },
         },
       ),
@@ -260,10 +254,10 @@ async function runWorkflowContractTests(): Promise<void> {
         },
         {
           name: 'mcp-searxng',
-          dependencies: { '@hono/node-server': '2.0.12' },
+          dependencies: { '@modelcontextprotocol/sdk': '1.30.0' },
         },
       ),
-      /artifact_metadata:.*direct/,
+      /artifact_metadata:.*monolithic/,
     );
     assert.throws(
       () => assertArtifactMetadata(
@@ -345,7 +339,7 @@ async function runOrchestrationTests(): Promise<void> {
           path.join(installedPackageDirectory, 'package.json'),
           JSON.stringify({
             name: 'mcp-searxng',
-            dependencies: { '@modelcontextprotocol/sdk': '1.30.0' },
+            dependencies: { '@modelcontextprotocol/server': '2.0.0' },
           }),
         );
         return { status: 0, signal: null, stdout: '', stderr: '' };
@@ -392,7 +386,12 @@ async function runOrchestrationTests(): Promise<void> {
       }
     }
 
-    assert.deepEqual(outcome.adapterVersions, ['2.0.12']);
+    assert.deepEqual(outcome.adapterVersions, [
+      { name: '@modelcontextprotocol/core', version: '2.0.0' },
+      { name: '@modelcontextprotocol/node', version: '2.0.0' },
+      { name: '@modelcontextprotocol/server', version: '2.0.0' },
+      { name: 'zod', version: '4.2.0' },
+    ]);
     assert.equal(outcome.auditTotal, 0);
     assert.equal(outcome.toolCount, 4);
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- unique test output is created under the OS temporary directory
@@ -458,7 +457,7 @@ async function runOrchestrationTests(): Promise<void> {
           path.join(installedPackageDirectory, 'package.json'),
           JSON.stringify({
             name: 'mcp-searxng',
-            dependencies: { '@modelcontextprotocol/sdk': '1.30.0' },
+            dependencies: { '@modelcontextprotocol/server': '2.0.0' },
           }),
         );
       }
