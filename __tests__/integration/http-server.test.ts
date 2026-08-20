@@ -1672,7 +1672,7 @@ async function runTests() {
     assert.equal(res.status, 403);
     assert.equal(res.body.error.code, -32000);
     assert.equal(res.body.error.message, 'Invalid Host header');
-    assert.doesNotMatch(res.text, /evil\.example\.com/);
+    assert.equal(res.text.includes('evil.example.com'), false);
   }, results);
 
   await testFunction('multiple sessions can initialize without "Already connected" error', async () => {
