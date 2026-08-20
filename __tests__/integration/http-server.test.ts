@@ -1670,9 +1670,11 @@ async function runTests() {
 
     envManager.restore();
     assert.equal(res.status, 403);
-    assert.equal(res.body.error.code, -32000);
-    assert.equal(res.body.error.message, 'Invalid Host header');
-    assert.equal(res.text.includes('evil.example.com'), false);
+    assert.deepEqual(res.body, {
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Invalid Host header' },
+      id: null,
+    });
   }, results);
 
   await testFunction('multiple sessions can initialize without "Already connected" error', async () => {
