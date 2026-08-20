@@ -47,23 +47,33 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 const results = createTestResults();
 const fetchMocker = new FetchMocker();
 
-function toolStructuralSnapshot(tools: Array<{
+type ToolSnapshotInput = {
   name: string;
   annotations?: unknown;
   inputSchema: { required?: unknown; properties?: Record<string, Record<string, unknown>> };
-}>) {
-  return tools.map((tool) => ({
+};
+
+function propertyStructuralSnapshot(properties: Record<string, Record<string, unknown>>) {
+  return Object.fromEntries(Object.entries(properties).map(([name, schema]) => [name, {
+    type: schema.type,
+    minimum: schema.minimum,
+    maximum: schema.maximum,
+    enum: schema.enum,
+    default: schema.default,
+  }]));
+}
+
+function toolSnapshot(tool: ToolSnapshotInput) {
+  return {
     name: tool.name,
     annotations: tool.annotations,
     required: tool.inputSchema.required ?? [],
-    properties: Object.fromEntries(Object.entries(tool.inputSchema.properties ?? {}).map(([name, schema]) => [name, {
-      type: schema.type,
-      minimum: schema.minimum,
-      maximum: schema.maximum,
-      enum: schema.enum,
-      default: schema.default,
-    }])),
-  }));
+    properties: propertyStructuralSnapshot(tool.inputSchema.properties ?? {}),
+  };
+}
+
+function toolStructuralSnapshot(tools: ToolSnapshotInput[]) {
+  return tools.map(toolSnapshot);
 }
 
 function structuralDigest(value: unknown): string {
@@ -1311,6 +1321,19 @@ async function runTests() {
     // If it threw, the test fails; reaching here means the handler ran successfully.
 
     await client.close();
+  }, results);
+
+  await testFunction('logging/setLevel rejects invalid protocol values before the handler mutates state', async () => {
+    const { client } = await connect();
+    try {
+      await client.setLoggingLevel('debug');
+      await assert.rejects(() => client.setLoggingLevel('invalid-level' as any));
+      const config = await client.readResource({ uri: 'config://server-config' });
+      const payload = JSON.parse((config.contents[0] as { text: string }).text);
+      assert.equal(payload.environment.currentLogLevel, 'debug');
+    } finally {
+      await client.close();
+    }
   }, results);
 
   await testFunction('logging/setLevel and config resources stay isolated per server', async () => {
