@@ -16,7 +16,7 @@ import {
   isSearXNGSearchSuggestionsArgs,
   isSearXNGInstanceInfoArgs,
 } from "./types.js";
-import { logMessage, markModernServer, runWithModernLog, setLogLevel, getCurrentLogLevel } from "./logging.js";
+import { logMessage, markModernServer, runWithModernLog, setLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { performSearchSuggestions } from "./suggestions.js";
 import { fetchInstanceInfo } from "./instance-info.js";
@@ -193,166 +193,89 @@ function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
   return parsed;
 }
 
-/**
- * Creates and configures a new McpServer with all handlers registered.
- * Called once per HTTP session, or once for STDIO mode.
- */
-export function createMcpServer(admissionController: ToolAdmissionController, modern = false): McpServer {
-  if (!admissionController) {
-    throw new TypeError("Tool admission controller is required");
-  }
+type ToolCallResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+};
 
-  const mcpServer = new McpServer(
+function textToolResult(text: string): ToolCallResult {
+  return { content: [{ type: "text", text }] };
+}
+
+async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
+  if (!isSearXNGWebSearchArgs(args)) throw new Error("Invalid arguments for web search");
+  return textToolResult(await performWebSearch(
+    mcpServer,
+    args.query,
+    args.pageno,
+    args.time_range,
+    args.language,
+    args.safesearch === undefined ? undefined : Number(args.safesearch),
+    args.min_score,
+    args.num_results,
+    args.categories,
+    args.engines,
+    args.response_format,
+    args.result_detail,
+  ));
+}
+
+async function executeSuggestions(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
+  if (!isSearXNGSearchSuggestionsArgs(args)) throw new Error("Invalid arguments for search suggestions");
+  const suggestions = await performSearchSuggestions(mcpServer, args.query, args.language);
+  return textToolResult(JSON.stringify({ query: args.query, suggestions }, null, 2));
+}
+
+async function executeInstanceInfo(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
+  if (!isSearXNGInstanceInfoArgs(args)) throw new Error("Invalid arguments for instance info");
+  return textToolResult(await fetchInstanceInfo(
+    mcpServer,
+    args.includeEngines,
+    args.includeDisabled,
+    args.category,
+    args.refresh,
+  ));
+}
+
+async function executeUrlRead(
+  mcpServer: McpServer,
+  args: unknown,
+  signal?: AbortSignal,
+): Promise<ToolCallResult> {
+  if (!isWebUrlReadArgs(args)) throw new Error("Invalid arguments for URL reading");
+  const defaultMaxLength = getDefaultUrlReadMaxChars(mcpServer);
+  return textToolResult(await fetchAndConvertToMarkdown(
+    mcpServer,
+    args.url,
+    getFetchTimeoutMs(mcpServer),
     {
-      name: "ihor-sokoliuk/mcp-searxng",
-      version: packageVersion,
+      startChar: args.startChar,
+      maxLength: args.maxLength ?? defaultMaxLength,
+      section: args.section,
+      paragraphRange: args.paragraphRange,
+      readHeadings: args.readHeadings,
     },
-    {
-      capabilities: {
-        logging: {},
-        resources: {},
-        tools: {},
-      },
-    }
-  );
+    signal,
+  ));
+}
 
+async function executeTool(
+  mcpServer: McpServer,
+  name: string,
+  args: unknown,
+  signal?: AbortSignal,
+): Promise<ToolCallResult> {
+  if (name === "searxng_web_search") return executeWebSearch(mcpServer, args);
+  if (name === "searxng_search_suggestions") return executeSuggestions(mcpServer, args);
+  if (name === "searxng_instance_info") return executeInstanceInfo(mcpServer, args);
+  if (name === "web_url_read") return executeUrlRead(mcpServer, args, signal);
+  throw new Error(`Unknown tool: ${name}`);
+}
+
+type CallTool = (name: string, args: unknown, signal?: AbortSignal) => Promise<ToolCallResult>;
+
+function registerMcpTools(mcpServer: McpServer, modern: boolean, callTool: CallTool): void {
   const useLiteTools = process.env.SEARXNG_LITE_TOOLS === "true";
-  const searchTool = useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL;
-  const suggestionsTool = useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL;
-  const instanceInfoTool = useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL;
-  const readUrlTool = useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL;
-
-  type ToolCallResult = {
-    content: Array<{ type: "text"; text: string }>;
-    isError?: boolean;
-  };
-
-  const callTool = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallResult> => {
-    const admission = admissionController.admit();
-    if (!admission.release) {
-      return {
-        content: [{ type: "text", text: TOOL_ADMISSION_REJECTION_MESSAGE }],
-        isError: true,
-      };
-    }
-
-    try {
-      logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
-
-      if (name === "searxng_web_search") {
-        if (!isSearXNGWebSearchArgs(args)) {
-          throw new Error("Invalid arguments for web search");
-        }
-
-        const result = await performWebSearch(
-          mcpServer,
-          args.query,
-          args.pageno,
-          args.time_range,
-          args.language,
-          args.safesearch === undefined ? undefined : Number(args.safesearch),
-          args.min_score,
-          args.num_results,
-          args.categories,
-          args.engines,
-          args.response_format,
-          args.result_detail,
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: result,
-            },
-          ],
-        };
-      } else if (name === "searxng_search_suggestions") {
-        if (!isSearXNGSearchSuggestionsArgs(args)) {
-          throw new Error("Invalid arguments for search suggestions");
-        }
-
-        const suggestions = await performSearchSuggestions(
-          mcpServer,
-          args.query,
-          args.language,
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ query: args.query, suggestions }, null, 2),
-            },
-          ],
-        };
-      } else if (name === "searxng_instance_info") {
-        if (!isSearXNGInstanceInfoArgs(args)) {
-          throw new Error("Invalid arguments for instance info");
-        }
-
-        const result = await fetchInstanceInfo(
-          mcpServer,
-          args.includeEngines,
-          args.includeDisabled,
-          args.category,
-          args.refresh,
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: result,
-            },
-          ],
-        };
-      } else if (name === "web_url_read") {
-        if (!isWebUrlReadArgs(args)) {
-          throw new Error("Invalid arguments for URL reading");
-        }
-
-        const defaultMaxLength = getDefaultUrlReadMaxChars(mcpServer);
-        const paginationOptions = {
-          startChar: args.startChar,
-          maxLength: args.maxLength ?? defaultMaxLength,
-          section: args.section,
-          paragraphRange: args.paragraphRange,
-          readHeadings: args.readHeadings,
-        };
-
-        const result = await fetchAndConvertToMarkdown(
-          mcpServer,
-          args.url,
-          getFetchTimeoutMs(mcpServer),
-          paginationOptions,
-          signal,
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: result,
-            },
-          ],
-        };
-      } else {
-        throw new Error(`Unknown tool: ${name}`);
-      }
-    } catch (error) {
-      const safeError = sanitizeErrorForTransport(error);
-      logMessage(mcpServer, "error", `Tool execution error: ${safeError.message}`, {
-        tool: name, 
-        args: args,
-        error: safeError.stack,
-      });
-      throw safeError;
-    } finally {
-      admission.release();
-    }
-  };
-
   const registerTool = (tool: typeof WEB_SEARCH_TOOL) => {
     mcpServer.registerTool(
       tool.name,
@@ -366,10 +289,10 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
         : callTool(tool.name, args, context.mcpReq.signal)),
     );
   };
-  registerTool(searchTool);
-  registerTool(suggestionsTool);
-  registerTool(instanceInfoTool);
-  registerTool(readUrlTool);
+  registerTool(useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL);
+  registerTool(useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL);
+  registerTool(useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL);
+  registerTool(useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL);
   if (!modern) {
     // Preserve the legacy wire error and admission boundary while the modern
     // era keeps SDK-owned schema validation and tool dispatch.
@@ -377,7 +300,9 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
       callTool(request.params.name, request.params.arguments, context.mcpReq.signal)
     ));
   }
+}
 
+function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
   const readConfigResource: ReadResourceCallback = async (uri, context) => {
     const callback = async () => {
       logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri.href}`);
@@ -399,9 +324,7 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
     { mimeType: "application/json", description: "Current server configuration and environment variables" },
     readConfigResource,
   );
-  if (modern) {
-    markModernServer(mcpServer);
-  }
+  if (modern) markModernServer(mcpServer);
   mcpServer.registerResource(
     "Usage Guide",
     "help://usage-guide",
@@ -427,6 +350,59 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
     };
     return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
   });
+}
+
+/**
+ * Creates and configures a new McpServer with all handlers registered.
+ * Called once per HTTP session, or once for STDIO mode.
+ */
+export function createMcpServer(admissionController: ToolAdmissionController, modern = false): McpServer {
+  if (!admissionController) {
+    throw new TypeError("Tool admission controller is required");
+  }
+
+  const mcpServer = new McpServer(
+    {
+      name: "ihor-sokoliuk/mcp-searxng",
+      version: packageVersion,
+    },
+    {
+      capabilities: {
+        logging: {},
+        resources: {},
+        tools: {},
+      },
+    }
+  );
+
+  const callTool = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallResult> => {
+    const admission = admissionController.admit();
+    if (!admission.release) {
+      return {
+        content: [{ type: "text", text: TOOL_ADMISSION_REJECTION_MESSAGE }],
+        isError: true,
+      };
+    }
+
+    try {
+      logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+
+      return await executeTool(mcpServer, name, args, signal);
+    } catch (error) {
+      const safeError = sanitizeErrorForTransport(error);
+      logMessage(mcpServer, "error", `Tool execution error: ${safeError.message}`, {
+        tool: name,
+        args: args,
+        error: safeError.stack,
+      });
+      throw safeError;
+    } finally {
+      admission.release();
+    }
+  };
+
+  registerMcpTools(mcpServer, modern, callTool);
+  registerMcpResources(mcpServer, modern);
 
   return mcpServer;
 }
