@@ -11,24 +11,129 @@
  */
 
 import { strict as assert } from 'node:assert';
+import http from 'node:http';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import {
   checkSkipConditions,
   INIT_PARAMS,
   spawnWithMessages,
+  spawnWithMessagesAsync,
   LIVE_URL,
 } from './helpers/spawn-server.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
+import { createTextPdf } from '../helpers/pdf-fixtures.js';
 
 const results = createTestResults();
+const E2E_TIMEOUT_MS = 15_000;
+const LOCAL_PDF_FIRST_PAGE = 'Local PDF first page for E2E';
+const LOCAL_PDF_SECOND_PAGE = 'Local PDF second page for E2E';
+
+interface TestServer {
+  url: string;
+  close: () => Promise<void>;
+}
+
+function startPdfServer(pdf: Uint8Array): Promise<TestServer> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((_, response) => {
+      response.writeHead(200, {
+        'content-type': 'application/pdf',
+        'content-length': String(pdf.byteLength),
+      });
+      response.end(Buffer.from(pdf));
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address() as net.AddressInfo;
+      resolve({
+        url: `http://127.0.0.1:${address.port}/fixture.pdf`,
+        close: () => new Promise<void>((done, rejectClose) => {
+          server.closeAllConnections();
+          server.close((error) => error ? rejectClose(error) : done());
+        }),
+      });
+    });
+    server.once('error', reject);
+  });
+}
+
+function readUrlMessages(url: string): object[] {
+  return [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+    {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name: 'web_url_read',
+        arguments: { url },
+      },
+    },
+  ];
+}
+
+async function withinTestBoundary<T>(operation: Promise<T>): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Local PDF E2E test timed out after ${E2E_TIMEOUT_MS}ms`)),
+          E2E_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 async function runTests() {
   console.log('🌐 E2E Testing: web_url_read (live)\n');
 
-  const skip = checkSkipConditions();
-  if (skip) {
-    console.log(skip);
-    return { passed: 0, failed: 0, errors: [] };
+  await testFunction('web_url_read reads a two-page local PDF only with the private URL override', async () => {
+    await withinTestBoundary((async () => {
+      const server = await startPdfServer(createTextPdf([
+        LOCAL_PDF_FIRST_PAGE,
+        LOCAL_PDF_SECOND_PAGE,
+      ]));
+      try {
+        const blockedResponses = await spawnWithMessagesAsync(
+          readUrlMessages(server.url),
+          'https://test-searx.example.com',
+          E2E_TIMEOUT_MS,
+        );
+        const blockedResponse = blockedResponses[2];
+        assert.ok(blockedResponse?.error, 'loopback PDF request should be blocked by the SSRF boundary');
+        assert.match(
+          String(blockedResponse.error.message ?? ''),
+          /URL blocked by security policy/i,
+          JSON.stringify(blockedResponse.error),
+        );
+
+        const allowedResponses = await spawnWithMessagesAsync(
+          readUrlMessages(server.url),
+          'https://test-searx.example.com',
+          E2E_TIMEOUT_MS,
+          { MCP_HTTP_ALLOW_PRIVATE_URLS: 'true' },
+        );
+        const allowedResponse = allowedResponses[2];
+        assert.ok(allowedResponse && !allowedResponse.error, JSON.stringify(allowedResponse?.error));
+        const text: string = allowedResponse.result?.content?.[0]?.text ?? '';
+        assert.ok(text.includes(LOCAL_PDF_FIRST_PAGE), text);
+        assert.ok(text.includes(LOCAL_PDF_SECOND_PAGE), text);
+      } finally {
+        await server.close();
+      }
+    })());
+  }, results);
+
+  const liveSkip = checkSkipConditions();
+  if (liveSkip) {
+    console.log(liveSkip);
+    printTestSummary(results, 'E2E: URL Reader');
+    return results;
   }
 
   await testFunction('web_url_read fetches example.com and returns markdown', async () => {

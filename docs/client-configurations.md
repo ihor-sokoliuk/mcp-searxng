@@ -6,8 +6,7 @@ SearXNG with this server, or install `mcp-searxng` as a client plugin.
 
 Choose one connection mode:
 
-- **NPX/STDIO:** the client starts the npm package locally. Requires Node.js 20
-  or newer.
+- **NPX/STDIO:** the client starts the npm package locally. Requires Node.js 22 or later.
 - **Docker/STDIO:** the client starts the published container locally. Requires
   Docker.
 - **HTTP:** the client connects to an independently running Streamable HTTP

@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ['20', '22', '24', '26.7.0']
+        node-version: ['22', '24', '26.7.0']
 
     steps:
       - name: Checkout code
@@ -42,3 +42,6 @@ jobs:
 
       - name: Test coverage
         run: npm run test:coverage
+
+      - name: E2E tests
+        run: npm run test:e2e

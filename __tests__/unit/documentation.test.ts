@@ -83,6 +83,10 @@ type PackageManifest = {
   version?: unknown;
 };
 
+type PackageLock = {
+  packages?: Record<string, PackageManifest>;
+};
+
 function toYamlLine(rawLine: string): YamlLine {
   return {
     indentation: rawLine.length - rawLine.trimStart().length,
@@ -148,15 +152,38 @@ function hasDependabotIgnoreEntry(source: string, dependencyName: string): boole
 
 function assertPackageMetadata(): void {
   const packageManifest = JSON.parse(readText(new URL('../../package.json', import.meta.url))) as PackageManifest;
+  const packageLock = JSON.parse(readText(new URL('../../package-lock.json', import.meta.url))) as PackageLock;
   assert.equal(packageManifest.version, '1.16.0');
-  assert.equal(packageManifest.engines?.node, '>=20');
+  assert.equal(packageManifest.engines?.node, '>=22');
+  assert.equal(packageManifest.dependencies?.unpdf, '1.8.1');
+  assert.equal(packageLock.packages?.[''].engines?.node, '>=22');
+  assert.equal(packageLock.packages?.[''].dependencies?.unpdf, '1.8.1');
   assert.equal(packageManifest.dependencies?.['express-rate-limit'], '^8.5.2');
 }
 
 function assertReadmeNodePolicy(readme: string): void {
-  assert.ok(readme.includes('Node.js 20 remains supported but is deprecated and end-of-life.'));
-  assert.ok(readme.includes('Node.js 22 or later is recommended.'));
-  assert.ok(readme.includes('Node.js 20 will be removed only in a future major release.'));
+  assert.ok(readme.includes('Node.js 22 or later is required.'));
+  assert.ok(!readme.includes('Node.js 20'), 'README must not claim Node.js 20 support');
+  for (const formerPromise of [
+    'Node.js 20 remains supported',
+    'Node.js 20 will be removed',
+    'Node.js 22 or later is recommended',
+  ]) {
+    assert.ok(!readme.includes(formerPromise), `README must not retain: ${formerPromise}`);
+  }
+}
+
+function assertClientGuideNodePolicy(guide: string): void {
+  assert.ok(guide.includes('Requires Node.js 22 or later.'));
+  assert.ok(!guide.includes('Node.js 20'), 'client guide must not claim Node.js 20 support');
+  for (const formerPromise of [
+    'Requires Node.js 20',
+    'Node.js 20 remains supported',
+    'Node.js 20 will be removed',
+    'Node.js 22 or later is recommended',
+  ]) {
+    assert.ok(!guide.includes(formerPromise), `client guide must not retain: ${formerPromise}`);
+  }
 }
 
 function assertCiMatrix(ci: string): void {
@@ -164,7 +191,7 @@ function assertCiMatrix(ci: string): void {
   assert.ok(matrix, 'CI must declare an inline Node version matrix');
   assert.deepEqual(
     [...matrix[1].matchAll(/['"]([^'"]+)['"]/gu)].map((match) => match[1]),
-    ['20', '22', '24', '26.7.0'],
+    ['22', '24', '26.7.0'],
   );
 }
 
@@ -174,9 +201,16 @@ function assertCiCommonJob(ci: string): void {
   assert.match(ci, /uses:\s*actions\/checkout@/u);
   assert.match(ci, /uses:\s*actions\/setup-node@/u);
   assert.match(ci, /cache:\s*['"]npm['"]/u);
-  for (const command of [/run:\s*npm ci/u, /run:\s*npm run lint/u, /run:\s*npm run build/u, /run:\s*npm run test:coverage/u]) {
+  for (const command of [
+    /run:\s*npm ci/u,
+    /run:\s*npm run lint/u,
+    /run:\s*npm run build/u,
+    /run:\s*npm run test:coverage/u,
+    /run:\s*npm run test:e2e/u,
+  ]) {
     assert.match(ci, command);
   }
+  assert.match(ci, /run:\s*npm run test:coverage\s*\n\s*- name: E2E tests\s*\n\s*run:\s*npm run test:e2e/u);
   assert.doesNotMatch(ci, /^\s*include\s*:/mu);
   assert.doesNotMatch(ci, /^\s*if\s*:/mu);
   assert.doesNotMatch(ci, /continue-on-error\s*:/u);
@@ -392,6 +426,7 @@ export async function runTests(): Promise<TestResult> {
     const dependabot = readText(new URL('../../.github/dependabot.yml', import.meta.url));
     assertPackageMetadata();
     assertReadmeNodePolicy(readme);
+    assertClientGuideNodePolicy(readText(guideUrl));
     assertCiMatrix(ci);
     assertCiCommonJob(ci);
     assertCodeqlActionPins(codeql);
