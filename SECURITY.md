@@ -292,8 +292,10 @@ does not expose arguments, credentials, configured limits, counters, or timing
 details.
 
 The shared process budget intentionally bounds total work rather than providing
-per-client fairness. Consequently, one session may exhaust another session's
-capacity, and a handler that never settles retains its slot until restart.
+per-client fairness. Consequently, one session may consume capacity needed by
+another. Slots normally return when handlers settle; if an upstream handler
+remains pending indefinitely, operators can restart the process to reclaim that
+capacity.
 Configure the `MCP_TOOL_*` limits for the
 deployment, require client backoff, and use separate process replicas where
 tenant isolation is needed. See [Tool Invocation Admission](CONFIGURATION.md#tool-invocation-admission-all-transports)

@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { packageVersion } from '../../src/version.js';
 import {
   isWebUrlReadArgs,
-  createMcpServer
+  createMcpServer,
+  createToolAdmissionController,
 } from '../../src/index.js';
 import { isSearXNGWebSearchArgs } from '../../src/types.js';
 import { createConfigResource, createHelpResource } from '../../src/resources.js';
@@ -259,14 +260,15 @@ async function runTests() {
   }, results);
 
   await testFunction('createMcpServer returns an McpServer instance', () => {
-    const server = createMcpServer();
+    const server = createMcpServer(createToolAdmissionController());
     assert.ok(server, 'should return a truthy value');
     assert.ok(server.server, 'should expose underlying Server via .server');
   }, results);
 
   await testFunction('createMcpServer returns independent instances per call', () => {
-    const server1 = createMcpServer();
-    const server2 = createMcpServer();
+    const controller = createToolAdmissionController();
+    const server1 = createMcpServer(controller);
+    const server2 = createMcpServer(controller);
     assert.notEqual(server1, server2, 'factory should return distinct objects');
     assert.notEqual(server1.server, server2.server, 'underlying servers should differ');
   }, results);
