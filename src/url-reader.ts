@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { fetch as undiciFetch, type Dispatcher } from "undici";
 import { createProxyAgent, createUrlReaderAgent, ProxyType } from "./proxy.js";

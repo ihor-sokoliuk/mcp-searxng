@@ -2,9 +2,8 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import { createMcpHandler, isInitializeRequest, isLegacyRequest, type McpServer } from "@modelcontextprotocol/server";
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import { logMessage } from "./logging.js";
 import { packageVersion } from "./version.js";
 import {
@@ -22,7 +21,7 @@ import {
 } from "./http-security.js";
 
 interface Session {
-  transport: StreamableHTTPServerTransport;
+  transport: NodeStreamableHTTPServerTransport;
   mcpServer: McpServer;
 }
 
@@ -34,6 +33,39 @@ const MIN_STATELESS_REQUEST_TIMEOUT_MS = 1000;
 const MAX_STATELESS_REQUEST_TIMEOUT_MS = 2147483647;
 const STATELESS_CLEANUP_DEADLINE_MS = 5000;
 const STATELESS_WARNING_INTERVAL_MS = 60000;
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
+
+/**
+ * Temporary PR-2594 compatibility guard. Remove after a patched stable server
+ * release is installed and its SDK-owned HeaderMismatch response is regression-tested.
+ */
+export function missingModernProtocolHeaderError(
+  headers: Record<string, string | string[] | undefined>,
+  body: unknown,
+): { id: string | number | null; error: { code: number; message: string; data: object } } | undefined {
+  if (headers["mcp-protocol-version"] !== undefined
+    || !body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const request = body as Record<string, unknown>;
+  const params = request.params;
+  if (request.jsonrpc !== "2.0" || typeof request.method !== "string"
+    || !params || typeof params !== "object" || Array.isArray(params)) return undefined;
+  const meta = (params as Record<string, unknown>)._meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)
+    || (meta as Record<string, unknown>)["io.modelcontextprotocol/protocolVersion"] !== MODERN_PROTOCOL_VERSION) return undefined;
+  if (!Object.hasOwn(request, "id")) return undefined;
+  const rawId = request.id;
+  if (!(typeof rawId === "string" || (typeof rawId === "number" && Number.isFinite(rawId)) || rawId === null)) return undefined;
+  const id = rawId;
+  const bodyMessage = "the body envelope names protocol version 2026-07-28 but the required MCP-Protocol-Version header is absent";
+  return {
+    id,
+    error: {
+      code: -32020,
+      message: `Bad Request: the request headers and body disagree: ${bodyMessage}`,
+      data: { mismatch: { header: "(missing)", body: bodyMessage } },
+    },
+  };
+}
 
 export interface StatelessHttpConfig {
   enabled: boolean;
@@ -192,7 +224,7 @@ function makeRateLimiters() {
 }
 
 export async function createHttpServer(
-  createMcpServer: () => McpServer,
+  createMcpServer: (modern?: boolean) => McpServer,
   port?: number
 ): Promise<express.Application> {
   const app = express();
@@ -231,8 +263,8 @@ export async function createHttpServer(
       }
       callback(null, false);
     },
-    exposedHeaders: ["Mcp-Session-Id"],
-    allowedHeaders: ["Content-Type", "mcp-session-id", "authorization", "mcp-protocol-version"],
+    exposedHeaders: ["Mcp-Session-Id", "Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name"],
+    allowedHeaders: ["Content-Type", "mcp-session-id", "authorization", "mcp-protocol-version", "mcp-method", "mcp-name"],
   }));
 
   function rejectUnauthorized(res: express.Response) {
@@ -290,7 +322,7 @@ export async function createHttpServer(
   }
 
   async function handleTransportRequest(
-    transport: StreamableHTTPServerTransport,
+    transport: NodeStreamableHTTPServerTransport,
     req: express.Request,
     res: express.Response,
   ) {
@@ -397,15 +429,90 @@ export async function createHttpServer(
       return;
     }
 
-    if (stateless.enabled) {
-      if (rejectInvalidStatelessHeaders(req, res)) {
+    if (rejectInvalidStatelessHeaders(req, res)) return;
+
+    if (!req.is("application/json")) {
+      res.status(415).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Unsupported Media Type" },
+        id: null,
+      });
+      return;
+    }
+
+    const modern = !(await isLegacyRequest(await toWebRequest(req, req.body), req.body));
+    if (modern) {
+      const headerError = missingModernProtocolHeaderError(req.headers, req.body);
+      if (headerError) {
+        res.status(400).json({ jsonrpc: "2.0", ...headerError });
         return;
       }
       const releaseCapacity = admitStatelessRequest(req, res);
       if (!releaseCapacity) return;
+      const handler = createMcpHandler(() => createMcpServer(true), { legacy: "reject" });
+      let requestTimer: NodeJS.Timeout | undefined;
+      let cleanupPromise: Promise<void> | undefined;
+      let requestTimedOut = false;
+      const cleanup = (): Promise<void> => {
+        if (cleanupPromise) return cleanupPromise;
+        cleanupPromise = (async () => {
+          if (requestTimer) clearTimeout(requestTimer);
+          let cleanupDeadline: NodeJS.Timeout | undefined;
+          try {
+            await Promise.race([
+              handler.close(),
+              new Promise<never>((_resolve, reject) => {
+                cleanupDeadline = setTimeout(
+                  () => reject(new Error("Stateless resource cleanup timed out")),
+                  STATELESS_CLEANUP_DEADLINE_MS,
+                );
+                cleanupDeadline.unref();
+              }),
+            ]);
+          } catch (error) {
+            warnDiagnostic("⚠️  Stateless HTTP cleanup did not complete normally.", error);
+          } finally {
+            if (cleanupDeadline) clearTimeout(cleanupDeadline);
+            releaseCapacity();
+          }
+        })();
+        return cleanupPromise;
+      };
+      const handleTimeout = (): void => {
+        if (requestTimedOut) return;
+        requestTimedOut = true;
+        if (!res.headersSent && !res.destroyed) {
+          res.status(504).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Stateless request timed out" },
+            id: null,
+          });
+        } else if (!res.destroyed) {
+          res.destroy();
+        }
+        void cleanup();
+      };
+      res.once("finish", () => { void cleanup(); });
+      res.once("close", () => { void cleanup(); });
+      requestTimer = setTimeout(handleTimeout, stateless.requestTimeoutMs);
+      requestTimer.unref();
+      try {
+        await toNodeHandler(handler)(req, res, req.body);
+        await cleanup();
+      } catch (error) {
+        await cleanup();
+        if (requestTimedOut) return;
+        throw error;
+      }
+      return;
+    }
+
+    if (stateless.enabled) {
+      const releaseCapacity = admitStatelessRequest(req, res);
+      if (!releaseCapacity) return;
 
       let mcpServer: McpServer | undefined;
-      let transport: StreamableHTTPServerTransport | undefined;
+      let transport: NodeStreamableHTTPServerTransport | undefined;
       let requestTimer: NodeJS.Timeout | undefined;
       let cleanupPromise: Promise<void> | undefined;
       let requestTimedOut = false;
@@ -475,7 +582,7 @@ export async function createHttpServer(
       requestTimer.unref();
       try {
         mcpServer = createMcpServer();
-        transport = new StreamableHTTPServerTransport({
+        transport = new NodeStreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableDnsRebindingProtection: security.enableDnsRebindingProtection,
           allowedHosts: security.allowedHosts,
@@ -497,7 +604,7 @@ export async function createHttpServer(
     }
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    let transport: StreamableHTTPServerTransport;
+    let transport: NodeStreamableHTTPServerTransport;
     let mcpServer: McpServer;
 
     if (sessionId && sessions.has(sessionId)) {
@@ -510,7 +617,7 @@ export async function createHttpServer(
       // New initialization request — create fresh McpServer and transport
       mcpServer = createMcpServer();
 
-      transport = new StreamableHTTPServerTransport({
+      transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sessionId) => {
           sessions.set(sessionId, { transport, mcpServer });

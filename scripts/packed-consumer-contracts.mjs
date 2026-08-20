@@ -1,4 +1,10 @@
-const PATCHED_NODE_SERVER = Object.freeze([2, 0, 5]);
+/* eslint-disable security/detect-object-injection -- all dynamic keys are validated against the fixed SDK runtime allowlist. */
+const REQUIRED_SDK_RUNTIME = Object.freeze({
+  '@modelcontextprotocol/core': '2.0.0',
+  '@modelcontextprotocol/node': '2.0.0',
+  '@modelcontextprotocol/server': '2.0.0',
+  zod: '4.2.0',
+});
 const EXPECTED_TOOLS = Object.freeze([
   'searxng_web_search',
   'web_url_read',
@@ -12,25 +18,17 @@ export function fail(category, message) {
 
 function parseStableSemver(value) {
   if (typeof value !== 'string') {
-    fail('unsafe_dependency_tree', 'adapter version is missing');
+    fail('unsafe_dependency_tree', 'SDK runtime version is missing');
   }
   if (value.length > 64) {
-    fail('unsafe_dependency_tree', 'adapter version is invalid');
+    fail('unsafe_dependency_tree', 'SDK runtime version is invalid');
   }
   // eslint-disable-next-line security/detect-unsafe-regex -- input is capped at 64 characters above
   const match = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
   if (!match) {
-    fail('unsafe_dependency_tree', `adapter version is invalid: ${value}`);
+    fail('unsafe_dependency_tree', `SDK runtime version is invalid: ${value}`);
   }
   return match.slice(1, 4).map(Number);
-}
-
-function isAtLeastPatched(version) {
-  const [major, minor, patch] = version;
-  const [patchedMajor, patchedMinor, patchedPatch] = PATCHED_NODE_SERVER;
-  if (major !== patchedMajor) return major > patchedMajor;
-  if (minor !== patchedMinor) return minor > patchedMinor;
-  return patch >= patchedPatch;
 }
 
 function requireDependencyNode(node, message) {
@@ -46,21 +44,21 @@ function assertNoNpmProblems(node) {
   }
 }
 
-function recordAdapterVersion(dependency, versions) {
+function recordSdkRuntimeVersion(name, dependency, versions) {
   if (dependency.invalid) {
-    fail('unsafe_dependency_tree', 'adapter is marked invalid');
+    fail('unsafe_dependency_tree', `${name} is marked invalid`);
   }
   if (dependency.extraneous) {
-    fail('unsafe_dependency_tree', 'adapter is marked extraneous');
+    fail('unsafe_dependency_tree', `${name} is marked extraneous`);
   }
-  const parsed = parseStableSemver(dependency.version);
-  if (!isAtLeastPatched(parsed)) {
+  parseStableSemver(dependency.version);
+  if (dependency.version !== REQUIRED_SDK_RUNTIME[name]) {
     fail(
       'unsafe_dependency_tree',
-      `adapter version ${dependency.version} is below 2.0.5`,
+      `${name} version ${dependency.version} must be ${REQUIRED_SDK_RUNTIME[name]}`,
     );
   }
-  versions.push(dependency.version);
+  versions.push({ name, version: dependency.version });
 }
 
 function visitDependencyNode(node, versions) {
@@ -77,8 +75,8 @@ function visitDependencyNode(node, versions) {
       dependencyValue,
       `dependency ${name} is malformed`,
     );
-    if (name === '@hono/node-server') {
-      recordAdapterVersion(dependency, versions);
+    if (Object.hasOwn(REQUIRED_SDK_RUNTIME, name)) {
+      recordSdkRuntimeVersion(name, dependency, versions);
     }
     visitDependencyNode(dependency, versions);
   }
@@ -88,12 +86,13 @@ export function assertSafeDependencyTree(tree) {
   requireDependencyNode(tree, 'npm ls output is not an object');
   const versions = [];
   visitDependencyNode(tree, versions);
-  if (versions.length === 0) {
-    fail('unsafe_dependency_tree', 'patched adapter dependency is missing');
+  const uniqueVersions = new Map(versions.map((entry) => [entry.name, entry]));
+  const found = new Set(uniqueVersions.keys());
+  const missing = Object.keys(REQUIRED_SDK_RUNTIME).filter((name) => !found.has(name));
+  if (missing.length > 0) {
+    fail('unsafe_dependency_tree', `required SDK runtime dependency is missing: ${missing.join(', ')}`);
   }
-  return versions.sort((left, right) => left.localeCompare(right, undefined, {
-    numeric: true,
-  }));
+  return [...uniqueVersions.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export function assertZeroProductionAudit(report) {
@@ -151,8 +150,8 @@ function assertInstalledPackageSafe(installedPackage) {
   if (!installedPackage || typeof installedPackage !== 'object') {
     fail('artifact_metadata', 'installed package manifest is missing');
   }
-  if (installedPackage.dependencies?.['@hono/node-server'] !== undefined) {
-    fail('artifact_metadata', 'direct @hono/node-server dependency is forbidden');
+  if (installedPackage.dependencies?.['@modelcontextprotocol/sdk'] !== undefined) {
+    fail('artifact_metadata', 'legacy monolithic SDK dependency is forbidden');
   }
 }
 

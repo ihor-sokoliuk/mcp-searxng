@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { parse } from "node-html-parser";
 import { SearXNGWeb, type ResultDetail } from "./types.js";
 import { getKnownCategories, getKnownEngines } from "./instance-info.js";

@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { logMessage } from "./logging.js";
 import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import {

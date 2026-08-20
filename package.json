@@ -49,7 +49,9 @@
         "postversion": "TAG=$(node scripts/update-version.js | tail -1) && git add src/version.ts .mcp/server.json && git commit --amend --no-edit && git tag -f $TAG"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk": "1.30.0",
+        "@modelcontextprotocol/core": "2.0.0",
+        "@modelcontextprotocol/node": "2.0.0",
+        "@modelcontextprotocol/server": "2.0.0",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
         "cors": "^2.8.6",
@@ -58,9 +60,11 @@
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "^6.1.13",
         "undici": "7.29.0",
-        "unpdf": "1.8.1"
+        "unpdf": "1.8.1",
+        "zod": "4.2.0"
     },
     "devDependencies": {
+        "@modelcontextprotocol/client": "2.0.0",
         "@types/node": "22.20.1",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.67.0",

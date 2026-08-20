@@ -16,9 +16,8 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import type { Socket } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   checkSkipConditions,
   INIT_PARAMS,
@@ -143,6 +142,14 @@ function hasToolError(response: any): boolean {
   );
 }
 
+async function callSearchAllowingLegacyHandlerError(client: Client, query: string) {
+  try {
+    return { result: await client.callTool({ name: 'searxng_web_search', arguments: { query } }) };
+  } catch (error) {
+    return { error };
+  }
+}
+
 async function expectBodyDeadline(
   start: number,
   run: () => Promise<Record<number, any>>,
@@ -177,11 +184,57 @@ async function runTests() {
     return { passed: 0, failed: 0, errors: [] };
   }
 
+  await testFunction('built STDIO serves a modern discover exchange without initialize', () => {
+    const envelope = {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {},
+    };
+    const responses = spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: envelope } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope } },
+      { jsonrpc: '2.0', id: 3, method: 'resources/list', params: { _meta: envelope } },
+      { jsonrpc: '2.0', id: 4, method: 'resources/read', params: { _meta: envelope, uri: 'help://usage-guide' } },
+      { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'modern-discover' } } },
+      { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { _meta: envelope, name: 'searxng_search_suggestions', arguments: { query: 'modern-discover' } } },
+      { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { _meta: envelope, name: 'searxng_instance_info', arguments: {} } },
+      { jsonrpc: '2.0', id: 8, method: 'tools/call', params: { _meta: envelope, name: 'web_url_read', arguments: { url: 'http://127.0.0.1:1' } } },
+    ], 'http://127.0.0.1:1', 15_000);
+
+    assert.deepEqual(responses[1]?.result?.supportedVersions, ['2026-07-28']);
+    assert.equal(responses[2]?.result?.tools?.length, 4);
+    assert.equal(responses[3]?.result?.resources?.length, 2);
+    assert.equal(responses[4]?.result?.contents?.length, 1);
+    for (const id of [5, 6, 7, 8]) assert.ok(responses[id]?.result, JSON.stringify(responses));
+  }, results);
+
+  await testFunction('built STDIO retains the legacy initialize tool and resource surface', () => {
+    const responses = spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+      { jsonrpc: '2.0', id: 3, method: 'resources/list', params: {} },
+      { jsonrpc: '2.0', id: 4, method: 'resources/read', params: { uri: 'config://server-config' } },
+      { jsonrpc: '2.0', id: 5, method: 'resources/read', params: { uri: 'help://usage-guide' } },
+      { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'legacy-initialize' } } },
+      { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'searxng_search_suggestions', arguments: { query: 'legacy-initialize' } } },
+      { jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'searxng_instance_info', arguments: {} } },
+      { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'web_url_read', arguments: { url: 'http://127.0.0.1:1' } } },
+    ], 'http://127.0.0.1:1', 15_000);
+
+    assert.ok(responses[1]?.result?.serverInfo, JSON.stringify(responses));
+    assert.equal(responses[2]?.result?.tools?.length, 4);
+    assert.equal(responses[3]?.result?.resources?.length, 2);
+    assert.equal(responses[4]?.result?.contents?.length, 1);
+    assert.equal(responses[5]?.result?.contents?.length, 1);
+    for (const id of [6, 7, 8, 9]) {
+      assert.ok(responses[id]?.result || responses[id]?.error, JSON.stringify(responses));
+    }
+  }, results);
+
   await testFunction('STDIO applies the configured tool admission budget without corrupting JSON-RPC output', async () => {
     const responses = await spawnWithMessagesAsync(
       [
         { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
-        { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'not_a_tool', arguments: {} } },
+        { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'consume-admission-budget' } } },
         { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'must-not-run' } } },
       ],
       'https://test-searx.example.com',
@@ -190,7 +243,7 @@ async function runTests() {
     );
 
     assert.ok(responses[1]?.result?.serverInfo, JSON.stringify(responses));
-    assert.ok(responses[2]?.error, JSON.stringify(responses));
+    assert.ok(responses[2]?.result || responses[2]?.error, JSON.stringify(responses));
     assert.equal(responses[3]?.result?.isError, true, JSON.stringify(responses));
     assert.equal(responses[3]?.result?.content?.[0]?.text, 'Server busy. Retry later with backoff.');
   }, results);
@@ -212,12 +265,13 @@ async function runTests() {
     const client = new Client({ name: 'tool-admission-stdio-recovery', version: '1.0.0' });
     try {
       await client.connect(transport);
-      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }), /Unknown tool/);
-      const rejection = await client.callTool({ name: 'not_a_tool', arguments: {} });
+      await callSearchAllowingLegacyHandlerError(client, 'consume-admission-budget');
+      const rejection = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'must-not-run' } });
       assert.equal(rejection.isError, true);
       assert.equal((rejection.content[0] as { text: string }).text, 'Server busy. Retry later with backoff.');
       await new Promise((resolve) => setTimeout(resolve, 5100));
-      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }), /Unknown tool/);
+      const recovered = await callSearchAllowingLegacyHandlerError(client, 'after-rollover');
+      assert.doesNotMatch(JSON.stringify(recovered), /Server busy\. Retry later with backoff\./);
     } finally {
       await client.close();
     }
@@ -228,7 +282,7 @@ async function runTests() {
     const client = new Client({ name: 'tool-admission-e2e', version: '1.0.0' });
     try {
       await client.connect(new StreamableHTTPClientTransport(server.url));
-      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }));
+      await callSearchAllowingLegacyHandlerError(client, 'consume-admission-budget');
       const rejection = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'must-not-run' } });
       assert.equal(rejection.isError, true);
       assert.equal((rejection.content[0] as { text: string }).text, 'Server busy. Retry later with backoff.');
@@ -250,8 +304,8 @@ async function runTests() {
     const client = new Client({ name: 'tool-admission-stateless-e2e', version: '1.0.0' });
     try {
       await client.connect(new StreamableHTTPClientTransport(server.url));
-      await assert.rejects(() => client.callTool({ name: 'not_a_tool', arguments: {} }), /Unknown tool/);
-      const rejection = await client.callTool({ name: 'not_a_tool', arguments: {} });
+      await callSearchAllowingLegacyHandlerError(client, 'consume-admission-budget');
+      const rejection = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'must-not-run' } });
       assert.equal(rejection.isError, true);
       assert.equal((rejection.content[0] as { text: string }).text, 'Server busy. Retry later with backoff.');
     } finally {

@@ -105,11 +105,14 @@ async function runTests() {
           E2E_TIMEOUT_MS,
         );
         const blockedResponse = blockedResponses[2];
-        assert.ok(blockedResponse?.error, 'loopback PDF request should be blocked by the SSRF boundary');
+        assert.ok(
+          blockedResponse?.result?.isError || blockedResponse?.error,
+          'loopback PDF request should be blocked by the SSRF boundary',
+        );
         assert.match(
-          String(blockedResponse.error.message ?? ''),
+          String(blockedResponse.result?.content?.[0]?.text ?? blockedResponse.error?.message ?? ''),
           /URL blocked by security policy/i,
-          JSON.stringify(blockedResponse.error),
+          JSON.stringify(blockedResponse),
         );
 
         const allowedResponses = await spawnWithMessagesAsync(
@@ -119,7 +122,7 @@ async function runTests() {
           { MCP_HTTP_ALLOW_PRIVATE_URLS: 'true' },
         );
         const allowedResponse = allowedResponses[2];
-        assert.ok(allowedResponse && !allowedResponse.error, JSON.stringify(allowedResponse?.error));
+        assert.ok(allowedResponse && !allowedResponse.result?.isError, JSON.stringify(allowedResponse));
         const text: string = allowedResponse.result?.content?.[0]?.text ?? '';
         assert.ok(text.includes(LOCAL_PDF_FIRST_PAGE), text);
         assert.ok(text.includes(LOCAL_PDF_SECOND_PAGE), text);

@@ -1,13 +1,6 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  SetLevelRequestSchema,
-  ListResourcesRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ReadResourceRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+/* eslint-disable @typescript-eslint/no-deprecated -- the v2 request-scoped compatibility log bridge is required. */
+import { McpServer, fromJsonSchema, type ReadResourceCallback } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 // Import modularized functionality
 import {
@@ -23,7 +16,7 @@ import {
   isSearXNGSearchSuggestionsArgs,
   isSearXNGInstanceInfoArgs,
 } from "./types.js";
-import { logMessage, setLogLevel, getCurrentLogLevel } from "./logging.js";
+import { logMessage, markModernServer, runWithModernLog, setLogLevel, getCurrentLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { performSearchSuggestions } from "./suggestions.js";
 import { fetchInstanceInfo } from "./instance-info.js";
@@ -204,7 +197,7 @@ function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
  * Creates and configures a new McpServer with all handlers registered.
  * Called once per HTTP session, or once for STDIO mode.
  */
-export function createMcpServer(admissionController: ToolAdmissionController): McpServer {
+export function createMcpServer(admissionController: ToolAdmissionController, modern = false): McpServer {
   if (!admissionController) {
     throw new TypeError("Tool admission controller is required");
   }
@@ -223,24 +216,18 @@ export function createMcpServer(admissionController: ToolAdmissionController): M
     }
   );
 
-  const server = mcpServer.server;
-
   const useLiteTools = process.env.SEARXNG_LITE_TOOLS === "true";
   const searchTool = useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL;
   const suggestionsTool = useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL;
   const instanceInfoTool = useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL;
   const readUrlTool = useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL;
 
-  // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    logMessage(mcpServer, "debug", "Handling list_tools request");
-    return {
-      tools: [searchTool, suggestionsTool, instanceInfoTool, readUrlTool],
-    };
-  });
+  type ToolCallResult = {
+    content: Array<{ type: "text"; text: string }>;
+    isError?: boolean;
+  };
 
-  // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  const callTool = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallResult> => {
     const admission = admissionController.admit();
     if (!admission.release) {
       return {
@@ -249,10 +236,7 @@ export function createMcpServer(admissionController: ToolAdmissionController): M
       };
     }
 
-    let name: string | undefined;
-    let args: unknown;
     try {
-      ({ name, arguments: args } = request.params);
       logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
 
       if (name === "searxng_web_search") {
@@ -342,7 +326,7 @@ export function createMcpServer(admissionController: ToolAdmissionController): M
           args.url,
           getFetchTimeoutMs(mcpServer),
           paginationOptions,
-          extra.signal,
+          signal,
         );
 
         return {
@@ -367,75 +351,81 @@ export function createMcpServer(admissionController: ToolAdmissionController): M
     } finally {
       admission.release();
     }
-  });
+  };
 
-  // Logging level handler
-  server.setRequestHandler(SetLevelRequestSchema, async (request) => {
-    const { level } = request.params;
-    logMessage(mcpServer, "info", `Setting log level to: ${level}`);
-    setLogLevel(mcpServer, level);
-    return {};
-  });
+  const registerTool = (tool: typeof WEB_SEARCH_TOOL) => {
+    mcpServer.registerTool(
+      tool.name,
+      {
+        description: tool.description,
+        annotations: tool.annotations,
+        inputSchema: fromJsonSchema(tool.inputSchema as Record<string, unknown>),
+      },
+      async (args, context) => (modern
+        ? runWithModernLog(context.mcpReq.log, () => callTool(tool.name, args, context.mcpReq.signal))
+        : callTool(tool.name, args, context.mcpReq.signal)),
+    );
+  };
+  registerTool(searchTool);
+  registerTool(suggestionsTool);
+  registerTool(instanceInfoTool);
+  registerTool(readUrlTool);
+  if (!modern) {
+    // Preserve the legacy wire error and admission boundary while the modern
+    // era keeps SDK-owned schema validation and tool dispatch.
+    mcpServer.server.setRequestHandler("tools/call", async (request, context) => (
+      callTool(request.params.name, request.params.arguments, context.mcpReq.signal)
+    ));
+  }
 
-  // List resources handler
-  server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    logMessage(mcpServer, "debug", "Handling list_resources request");
-    return {
-      resources: [
-        {
-          uri: "config://server-config",
-          mimeType: "application/json",
-          name: "Server Configuration",
-          description: "Current server configuration and environment variables"
-        },
-        {
-          uri: "help://usage-guide",
-          mimeType: "text/markdown",
-          name: "Usage Guide",
-          description: "How to use the MCP SearXNG server effectively"
-        }
-      ]
+  const readConfigResource: ReadResourceCallback = async (uri, context) => {
+    const callback = async () => {
+      logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri.href}`);
+      return { contents: [{ uri: uri.href, mimeType: "application/json", text: createConfigResource(mcpServer) }] };
     };
-  });
+    return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
+  };
+  const readHelpResource: ReadResourceCallback = async (uri, context) => {
+    const callback = async () => {
+      logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri.href}`);
+      return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: createHelpResource() }] };
+    };
+    return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
+  };
 
-  // List resource templates handler
-  // Returns empty list — required by MCP spec even when no templates exist
-  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-    logMessage(mcpServer, "debug", "Handling list_resource_templates request");
-    return { resourceTemplates: [] };
-  });
-
-  // Read resource handler
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    const { uri } = request.params;
-    logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri}`);
-
-    switch (uri) {
-      case "config://server-config":
-        return {
-          contents: [
-            {
-              uri: uri,
-              mimeType: "application/json",
-              text: createConfigResource(mcpServer)
-            }
-          ]
-        };
-
-      case "help://usage-guide":
-        return {
-          contents: [
-            {
-              uri: uri,
-              mimeType: "text/markdown",
-              text: createHelpResource()
-            }
-          ]
-        };
-
-      default:
-        throw sanitizeErrorForTransport(new Error(`Unknown resource: ${uri}`));
+  mcpServer.registerResource(
+    "Server Configuration",
+    "config://server-config",
+    { mimeType: "application/json", description: "Current server configuration and environment variables" },
+    readConfigResource,
+  );
+  if (modern) {
+    markModernServer(mcpServer);
+  }
+  mcpServer.registerResource(
+    "Usage Guide",
+    "help://usage-guide",
+    { mimeType: "text/markdown", description: "How to use the MCP SearXNG server effectively" },
+    readHelpResource,
+  );
+  // Keep the credential-safe unknown-resource contract while delegating known
+  // resources to the same request-scoped callbacks registered with the SDK.
+  mcpServer.server.setRequestHandler("resources/read", async (request, context) => {
+    if (request.params.uri === "config://server-config") {
+      return readConfigResource(new URL(request.params.uri), context);
     }
+    if (request.params.uri === "help://usage-guide") {
+      return readHelpResource(new URL(request.params.uri), context);
+    }
+    throw sanitizeErrorForTransport(new Error(`Unknown resource: ${request.params.uri}`));
+  });
+  mcpServer.server.setRequestHandler("logging/setLevel", async (request, context) => {
+    const callback = async () => {
+      logMessage(mcpServer, "info", `Setting log level to: ${request.params.level}`);
+      setLogLevel(mcpServer, request.params.level);
+      return {};
+    };
+    return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
   });
 
   return mcpServer;
@@ -461,7 +451,7 @@ export async function main() {
 
     const host = resolveBindHost(process.env.MCP_HTTP_HOST);
     writeDiagnostic("log", `Starting HTTP transport on ${host}:${port}`);
-    const app = await createHttpServer(() => createMcpServer(toolAdmissionController), port);
+    const app = await createHttpServer((modern) => createMcpServer(toolAdmissionController, modern), port);
 
     const httpServer = app.listen(port, host, () => {
       writeDiagnostic("log", `HTTP server listening on ${host}:${port}`);
@@ -482,10 +472,7 @@ export async function main() {
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   } else {
-    // Default STDIO transport — single session, single server
-    const mcpServer = createMcpServer(toolAdmissionController);
-
-    // Show helpful message when running in terminal
+    // Keep connection setup diagnostics on stderr, including non-TTY clients.
     if (process.stdin.isTTY) {
       writeDiagnostic("error", `🔍 MCP SearXNG Server v${packageVersion} - Ready`);
       const searxngInstances = getSearxngInstances();
@@ -498,24 +485,20 @@ export async function main() {
         writeDiagnostic("error", "⚠️  SEARXNG_URL not set — configure it before using search tools");
       }
       writeDiagnostic("error", "📡 Waiting for MCP client connection via STDIO...\n");
+    } else {
+      const searxngInstances = getSearxngInstances();
+      if (searxngInstances.length > 0) {
+        writeDiagnostic(
+          "error",
+          `SearXNG URLs: ${searxngInstances.map(redactSearxngInstanceUrl).join("; ")}`,
+        );
+      } else {
+        writeDiagnostic("error", "SEARXNG_URL not set");
+      }
     }
-    
-    const transport = new StdioServerTransport();
-    await mcpServer.connect(transport);
-    
-    // Log after connection is established
-    logMessage(mcpServer, "info", `MCP SearXNG Server v${packageVersion} connected via STDIO`);
-    logMessage(mcpServer, "info", `Log level: ${getCurrentLogLevel(mcpServer)}`);
-    logMessage(mcpServer, "info", `Environment: ${process.env.NODE_ENV || 'development'}`);
-    const searxngInstances = getSearxngInstances();
-    logMessage(
-      mcpServer,
-      "info",
-      `SearXNG URLs: ${
-        searxngInstances.length > 0
-          ? searxngInstances.map(redactSearxngInstanceUrl).join("; ")
-          : "not configured"
-      }`,
-    );
+
+    serveStdio((context) => createMcpServer(toolAdmissionController, context.era === "modern"), {
+      onerror: (error) => writeDiagnostic("error", sanitizeErrorForTransport(error)),
+    });
   }
 }

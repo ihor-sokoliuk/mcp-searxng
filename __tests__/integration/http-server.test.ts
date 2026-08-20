@@ -7,18 +7,20 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import request from 'supertest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { LOG_LEVEL_META_KEY, McpServer, isLegacyRequest } from '@modelcontextprotocol/server';
 import {
   DEFAULT_STATELESS_MAX_IN_FLIGHT,
   DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP,
   DEFAULT_STATELESS_REQUEST_TIMEOUT_MS,
   MAX_STATELESS_MAX_IN_FLIGHT,
   createHttpServer,
+  missingModernProtocolHeaderError,
   resolveStatelessHttpConfig,
 } from '../../src/http-server.js';
+import { createMcpServer, ToolAdmissionController } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { EnvManager } from '../helpers/env-utils.js';
 import {
@@ -95,18 +97,187 @@ async function assertAllowedMcpPreflight(
   const options = await request(app).options('/mcp')
     .set('Origin', origin)
     .set('Access-Control-Request-Method', 'POST')
-    .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version');
+    .set('Access-Control-Request-Headers', 'Content-Type, mcp-session-id, authorization, mcp-protocol-version, mcp-method, mcp-name, x-attacker');
   assert.equal(options.status, 204);
   assert.equal(options.headers['access-control-allow-origin'], origin);
   assert.match(options.headers.vary || '', /Origin/);
   const allowHeaders = (options.headers['access-control-allow-headers'] || '').toLowerCase();
-  for (const header of ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version']) {
+  for (const header of ['content-type', 'mcp-session-id', 'authorization', 'mcp-protocol-version', 'mcp-method', 'mcp-name']) {
     assert.ok(allowHeaders.includes(header));
   }
+  assert.ok(!allowHeaders.includes('x-attacker'));
 }
 
 async function runTests() {
   console.log('🧪 Integration Testing: http-server.ts\n');
+
+  await testFunction('temporary modern missing-version guard is exact and leaves every other shape to the SDK', () => {
+    const body = {
+      jsonrpc: '2.0', id: 7, method: 'server/discover',
+      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } },
+    };
+    assert.deepEqual(missingModernProtocolHeaderError({}, body), {
+      id: 7,
+      error: {
+        code: -32020,
+        message: 'Bad Request: the request headers and body disagree: the body envelope names protocol version 2026-07-28 but the required MCP-Protocol-Version header is absent',
+        data: { mismatch: { header: '(missing)', body: 'the body envelope names protocol version 2026-07-28 but the required MCP-Protocol-Version header is absent' } },
+      },
+    });
+    assert.equal(missingModernProtocolHeaderError({ 'mcp-protocol-version': ' ' }, body), undefined);
+    assert.equal(missingModernProtocolHeaderError({}, [{ ...body }]), undefined);
+    assert.equal(missingModernProtocolHeaderError({}, { ...body, id: undefined }), undefined);
+    assert.equal(missingModernProtocolHeaderError({}, { ...body, params: {} }), undefined);
+  }, results);
+
+  await testFunction('official classifier keeps a headerless body-primary modern opening out of legacy', async () => {
+    const body = {
+      jsonrpc: '2.0', id: 9, method: 'server/discover',
+      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } },
+    };
+    const webRequest = new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    assert.equal(await isLegacyRequest(webRequest, body), false);
+  }, results);
+
+  await testFunction('non-JSON legacy POST returns 415 before classification or server construction', async () => {
+    let constructions = 0;
+    const app = await createHttpServer(() => {
+      constructions += 1;
+      return createTestMcpServer();
+    });
+    const response = await request(app).post('/mcp')
+      .set('Content-Type', 'text/plain')
+      .send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }));
+    assert.equal(response.status, 415);
+    assert.deepEqual(response.body, {
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Unsupported Media Type' },
+      id: null,
+    });
+    assert.equal(constructions, 0);
+  }, results);
+
+  await testFunction('temporary missing-version guard is pinned to the published server 2.0.0 package', () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed test-only installed package tripwire.
+    const manifest = JSON.parse(readFileSync(
+      new URL('../../node_modules/@modelcontextprotocol/server/package.json', import.meta.url),
+      'utf8',
+    ));
+    assert.equal(
+      manifest.version,
+      '2.0.0',
+      'SDK changed: remove this guard only after proving the stable SDK emits PR-2594 HeaderMismatch itself',
+    );
+  }, results);
+
+  await testFunction('modern HTTP requests compose the official handler and retain the four-tool surface', async () => {
+    const factoryEras: boolean[] = [];
+    const app = await createHttpServer((modern) => {
+      factoryEras.push(modern === true);
+      return createMcpServer(new ToolAdmissionController({
+        rateWindowMs: 60_000,
+        rateMax: 100,
+        maxInFlight: 4,
+      }), modern);
+    });
+    const envelope = {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {},
+    };
+    const modernPost = (body: unknown, method: string, name?: string, sessionId?: string) => {
+      let pending = request(app).post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json')
+        .set('MCP-Protocol-Version', '2026-07-28')
+        .set('MCP-Method', method);
+      if (name) pending = pending.set('MCP-Name', name);
+      if (sessionId) pending = pending.set('MCP-Session-Id', sessionId);
+      return pending.send(body);
+    };
+
+    const discovery = await modernPost({
+      jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: envelope },
+    }, 'server/discover');
+    assert.equal(discovery.status, 200);
+    assert.deepEqual(discovery.body.result.supportedVersions, ['2026-07-28']);
+
+    const tools = await modernPost({
+      jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope },
+    }, 'tools/list');
+    assert.equal(tools.status, 200);
+    assert.deepEqual(tools.body.result.tools.map((tool: { name: string }) => tool.name), [
+      'searxng_web_search', 'searxng_search_suggestions', 'searxng_instance_info', 'web_url_read',
+    ]);
+
+    const resources = await modernPost({
+      jsonrpc: '2.0', id: 3, method: 'resources/list', params: { _meta: envelope },
+    }, 'resources/list', undefined, 'ignored-legacy-session');
+    assert.equal(resources.status, 200);
+    assert.equal(resources.headers['mcp-session-id'], undefined);
+    assert.deepEqual(resources.body.result.resources.map((resource: { uri: string }) => resource.uri), [
+      'config://server-config', 'help://usage-guide',
+    ]);
+
+    const help = await modernPost({
+      jsonrpc: '2.0', id: 4, method: 'resources/read',
+      params: { _meta: envelope, uri: 'help://usage-guide' },
+    }, 'resources/read', 'help://usage-guide');
+    assert.equal(help.status, 200);
+    assert.equal(help.body.result.contents[0].uri, 'help://usage-guide');
+    assert.equal(help.body.result.resultType, 'complete');
+
+    envManager.set('SEARXNG_URL', 'ftp://search.example.com');
+    try {
+      const quietCall = await modernPost({
+        jsonrpc: '2.0', id: 5, method: 'tools/call',
+        params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'quiet' } },
+      }, 'tools/call', 'searxng_web_search');
+      assert.equal(quietCall.status, 200);
+      assert.doesNotMatch(quietCall.text, /notifications\/message/);
+      assert.match(quietCall.text, /"isError":true/);
+      assert.match(quietCall.text, /"resultType":"complete"/);
+
+      const debugCall = await modernPost({
+        jsonrpc: '2.0', id: 6, method: 'tools/call',
+        params: {
+          _meta: { ...envelope, [LOG_LEVEL_META_KEY]: 'debug' },
+          name: 'searxng_web_search',
+          arguments: { query: 'debug' },
+        },
+      }, 'tools/call', 'searxng_web_search');
+      assert.equal(debugCall.status, 200);
+      assert.match(debugCall.text, /notifications\/message/);
+      assert.match(debugCall.text, /Handling call_tool request: searxng_web_search/);
+      assert.match(debugCall.text, /"resultType":"complete"/);
+
+      const [overlappingQuiet, overlappingDebug] = await Promise.all([
+        modernPost({
+          jsonrpc: '2.0', id: 7, method: 'tools/call',
+          params: { _meta: envelope, name: 'searxng_web_search', arguments: { query: 'overlap-quiet' } },
+        }, 'tools/call', 'searxng_web_search'),
+        modernPost({
+          jsonrpc: '2.0', id: 8, method: 'tools/call',
+          params: {
+            _meta: { ...envelope, [LOG_LEVEL_META_KEY]: 'debug' },
+            name: 'searxng_web_search',
+            arguments: { query: 'overlap-debug' },
+          },
+        }, 'tools/call', 'searxng_web_search'),
+      ]);
+      assert.equal(overlappingQuiet.status, 200);
+      assert.doesNotMatch(overlappingQuiet.text, /notifications\/message/);
+      assert.equal(overlappingDebug.status, 200);
+      assert.match(overlappingDebug.text, /Handling call_tool request: searxng_web_search/);
+    } finally {
+      envManager.restore();
+    }
+
+    assert.deepEqual(factoryEras, [true, true, true, true, true, true, true, true]);
+  }, results);
 
   await testFunction('stateless HTTP configuration defaults are disabled and bounded', async () => {
     envManager.delete('MCP_HTTP_STATELESS');
@@ -623,7 +794,7 @@ async function runTests() {
           closes += 1;
           await originalClose();
         };
-        server.server.setRequestHandler(CallToolRequestSchema, async () => {
+        server.server.setRequestHandler('tools/call', async () => {
           startedResolvers.shift()?.();
           await release.promise;
           return { content: [{ type: 'text', text: 'released' }] };
@@ -675,6 +846,74 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('modern handler capacity bounds live servers and returns to zero', async () => {
+    envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT', '2');
+    envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP', '2');
+    envManager.set('MCP_HTTP_TRUST_PROXY', '1');
+    const release = createDeferred();
+    const startedResolvers: Array<() => void> = [];
+    let live = 0;
+    let peak = 0;
+    let constructions = 0;
+
+    try {
+      const app = await createHttpServer(() => {
+        constructions += 1;
+        live += 1;
+        peak = Math.max(peak, live);
+        const server = createTestMcpServer();
+        server.server.onclose = () => {
+          live -= 1;
+        };
+        server.server.setRequestHandler('tools/call', async () => {
+          startedResolvers.shift()?.();
+          await release.promise;
+          return { content: [{ type: 'text', text: 'released' }] };
+        });
+        return server;
+      });
+      const envelope = {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientCapabilities': {},
+      };
+      const body = (id: number) => ({
+        jsonrpc: '2.0', id, method: 'tools/call',
+        params: { _meta: envelope, name: 'hold', arguments: {} },
+      });
+      const postModern = (id: number, ip: string) => request(app).post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json')
+        .set('MCP-Protocol-Version', '2026-07-28')
+        .set('MCP-Method', 'tools/call')
+        .set('MCP-Name', 'hold')
+        .set('X-Forwarded-For', ip)
+        .send(body(id));
+      const waitForStart = () => new Promise<void>((resolve) => startedResolvers.push(resolve));
+
+      const firstStarted = waitForStart();
+      const first = postModern(1, '198.51.100.20').then(response => response);
+      await firstStarted;
+      const secondStarted = waitForStart();
+      const second = postModern(2, '198.51.100.21').then(response => response);
+      await secondStarted;
+      const rejected = await postModern(3, '198.51.100.22');
+      assert.equal(rejected.status, 503);
+      assert.equal(constructions, 2);
+      assert.equal(peak, 2);
+
+      release.resolve();
+      assert.equal((await first).status, 200);
+      assert.equal((await second).status, 200);
+      for (let attempt = 0; attempt < 50 && live !== 0; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.equal(live, 0);
+    } finally {
+      release.resolve();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('stateless capacity rejections consume the selected rate-limit bucket', async () => {
     envManager.set('MCP_HTTP_STATELESS', 'true');
     envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT', '1');
@@ -686,7 +925,7 @@ async function runTests() {
     try {
       const app = await createHttpServer(() => {
         const server = createTestMcpServer();
-        server.server.setRequestHandler(CallToolRequestSchema, async () => {
+        server.server.setRequestHandler('tools/call', async () => {
           started.resolve();
           await release.promise;
           return { content: [{ type: 'text', text: 'released' }] };
@@ -733,7 +972,7 @@ async function runTests() {
     try {
       const app = await createHttpServer(() => {
         const server = createTestMcpServer();
-        server.server.setRequestHandler(CallToolRequestSchema, async () => {
+        server.server.setRequestHandler('tools/call', async () => {
           started.resolve();
           await release.promise;
           return { content: [{ type: 'text', text: 'released' }] };
@@ -862,14 +1101,14 @@ async function runTests() {
             closes += 1;
             await originalClose();
           };
-          server.server.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
+          server.server.setRequestHandler('tools/call', async (_request, extra) => {
             await new Promise<void>((resolve) => {
-              if (extra.signal.aborted) {
+              if (extra.mcpReq.signal.aborted) {
                 abortObserved = true;
                 resolve();
                 return;
               }
-              extra.signal.addEventListener('abort', () => {
+              extra.mcpReq.signal.addEventListener('abort', () => {
                 abortObserved = true;
                 resolve();
               }, { once: true });
@@ -880,8 +1119,9 @@ async function runTests() {
         return server;
       });
       let streamError = '';
+      let timeoutResponse: request.Response | undefined;
       try {
-        await request(app).post('/mcp')
+        timeoutResponse = await request(app).post('/mcp')
           .set('Content-Type', 'application/json')
           .set('Accept', 'application/json, text/event-stream')
           .send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hold', arguments: {} } })
@@ -889,7 +1129,22 @@ async function runTests() {
       } catch (error) {
         streamError = error instanceof Error ? error.message : String(error);
       }
-      assert.match(streamError, /aborted|socket hang up/i);
+      if (timeoutResponse) {
+        if (timeoutResponse.status === 504) {
+          assert.deepEqual(timeoutResponse.body, {
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Stateless request timed out' },
+            id: null,
+          });
+        } else {
+          assert.equal(timeoutResponse.status, 200);
+          assert.doesNotMatch(timeoutResponse.text, /"(?:result|error)"\s*:/);
+          const stream = timeoutResponse.res as { complete?: boolean; aborted?: boolean; destroyed?: boolean };
+          assert.ok(stream.complete === false || stream.aborted === true || stream.destroyed === true);
+        }
+      } else {
+        assert.match(streamError, /aborted|socket hang up/i);
+      }
       await new Promise(resolve => setTimeout(resolve, 50));
       assert.equal(abortObserved, true);
       assert.equal(closes, 1);
@@ -1002,10 +1257,10 @@ async function runTests() {
             closes += 1;
             await originalClose();
           };
-          server.server.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
+          server.server.setRequestHandler('tools/call', async (_request, extra) => {
             handlerStarted.resolve();
             await new Promise<void>((resolve) => {
-              extra.signal.addEventListener('abort', () => {
+              extra.mcpReq.signal.addEventListener('abort', () => {
                 handlerAborted.resolve();
                 resolve();
               }, { once: true });
