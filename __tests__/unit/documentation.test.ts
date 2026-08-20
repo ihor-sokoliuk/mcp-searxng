@@ -67,6 +67,49 @@ function readText(url: URL): string {
   return readFileSync(url, 'utf-8');
 }
 
+function hasDependabotIgnoreEntry(source: string, dependencyName: string): boolean {
+  let updateIndentation = -1;
+  let ignoreIndentation = -1;
+
+  for (const rawLine of source.split(/\r?\n/u)) {
+    const lineWithoutComment = rawLine.replace(/\s+#.*$/u, '');
+    const line = lineWithoutComment.trim();
+    if (line === '') continue;
+
+    const indentation = rawLine.length - rawLine.trimStart().length;
+    if (/^-\s+package-ecosystem\s*:/u.test(line)) {
+      updateIndentation = indentation;
+      ignoreIndentation = -1;
+      continue;
+    }
+    if (updateIndentation === -1) continue;
+    if (indentation <= updateIndentation && /^-\s+/u.test(line)) {
+      updateIndentation = -1;
+      ignoreIndentation = -1;
+      continue;
+    }
+    if (ignoreIndentation !== -1 && indentation <= ignoreIndentation) {
+      ignoreIndentation = -1;
+    }
+    if (indentation > updateIndentation && /^ignore\s*:\s*$/u.test(line)) {
+      ignoreIndentation = indentation;
+      continue;
+    }
+    if (ignoreIndentation === -1 || indentation <= ignoreIndentation) continue;
+
+    const match = line.match(/^-\s*dependency-name\s*:\s*(.+?)\s*$/u);
+    if (match === null) continue;
+    const value = match[1].trim();
+    const unquotedValue = (value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))
+      ? value.slice(1, -1)
+      : value;
+    if (unquotedValue === dependencyName) return true;
+  }
+
+  return false;
+}
+
 function extractFences(markdown: string, language: string): string[] {
   const blocks: string[] = [];
   let active: string[] | null = null;
@@ -225,9 +268,90 @@ export async function runTests(): Promise<TestResult> {
     }
   }, results);
 
-  await testFunction('README states the supported Node runtime floor', () => {
+  await testFunction('README and public workflow metadata state the Node support policy', () => {
     const readme = readText(new URL('../../README.md', import.meta.url));
-    assert.ok(readme.includes('Requires Node.js 20 or later.'));
+    const ci = readText(new URL('../../.github/workflows/ci.yml', import.meta.url));
+    const codeql = readText(new URL('../../.github/workflows/codeql.yml', import.meta.url));
+    const scorecard = readText(new URL('../../.github/workflows/scorecard.yml', import.meta.url));
+    const dockerPublish = readText(new URL('../../.github/workflows/docker-publish.yml', import.meta.url));
+    const dockerRebuild = readText(new URL('../../.github/workflows/docker-rebuild.yml', import.meta.url));
+    const dependabot = readText(new URL('../../.github/dependabot.yml', import.meta.url));
+    const packageManifest = JSON.parse(readText(new URL('../../package.json', import.meta.url))) as {
+      dependencies?: Record<string, unknown>;
+      engines?: Record<string, unknown>;
+      version?: unknown;
+    };
+
+    assert.equal(packageManifest.version, '1.16.0');
+    assert.equal(packageManifest.engines?.node, '>=20');
+    assert.equal(packageManifest.dependencies?.['express-rate-limit'], '^8.5.2');
+
+    assert.ok(readme.includes('Node.js 20 remains supported but is deprecated and end-of-life.'));
+    assert.ok(readme.includes('Node.js 22 or later is recommended.'));
+    assert.ok(readme.includes('Node.js 20 will be removed only in a future major release.'));
+
+    const matrix = ci.match(/^\s*node-version:\s*\[([^\]]+)\]\s*$/mu);
+    assert.ok(matrix, 'CI must declare an inline Node version matrix');
+    assert.deepEqual(
+      [...matrix[1].matchAll(/['"]([^'"]+)['"]/gu)].map((match) => match[1]),
+      ['20', '22', '24', '26.7.0'],
+    );
+    const jobs = ci.slice(ci.indexOf('jobs:'));
+    assert.deepEqual((jobs.match(/^  [A-Za-z0-9_-]+:\s*$/gmu) ?? []).map((line) => line.trim()), ['test:']);
+    assert.match(ci, /uses:\s*actions\/checkout@/u);
+    assert.match(ci, /uses:\s*actions\/setup-node@/u);
+    assert.match(ci, /cache:\s*['"]npm['"]/u);
+    for (const command of [
+      /run:\s*npm ci/u,
+      /run:\s*npm run lint/u,
+      /run:\s*npm run build/u,
+      /run:\s*npm run test:coverage/u,
+    ]) {
+      assert.match(ci, command);
+    }
+    assert.doesNotMatch(ci, /^\s*include\s*:/mu);
+    assert.doesNotMatch(ci, /^\s*if\s*:/mu);
+    assert.doesNotMatch(ci, /continue-on-error\s*:/u);
+
+    const oldCodeqlSha = 'e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81';
+    const newCodeqlSha = 'ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd';
+    for (const workflow of [codeql, scorecard]) {
+      assert.ok(!workflow.includes(oldCodeqlSha));
+      const codeqlReferences = [
+        ...workflow.matchAll(/uses:\s*github\/codeql-action\/[^@\s]+@([a-f0-9]{40})\s*#\s*(v[^\s]+)/gu),
+      ];
+      assert.ok(codeqlReferences.length > 0, 'workflow must retain CodeQL action references');
+      for (const reference of codeqlReferences) {
+        assert.equal(reference[1], newCodeqlSha);
+        assert.equal(reference[2], 'v4.37.7');
+      }
+    }
+
+    const oldDockerLoginSha = 'abd2ef45e78c5afb21d64d4ca52ee8550d9572c7';
+    const newDockerLoginSha = 'dbcb813823bdd20940b903addbd779551569679f';
+    for (const workflow of [dockerPublish, dockerRebuild]) {
+      assert.ok(!workflow.includes(oldDockerLoginSha));
+      const dockerLoginReferences = [
+        ...workflow.matchAll(/uses:\s*docker\/login-action@([a-f0-9]{40})\s*#\s*(v[^\s]+)/gu),
+      ];
+      assert.equal(dockerLoginReferences.length, 1);
+      assert.equal(dockerLoginReferences[0][1], newDockerLoginSha);
+      assert.equal(dockerLoginReferences[0][2], 'v4.6.0');
+    }
+
+    const ignoredUnpdfFixture = `updates:
+  - package-ecosystem: npm
+    ignore:
+      - dependency-name: "unpdf" # controlled ignored package
+`;
+    const allowedUnpdfFixture = `updates:
+  - package-ecosystem: npm
+    allow:
+      - dependency-name: unpdf # controlled allowed package
+`;
+    assert.ok(hasDependabotIgnoreEntry(ignoredUnpdfFixture, 'unpdf'));
+    assert.ok(!hasDependabotIgnoreEntry(allowedUnpdfFixture, 'unpdf'));
+    assert.ok(!hasDependabotIgnoreEntry(dependabot, 'unpdf'));
   }, results);
 
   await testFunction('cookbook exists and README links to it', () => {

@@ -181,7 +181,7 @@ For SearXNG deployment, configuration, and troubleshooting, see
 
 ## Installation
 
-Requires Node.js 20 or later.
+Node.js 20 remains supported but is deprecated and end-of-life. Node.js 22 or later is recommended. Node.js 20 will be removed only in a future major release.
 
 <details>
 <summary>NPM (global install)</summary>
