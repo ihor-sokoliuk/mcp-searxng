@@ -100,25 +100,31 @@ async function startAdmissionHttpCli(stateless = false): Promise<{ url: URL; clo
     windowsHide: true,
   });
   const url = new URL(`http://127.0.0.1:${port}/mcp`);
+  const close = async () => {
+    if (child.exitCode !== null) return;
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    child.kill('SIGTERM');
+    await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, 5000))]);
+    if (child.exitCode === null) child.kill('SIGKILL');
+  };
   const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Admission HTTP CLI exited early with ${child.exitCode}`);
-    try {
-      const response = await fetch(new URL('/health', url));
-      if (response.ok) break;
-    } catch { /* server is still starting */ }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  try {
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error(`Admission HTTP CLI exited early with ${child.exitCode}`);
+      try {
+        const response = await fetch(new URL('/health', url));
+        if (response.ok) break;
+      } catch { /* server is still starting */ }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (Date.now() >= deadline) throw new Error('Admission HTTP CLI did not become healthy');
+  } catch (error) {
+    await close();
+    throw error;
   }
-  if (Date.now() >= deadline) throw new Error('Admission HTTP CLI did not become healthy');
   return {
     url,
-    close: async () => {
-      if (child.exitCode !== null) return;
-      const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
-      child.kill('SIGTERM');
-      await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, 5000))]);
-      if (child.exitCode === null) child.kill('SIGKILL');
-    },
+    close,
   };
 }
 
