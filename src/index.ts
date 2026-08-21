@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-deprecated -- the v2 request-scoped compatibility log bridge is required. */
 import { McpServer, fromJsonSchema, type ReadResourceCallback } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
@@ -284,9 +283,13 @@ function registerMcpTools(mcpServer: McpServer, modern: boolean, callTool: CallT
         annotations: tool.annotations,
         inputSchema: fromJsonSchema(tool.inputSchema as Record<string, unknown>),
       },
-      async (args, context) => (modern
-        ? runWithModernLog(context.mcpReq.log, () => callTool(tool.name, args, context.mcpReq.signal))
-        : callTool(tool.name, args, context.mcpReq.signal)),
+      async (args, context) => {
+        if (modern) {
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- required compatibility log bridge
+          return runWithModernLog(context.mcpReq.log, () => callTool(tool.name, args, context.mcpReq.signal));
+        }
+        return callTool(tool.name, args, context.mcpReq.signal);
+      },
     );
   };
   registerTool(useLiteTools ? LITE_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL);
@@ -308,6 +311,7 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
       logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri.href}`);
       return { contents: [{ uri: uri.href, mimeType: "application/json", text: createConfigResource(mcpServer) }] };
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- required compatibility log bridge
     return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
   };
   const readHelpResource: ReadResourceCallback = async (uri, context) => {
@@ -315,6 +319,7 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
       logMessage(mcpServer, "debug", `Handling read_resource request for: ${uri.href}`);
       return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: createHelpResource() }] };
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- required compatibility log bridge
     return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
   };
 
@@ -324,7 +329,6 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
     { mimeType: "application/json", description: "Current server configuration and environment variables" },
     readConfigResource,
   );
-  if (modern) markModernServer(mcpServer);
   mcpServer.registerResource(
     "Usage Guide",
     "help://usage-guide",
@@ -348,6 +352,7 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
       setLogLevel(mcpServer, request.params.level);
       return {};
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- required compatibility log bridge
     return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
   });
 }
@@ -374,6 +379,7 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
       },
     }
   );
+  if (modern) markModernServer(mcpServer);
 
   const callTool = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallResult> => {
     const admission = admissionController.admit();

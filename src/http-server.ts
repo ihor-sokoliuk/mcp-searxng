@@ -418,7 +418,16 @@ export async function createHttpServer(
     };
   }
 
-  const postRateLimiter: express.RequestHandler = (req, res, next) => {
+  const postRateLimiter: express.RequestHandler = async (req, res, next) => {
+    if (!req.is("application/json")) {
+      // Invalid media types still consume the hostile/initialization bucket,
+      // but never enter protocol classification before the fixed 415 response.
+      res.locals.mcpModernRequest = false;
+      initLimiter(req, res, next);
+      return;
+    }
+    const modern = !(await isLegacyRequest(await toWebRequest(req, req.body), req.body));
+    res.locals.mcpModernRequest = modern;
     if (stateless.enabled) {
       const selectedLimiter = isInitializeRequest(req.body)
         ? initLimiter
@@ -427,12 +436,10 @@ export async function createHttpServer(
       return;
     }
     const sessionId = req.headers['mcp-session-id'];
-    const claimsModernProtocol = req.headers['mcp-protocol-version'] === MODERN_PROTOCOL_VERSION
-      || modernRequestWithClaim(req.body) !== undefined;
     // Node comma-joins duplicate custom headers. Only one exact live session ID
     // on a retained legacy request selects the generous bucket. Modern requests
     // are sessionless and cannot borrow capacity through a legacy session header.
-    const selectedLimiter = !claimsModernProtocol
+    const selectedLimiter = !modern
       && typeof sessionId === 'string'
       && sessions.has(sessionId)
       ? sessionLimiter
@@ -458,7 +465,7 @@ export async function createHttpServer(
       return;
     }
 
-    const modern = !(await isLegacyRequest(await toWebRequest(req, req.body), req.body));
+    const modern = res.locals.mcpModernRequest === true;
     if (modern) {
       const headerError = missingModernProtocolHeaderError(req.headers, req.body);
       if (headerError) {
@@ -670,10 +677,9 @@ export async function createHttpServer(
       return;
     }
 
+    if (rejectInvalidHostHeader(req, res)) return;
+
     if (stateless.enabled) {
-      if (rejectInvalidHostHeader(req, res)) {
-        return;
-      }
       res.set('Allow', 'POST').status(405).json({
         jsonrpc: '2.0',
         error: { code: -32000, message: 'Method not allowed' },
@@ -713,10 +719,9 @@ export async function createHttpServer(
       return;
     }
 
+    if (rejectInvalidHostHeader(req, res)) return;
+
     if (stateless.enabled) {
-      if (rejectInvalidHostHeader(req, res)) {
-        return;
-      }
       res.set('Allow', 'POST').status(405).json({
         jsonrpc: '2.0',
         error: { code: -32000, message: 'Method not allowed' },

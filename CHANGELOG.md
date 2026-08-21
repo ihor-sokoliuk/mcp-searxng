@@ -5,6 +5,30 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.0.0] - 2026-08-20
+
+### Breaking Changes
+
+- **Node.js 22 or later is now required:** Node.js 20 is no longer supported, and the PDF extraction runtime now uses `unpdf` 1.8.1 with loading-task teardown. Consumers and deployments must upgrade to Node.js 22 or a newer supported release before installing mcp-searxng 2.0.0. ([#251](https://github.com/ihor-sokoliuk/mcp-searxng/pull/251), [#253](https://github.com/ihor-sokoliuk/mcp-searxng/pull/253))
+
+- **STDIO post-connect logging notifications were removed:** The modern protocol deprecates MCP logging notifications, so clients must no longer rely on the former post-connect version, log-level, environment, or configured-instance notices. Interactive launches retain version and configured-instance connection diagnostics on sanitized stderr; non-TTY launches retain configured-instance status there. Tool and resource behavior is unchanged. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+- **The npm package is now executable-only:** The accidental programmatic module entry point has been removed, and direct package imports such as `createMcpServer` are no longer a supported integration surface. Run mcp-searxng through its CLI, `npx`, or container and communicate with it through MCP. Standard MCP client configuration, tool calls, resources, CLI usage, and container deployments are unchanged. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+- **HTTP requests now use the modern protocol's validation and capacity boundaries:** Every `POST /mcp` requires `Content-Type: application/json` or receives HTTP 415. When HTTP hardening enables Host validation, it now covers retained stateful as well as stateless requests. Modern sessionless POSTs require the matching `MCP-Protocol-Version: 2026-07-28` header, use the initialization rate-limit bucket, and are bounded by `MCP_HTTP_STATELESS_MAX_IN_FLIGHT`, `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP`, and `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` even when legacy `MCP_HTTP_STATELESS` mode is disabled; overload and timeout responses are HTTP 503 and 504. Before upgrading, custom HTTP clients must send the required content type and protocol header, hardened deployments must allow the intended Host values, and operators should tune the documented capacity limits for expected modern traffic. STDIO users are unaffected. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+### Added
+
+- **Modern MCP protocol serving with the official split SDK v2 packages:** HTTP and STDIO now support the modern `2026-07-28` protocol while retaining the documented legacy transports, tool and resource contracts, admission controls, credential-safe diagnostics, and bounded HTTP cleanup. Modern HTTP requests are sessionless POST operations; legacy stateful and stateless behavior keeps its documented session boundaries. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+### Security
+
+- **Process-wide tool invocation admission now protects every transport:** STDIO, stateful HTTP, and stateless HTTP share a bounded fixed-window tool-call rate and a hard no-queue in-flight ceiling. Operators can tune `MCP_TOOL_RATE_WINDOW_MS`, `MCP_TOOL_RATE_MAX`, and `MCP_TOOL_MAX_IN_FLIGHT`; exhausted calls receive a sanitized retryable result while initialization, discovery, resources, logging, and health checks remain available. ([#254](https://github.com/ihor-sokoliuk/mcp-searxng/pull/254))
+
+### Contributors
+
+- @app/dependabot - [#252](https://github.com/ihor-sokoliuk/mcp-searxng/pull/252) chore(deps): bump docker/setup-buildx-action from 4.2.0 to 4.3.0 in the github-actions group across 1 directory
+
 ## [1.16.0] - 2026-08-19
 
 ### Added

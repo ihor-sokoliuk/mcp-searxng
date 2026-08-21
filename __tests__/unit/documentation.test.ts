@@ -153,7 +153,7 @@ function hasDependabotIgnoreEntry(source: string, dependencyName: string): boole
 function assertPackageMetadata(): void {
   const packageManifest = JSON.parse(readText(new URL('../../package.json', import.meta.url))) as PackageManifest;
   const packageLock = JSON.parse(readText(new URL('../../package-lock.json', import.meta.url))) as PackageLock;
-  assert.equal(packageManifest.version, '1.16.0');
+  assert.equal(packageManifest.version, '2.0.0');
   assert.equal(packageManifest.engines?.node, '>=22');
   assert.equal(packageManifest.dependencies?.unpdf, '1.8.1');
   assert.equal(packageLock.packages?.[''].engines?.node, '>=22');

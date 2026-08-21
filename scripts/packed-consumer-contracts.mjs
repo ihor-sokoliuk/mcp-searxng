@@ -150,6 +150,17 @@ function assertInstalledPackageSafe(installedPackage) {
   if (!installedPackage || typeof installedPackage !== 'object') {
     fail('artifact_metadata', 'installed package manifest is missing');
   }
+  if (installedPackage.main !== undefined) {
+    fail('artifact_metadata', 'programmatic main entrypoint is forbidden');
+  }
+  if (
+    !installedPackage.exports
+    || typeof installedPackage.exports !== 'object'
+    || Array.isArray(installedPackage.exports)
+    || Object.keys(installedPackage.exports).length !== 0
+  ) {
+    fail('artifact_metadata', 'package exports must block programmatic imports');
+  }
   if (installedPackage.dependencies?.['@modelcontextprotocol/sdk'] !== undefined) {
     fail('artifact_metadata', 'legacy monolithic SDK dependency is forbidden');
   }

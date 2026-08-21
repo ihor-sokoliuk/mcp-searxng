@@ -260,22 +260,33 @@ async function runTests() {
     assert.equal(await isLegacyRequest(webRequest, body), false);
   }, results);
 
-  await testFunction('non-JSON legacy POST returns 415 before classification or server construction', async () => {
+  await testFunction('non-JSON POST uses the init limiter and returns 415 before server construction', async () => {
+    envManager.set('MCP_RATE_INIT_MAX', '1');
     let constructions = 0;
-    const app = await createHttpServer(() => {
-      constructions += 1;
-      return createTestMcpServer();
-    });
-    const response = await request(app).post('/mcp')
-      .set('Content-Type', 'text/plain')
-      .send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }));
-    assert.equal(response.status, 415);
-    assert.deepEqual(response.body, {
-      jsonrpc: '2.0',
-      error: { code: -32000, message: 'Unsupported Media Type' },
-      id: null,
-    });
-    assert.equal(constructions, 0);
+    try {
+      const app = await createHttpServer(() => {
+        constructions += 1;
+        return createTestMcpServer();
+      });
+      const response = await request(app).post('/mcp')
+        .set('Content-Type', 'text/plain')
+        .send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }));
+      assert.equal(response.status, 415);
+      assert.equal(response.headers['ratelimit-limit'], '1');
+      assert.deepEqual(response.body, {
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Unsupported Media Type' },
+        id: null,
+      });
+
+      const exhausted = await request(app).post('/mcp')
+        .set('Content-Type', 'text/plain')
+        .send('{}');
+      assert.equal(exhausted.status, 429);
+      assert.equal(constructions, 0);
+    } finally {
+      envManager.restore();
+    }
   }, results);
 
   await testFunction('temporary missing-version guard is pinned to the published server 2.0.0 package', () => {
@@ -677,6 +688,31 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('hardened stateful GET and DELETE reject disallowed Host values', async () => {
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'stateful-host-test-token');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://client.example');
+    envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'allowed.example');
+
+    try {
+      const app = await createHttpServer(() => createTestMcpServer());
+      const expected = {
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Invalid Host header' },
+        id: null,
+      };
+      for (const method of ['get', 'delete'] as const) {
+        const response = await request(app)[method]('/mcp')
+          .set('Authorization', 'Bearer stateful-host-test-token')
+          .set('Host', 'attacker.example');
+        assert.equal(response.status, 403);
+        assert.deepEqual(response.body, expected);
+      }
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
 
   await testFunction('stateless POST limiter selection uses the request body and ignores session headers', async () => {
     envManager.set('MCP_HTTP_STATELESS', 'true');
@@ -928,6 +964,57 @@ async function runTests() {
       assert.equal(live, 0);
     } finally {
       release.resolve();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('modern default-mode timeout returns 504 and restores capacity', async () => {
+    envManager.delete('MCP_HTTP_STATELESS');
+    envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT', '1');
+    envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP', '1');
+    envManager.set('MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS', '1000');
+    const never = new Promise<void>(() => undefined);
+    let constructions = 0;
+
+    try {
+      const app = await createHttpServer(() => {
+        constructions += 1;
+        const server = createTestMcpServer();
+        if (constructions === 1) {
+          server.connect = async () => {
+            await never;
+          };
+        }
+        return server;
+      });
+      const modernBody = (id: number) => ({
+        jsonrpc: '2.0', id, method: 'tools/list',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      });
+      const postModern = (id: number) => request(app).post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json')
+        .set('MCP-Protocol-Version', '2026-07-28')
+        .set('MCP-Method', 'tools/list')
+        .send(modernBody(id));
+
+      const timedOut = await postModern(1).timeout({ deadline: 2000 });
+      assert.equal(timedOut.status, 504);
+      assert.deepEqual(timedOut.body, {
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Stateless request timed out' },
+        id: null,
+      });
+
+      const recovered = await postModern(2);
+      assert.equal(recovered.status, 200);
+      assert.equal(constructions, 2);
+    } finally {
       envManager.restore();
     }
   }, results);
@@ -1824,7 +1911,7 @@ async function runTests() {
   }, results);
 
   await testFunction('Rate limiting: modern POSTs cannot borrow a live legacy session bucket', async () => {
-    envManager.set('MCP_RATE_INIT_MAX', '2');
+    envManager.set('MCP_RATE_INIT_MAX', '3');
     envManager.set('MCP_RATE_SESSION_MAX', '11');
     envManager.set('MCP_RATE_WINDOW_MS', '60000');
     const app = await createHttpServer((modern) => createMcpServer(new ToolAdmissionController({
@@ -1865,13 +1952,29 @@ async function runTests() {
       .send(modernBody(id));
 
     const accepted = await modernPost(2);
-    const blocked = await modernPost(3);
+    const unsupportedClaim = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json')
+      .set('mcp-session-id', sessionId)
+      .send({
+        jsonrpc: '2.0', id: 3, method: 'server/discover',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2099-01-01',
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      });
+    const blocked = await modernPost(4);
     envManager.restore();
 
     assert.equal(accepted.status, 200);
-    assert.equal(accepted.headers['ratelimit-limit'], '2');
+    assert.equal(accepted.headers['ratelimit-limit'], '3');
+    assert.notEqual(unsupportedClaim.status, 429);
+    assert.equal(unsupportedClaim.headers['ratelimit-limit'], '3');
     assert.equal(blocked.status, 429);
-    assert.equal(blocked.headers['ratelimit-limit'], '2');
+    assert.equal(blocked.headers['ratelimit-limit'], '3');
     assert.equal(blocked.body.error.code, -32029);
   }, results);
 

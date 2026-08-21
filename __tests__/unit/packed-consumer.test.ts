@@ -226,6 +226,7 @@ async function runWorkflowContractTests(): Promise<void> {
         },
         {
           name: 'mcp-searxng',
+          exports: {},
           dependencies: {
             '@modelcontextprotocol/server': '2.0.0',
           },
@@ -242,7 +243,7 @@ async function runWorkflowContractTests(): Promise<void> {
             { path: 'npm-shrinkwrap.json' },
           ],
         },
-        { name: 'mcp-searxng', dependencies: {} },
+        { name: 'mcp-searxng', exports: {}, dependencies: {} },
       ),
       /artifact_metadata:.*shrinkwrap/,
     );
@@ -254,6 +255,7 @@ async function runWorkflowContractTests(): Promise<void> {
         },
         {
           name: 'mcp-searxng',
+          exports: {},
           dependencies: { '@modelcontextprotocol/sdk': '1.30.0' },
         },
       ),
@@ -262,7 +264,7 @@ async function runWorkflowContractTests(): Promise<void> {
     assert.throws(
       () => assertArtifactMetadata(
         { filename: 'mcp-searxng-1.12.0.tgz', files: [null] },
-        { name: 'mcp-searxng', dependencies: {} },
+        { name: 'mcp-searxng', exports: {}, dependencies: {} },
       ),
       /artifact_metadata:.*file entry/,
     );
@@ -272,9 +274,37 @@ async function runWorkflowContractTests(): Promise<void> {
           filename: 'mcp-searxng-1.12.0.tgz',
           files: [{ path: 'package.json' }, { path: 'dist/cli.js' }],
         },
-        { name: 'mcp-searxng', dependencies: {} },
+        { name: 'mcp-searxng', exports: {}, dependencies: {} },
       ),
       /artifact_metadata:.*pdf-worker\.js/,
+    );
+    assert.throws(
+      () => assertArtifactMetadata(
+        {
+          filename: 'mcp-searxng-1.12.0.tgz',
+          files: [{ path: 'package.json' }, { path: 'dist/pdf-worker.js' }],
+        },
+        {
+          name: 'mcp-searxng',
+          main: 'dist/index.js',
+          exports: {},
+          dependencies: {},
+        },
+      ),
+      /artifact_metadata:.*main entrypoint/,
+    );
+    assert.throws(
+      () => assertArtifactMetadata(
+        {
+          filename: 'mcp-searxng-1.12.0.tgz',
+          files: [{ path: 'package.json' }, { path: 'dist/pdf-worker.js' }],
+        },
+        {
+          name: 'mcp-searxng',
+          dependencies: {},
+        },
+      ),
+      /artifact_metadata:.*exports/,
     );
   }, results);
 
@@ -339,6 +369,7 @@ async function runOrchestrationTests(): Promise<void> {
           path.join(installedPackageDirectory, 'package.json'),
           JSON.stringify({
             name: 'mcp-searxng',
+            exports: {},
             dependencies: { '@modelcontextprotocol/server': '2.0.0' },
           }),
         );
@@ -457,6 +488,7 @@ async function runOrchestrationTests(): Promise<void> {
           path.join(installedPackageDirectory, 'package.json'),
           JSON.stringify({
             name: 'mcp-searxng',
+            exports: {},
             dependencies: { '@modelcontextprotocol/server': '2.0.0' },
           }),
         );
