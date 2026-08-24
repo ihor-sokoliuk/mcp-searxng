@@ -137,6 +137,29 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('fails closed when any configured instance /config is unavailable', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://up.example.com;https://down.example.com');
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url, options) => {
+      if (new URL(url.toString()).origin === 'https://down.example.com') {
+        throw new Error('temporary outage');
+      }
+      return createMockFetch({ json: makeConfig() })(url, options);
+    });
+
+    const support = await getEngineTimeRangeSupport(mockServer as any, ['google', 'brave']);
+
+    assert.deepEqual(support, {
+      supported: [],
+      unsupported: [],
+      unknown: ['google', 'brave'],
+    });
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('returns category names when /config categories is an array of strings', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
