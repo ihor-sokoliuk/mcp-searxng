@@ -410,6 +410,14 @@ export async function getEngineTimeRangeSupport(
     return null;
   }
 
+  if (result.failures.length > 0) {
+    return {
+      supported: [],
+      unsupported: [],
+      unknown: [...requestedEngines],
+    };
+  }
+
   const supported: string[] = [];
   const unsupported: string[] = [];
   const unknown: string[] = [];

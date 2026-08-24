@@ -1700,6 +1700,35 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('partial multi-instance /config failure rejects time_range before search', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://up.example.com;https://down.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    fetchMocker.mock(async (url, options) => {
+      requestedUrls.push(url.toString());
+      if (new URL(url.toString()).origin === 'https://down.example.com') {
+        throw new Error('temporary outage');
+      }
+      return createMockFetch({ json: makeConfigWithEngines() })(url, options);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'AI', 1, 'year', undefined, undefined, undefined, undefined, undefined, 'google');
+      assert.fail('Expected partial capability discovery failure to reject the search');
+    } catch (error: any) {
+      assert.ok(error.message.includes('google'), error.message);
+      assert.ok(error.message.includes('time_range=year'), error.message);
+    }
+
+    assert.equal(requestedUrls.length, 2);
+    assert.ok(requestedUrls.every((requestedUrl) => new URL(requestedUrl).pathname.endsWith('/config')));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('mixed-case engines and categories normalize to canonical /config names', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
