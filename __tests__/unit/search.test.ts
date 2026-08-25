@@ -53,10 +53,11 @@ function makeConfigWithEngines() {
   return {
     categories: ['general', 'news', 'social media'],
     engines: [
-      { name: 'google', disabled: false },
-      { name: 'ddg', disabled: false },
-      { name: 'bing', disabled: true },
-      { name: 'semantic scholar', disabled: false },
+      { name: 'google', disabled: false, time_range_support: true },
+      { name: 'ddg', disabled: false, time_range_support: true },
+      { name: 'github', disabled: false, time_range_support: false },
+      { name: 'bing', disabled: true, time_range_support: true },
+      { name: 'semantic scholar', disabled: false, time_range_support: false },
     ],
   };
 }
@@ -1616,6 +1617,113 @@ async function runTests() {
     assert.equal(requestedUrls.length, 2, 'Expected /config validation before search');
     const searchUrl = requestedUrls[1];
     assert.equal(new URL(searchUrl).searchParams.get('engines'), 'google,ddg');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('explicit engine with unsupported time_range is rejected before search', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      return createMockFetch({ json: makeConfigWithEngines() })(url);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'AI', 1, 'year', undefined, undefined, undefined, undefined, undefined, 'github');
+      assert.fail('Expected incompatible time_range to be rejected');
+    } catch (error: any) {
+      assert.ok(error.message.includes('github'), error.message);
+      assert.ok(error.message.includes('time_range=year'), error.message);
+      assert.ok(error.message.includes('misleading empty result'), error.message);
+    }
+
+    assert.equal(requestedUrls.length, 1);
+    assert.ok(new URL(requestedUrls[0]).pathname.endsWith('/config'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('explicit engine with supported time_range reaches search unchanged', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      const parsedUrl = new URL(url.toString());
+      return createMockFetch({
+        json: parsedUrl.pathname.endsWith('/config') ? makeConfigWithEngines() : { results: [] },
+      })(url);
+    });
+
+    await performWebSearch(mockServer as any, 'AI', 1, 'year', undefined, undefined, undefined, undefined, undefined, 'google');
+
+    assert.equal(requestedUrls.length, 2);
+    const searchUrl = new URL(requestedUrls[1]);
+    assert.equal(searchUrl.searchParams.get('engines'), 'google');
+    assert.equal(searchUrl.searchParams.get('time_range'), 'year');
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('unavailable /config rejects explicit engine plus time_range without searching', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    fetchMocker.mock(async (url) => {
+      requestedUrls.push(url.toString());
+      return createMockFetch({ ok: false, status: 403, statusText: 'Forbidden' })(url);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'AI', 1, 'year', undefined, undefined, undefined, undefined, undefined, 'github');
+      assert.fail('Expected unavailable capability discovery to stop the search');
+    } catch (error: any) {
+      assert.ok(error.message.includes('/config is unavailable'), error.message);
+      assert.ok(error.message.includes('omit time_range') || error.message.includes('Omit time_range'), error.message);
+    }
+
+    assert.equal(requestedUrls.length, 1);
+    assert.ok(new URL(requestedUrls[0]).pathname.endsWith('/config'));
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('partial multi-instance /config failure rejects time_range before search', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://up.example.com;https://down.example.com');
+
+    const mockServer = createMockServer();
+    const requestedUrls: string[] = [];
+    fetchMocker.mock(async (url, options) => {
+      requestedUrls.push(url.toString());
+      if (new URL(url.toString()).origin === 'https://down.example.com') {
+        throw new Error('temporary outage');
+      }
+      return createMockFetch({ json: makeConfigWithEngines() })(url, options);
+    });
+
+    try {
+      await performWebSearch(mockServer as any, 'AI', 1, 'year', undefined, undefined, undefined, undefined, undefined, 'google');
+      assert.fail('Expected partial capability discovery failure to reject the search');
+    } catch (error: any) {
+      assert.ok(error.message.includes('google'), error.message);
+      assert.ok(error.message.includes('time_range=year'), error.message);
+    }
+
+    assert.equal(requestedUrls.length, 2);
+    assert.ok(requestedUrls.every((requestedUrl) => new URL(requestedUrl).pathname.endsWith('/config')));
 
     fetchMocker.restore();
     envManager.restore();

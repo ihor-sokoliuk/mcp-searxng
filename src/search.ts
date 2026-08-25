@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { parse } from "node-html-parser";
 import { SearXNGWeb, type ResultDetail } from "./types.js";
-import { getKnownCategories, getKnownEngines } from "./instance-info.js";
+import { getEngineTimeRangeSupport, getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import { logMessage } from "./logging.js";
 import { searchCache } from "./search-cache.js";
@@ -348,6 +348,34 @@ type FailedInstanceResult = {
 
 type ResponseFormat = "text" | "json";
 const warnedInvalidDefaultResponseFormat = new WeakSet<McpServer>();
+
+async function validateTimeRangeSupport(
+  mcpServer: McpServer,
+  engines: string | undefined,
+  timeRange: string | undefined,
+): Promise<void> {
+  if (!engines || !timeRange) {
+    return;
+  }
+
+  const requestedEngines = splitCommaSeparated(engines);
+  const support = await getEngineTimeRangeSupport(mcpServer, requestedEngines);
+  if (support === null) {
+    throw new MCPSearXNGError(
+      `Cannot verify whether the selected engines support time_range=${timeRange} because SearXNG /config is unavailable. ` +
+      "Retry after capability discovery is available, or omit time_range."
+    );
+  }
+
+  const incompatible = [...support.unsupported, ...support.unknown];
+  if (incompatible.length > 0) {
+    throw new MCPSearXNGError(
+      `The selected ${incompatible.length === 1 ? "engine does" : "engines do"} not confirm support for ` +
+      `time_range=${timeRange}: ${incompatible.join(", ")}. SearXNG skips incompatible engines and can return a misleading empty result. ` +
+      "Omit time_range or use an engine-specific query filter; this adapter will not silently change the requested filter."
+    );
+  }
+}
 
 async function normalizeSearchFilters(
   mcpServer: McpServer,
@@ -841,6 +869,7 @@ export async function performWebSearch(
   }
 
   const filters = await normalizeSearchFilters(mcpServer, categories, engines);
+  await validateTimeRangeSupport(mcpServer, filters.engines, time_range);
 
   // Build detailed log message with all parameters
   const searchParams = [

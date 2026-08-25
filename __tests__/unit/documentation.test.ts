@@ -43,6 +43,14 @@ const baseComposeUrl = new URL('../../docker-compose.yml', import.meta.url);
 const resourceOverlayUrl = new URL('../../docker-compose.resources.yml', import.meta.url);
 const httpOverlayUrl = new URL('../../docker-compose.http.yml', import.meta.url);
 const markdownFence = String.fromCharCode(96).repeat(3);
+const workflowUrls = {
+  ci: new URL('../../.github/workflows/ci.yml', import.meta.url),
+  codeql: new URL('../../.github/workflows/codeql.yml', import.meta.url),
+  dockerPublish: new URL('../../.github/workflows/docker-publish.yml', import.meta.url),
+  dockerRebuild: new URL('../../.github/workflows/docker-rebuild.yml', import.meta.url),
+  npmPublish: new URL('../../.github/workflows/npm-publish.yml', import.meta.url),
+  scorecard: new URL('../../.github/workflows/scorecard.yml', import.meta.url),
+};
 
 const expectedMatrixRows = [
   '| Claude Desktop | Yes | Yes | No |',
@@ -78,13 +86,14 @@ type YamlLine = {
 };
 
 type PackageManifest = {
-  dependencies?: Record<string, unknown>;
   engines?: Record<string, unknown>;
-  version?: unknown;
 };
 
-type PackageLock = {
-  packages?: Record<string, PackageManifest>;
+type WorkflowActionReference = {
+  repository: string;
+  release: string | undefined;
+  sha: string;
+  sourceName: string;
 };
 
 function toYamlLine(rawLine: string): YamlLine {
@@ -150,49 +159,55 @@ function hasDependabotIgnoreEntry(source: string, dependencyName: string): boole
   return false;
 }
 
-function assertPackageMetadata(): void {
+function minimumNodeMajor(): number {
   const packageManifest = JSON.parse(readText(new URL('../../package.json', import.meta.url))) as PackageManifest;
-  const packageLock = JSON.parse(readText(new URL('../../package-lock.json', import.meta.url))) as PackageLock;
-  assert.equal(packageManifest.version, '2.0.0');
-  assert.equal(packageManifest.engines?.node, '>=22');
-  assert.equal(packageManifest.dependencies?.unpdf, '1.8.1');
-  assert.equal(packageLock.packages?.[''].engines?.node, '>=22');
-  assert.equal(packageLock.packages?.[''].dependencies?.unpdf, '1.8.1');
-  assert.equal(packageManifest.dependencies?.['express-rate-limit'], '^8.5.2');
+  const nodePolicy = packageManifest.engines?.node;
+  assert.equal(typeof nodePolicy, 'string', 'package.json must declare engines.node');
+  const match = /^>=(\d+)$/u.exec(nodePolicy);
+  assert.ok(match, 'engines.node must use the >=N policy shape');
+  const minimum = Number(match[1]);
+  assert.ok(Number.isSafeInteger(minimum) && minimum > 0, 'engines.node minimum must be a positive integer');
+  assert.equal(minimum % 2, 0, 'engines.node minimum must be an even Node major');
+  return minimum;
 }
 
-function assertReadmeNodePolicy(readme: string): void {
-  assert.ok(readme.includes('Node.js 22 or later is required.'));
-  assert.ok(!readme.includes('Node.js 20'), 'README must not claim Node.js 20 support');
+function assertReadmeNodePolicy(readme: string, minimumNode: number): void {
+  assert.ok(readme.includes(`Node.js ${minimumNode} or later is required.`));
+  assert.ok(!readme.includes(`Node.js ${minimumNode - 2}`), 'README must not claim prior Node support');
   for (const formerPromise of [
-    'Node.js 20 remains supported',
-    'Node.js 20 will be removed',
-    'Node.js 22 or later is recommended',
+    `Node.js ${minimumNode - 2} remains supported`,
+    `Node.js ${minimumNode - 2} will be removed`,
+    `Node.js ${minimumNode} or later is recommended`,
   ]) {
     assert.ok(!readme.includes(formerPromise), `README must not retain: ${formerPromise}`);
   }
 }
 
-function assertClientGuideNodePolicy(guide: string): void {
-  assert.ok(guide.includes('Requires Node.js 22 or later.'));
-  assert.ok(!guide.includes('Node.js 20'), 'client guide must not claim Node.js 20 support');
+function assertClientGuideNodePolicy(guide: string, minimumNode: number): void {
+  assert.ok(guide.includes(`Requires Node.js ${minimumNode} or later.`));
+  assert.ok(!guide.includes(`Node.js ${minimumNode - 2}`), 'client guide must not claim prior Node support');
   for (const formerPromise of [
-    'Requires Node.js 20',
-    'Node.js 20 remains supported',
-    'Node.js 20 will be removed',
-    'Node.js 22 or later is recommended',
+    `Requires Node.js ${minimumNode - 2}`,
+    `Node.js ${minimumNode - 2} remains supported`,
+    `Node.js ${minimumNode - 2} will be removed`,
+    `Node.js ${minimumNode} or later is recommended`,
   ]) {
     assert.ok(!guide.includes(formerPromise), `client guide must not retain: ${formerPromise}`);
   }
 }
 
-function assertCiMatrix(ci: string): void {
+function assertCiMatrix(ci: string, minimumNode: number): void {
   const matrix = ci.match(/^\s*node-version:\s*\[([^\]]+)\]\s*$/mu);
   assert.ok(matrix, 'CI must declare an inline Node version matrix');
-  assert.deepEqual(
-    [...matrix[1].matchAll(/['"]([^'"]+)['"]/gu)].map((match) => match[1]),
-    ['22', '24', '26.7.0'],
-  );
+  const versions = [...matrix[1].matchAll(/['"]([^'"]+)['"]/gu)].map((match) => match[1]);
+  const majors = versions.map((version) => {
+    const segments = version.split('.');
+    assert.ok(segments.length === 1 || segments.length === 3, `CI Node version must be a major or complete patch version: ${version}`);
+    assert.ok(segments.every((segment) => segment.length > 0 && [...segment].every((character) => character >= '0' && character <= '9')),
+      `CI Node version must contain only decimal numbers: ${version}`);
+    return Number(segments[0]);
+  });
+  assert.deepEqual(majors, [minimumNode, minimumNode + 2, minimumNode + 4]);
 }
 
 function assertCiCommonJob(ci: string): void {
@@ -216,30 +231,67 @@ function assertCiCommonJob(ci: string): void {
   assert.doesNotMatch(ci, /continue-on-error\s*:/u);
 }
 
-function assertCodeqlActionPins(workflow: string): void {
-  const oldCodeqlSha = 'e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81';
-  const newCodeqlSha = 'ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd';
-  assert.ok(!workflow.includes(oldCodeqlSha));
-  const references = [
-    ...workflow.matchAll(/uses:\s*github\/codeql-action\/[^@\s]+@([a-f0-9]{40})\s*#\s*(v[^\s]+)/gu),
-  ];
-  assert.ok(references.length > 0, 'workflow must retain CodeQL action references');
-  for (const reference of references) {
-    assert.equal(reference[1], newCodeqlSha);
-    assert.equal(reference[2], 'v4.37.7');
+function extractWorkflowActionReferences(sourceName: string, workflow: string): WorkflowActionReference[] {
+  const references: WorkflowActionReference[] = [];
+  for (const [index, line] of workflow.split(/\r?\n/u).entries()) {
+    if (!/^\s*-?\s*uses\s*:/u.test(line)) continue;
+    const [actionSource, ...commentParts] = line.split('#');
+    const reference = actionSource.replace(/^\s*-?\s*uses:\s*/u, '').trimEnd();
+    if (reference.startsWith('./')) continue;
+    const match = /^([^@\s]+)@([^\s#]+)$/u.exec(reference);
+    assert.ok(match, `${sourceName}:${index + 1} must use a pinned external action reference`);
+    const path = match[1];
+    const pathSegments = path.split('/');
+    assert.ok(pathSegments.length >= 2, `${sourceName}:${index + 1} must name an action repository`);
+    references.push({
+      repository: pathSegments.slice(0, 2).join('/'),
+      sha: match[2],
+      release: commentParts.length === 0 ? undefined : commentParts.join('#').trim(),
+      sourceName,
+    });
+  }
+  return references;
+}
+
+function assertImmutableWorkflowActionPins(workflows: Record<string, string>): void {
+  const pinnedActions = Object.entries(workflows).flatMap(([sourceName, workflow]) => (
+    extractWorkflowActionReferences(sourceName, workflow)
+  ));
+  assert.ok(pinnedActions.length > 0, 'workflow sources must use external actions');
+
+  const pinsByRepository = new Map<string, { release: string; sha: string }>();
+  for (const action of pinnedActions) {
+    assert.match(action.sha, /^[a-f0-9]{40}$/u, `${action.sourceName} must use a lowercase 40-hex commit pin`);
+    assert.match(action.release ?? '', /^v\d+\.\d+\.\d+$/u, `${action.sourceName} must annotate each action pin with an exact semver comment`);
+    const existing = pinsByRepository.get(action.repository);
+    const pin = { release: action.release as string, sha: action.sha };
+    if (existing !== undefined) {
+      assert.deepEqual(pin, existing, `${action.repository} must use one consistent SHA and release comment`);
+    } else {
+      pinsByRepository.set(action.repository, pin);
+    }
   }
 }
 
-function assertDockerLoginPin(workflow: string): void {
-  const oldDockerLoginSha = 'abd2ef45e78c5afb21d64d4ca52ee8550d9572c7';
-  const newDockerLoginSha = 'dbcb813823bdd20940b903addbd779551569679f';
-  assert.ok(!workflow.includes(oldDockerLoginSha));
-  const references = [
-    ...workflow.matchAll(/uses:\s*docker\/login-action@([a-f0-9]{40})\s*#\s*(v[^\s]+)/gu),
+function assertWorkflowPinFixtures(): void {
+  const refreshedPin = 'b'.repeat(40);
+  const refreshedRelease = 'v2.3.4';
+  const refreshedWorkflow = `steps:\n  - uses: actions/example@${refreshedPin} # ${refreshedRelease}`;
+  assert.doesNotThrow(() => assertImmutableWorkflowActionPins({ first: refreshedWorkflow, second: refreshedWorkflow }));
+
+  const invalidFixtures = [
+    `steps:\n  - uses: actions/example@main # ${refreshedRelease}`,
+    `steps:\n  - uses: actions/example@${'A'.repeat(40)} # ${refreshedRelease}`,
+    `steps:\n  - uses: actions/example@${refreshedPin}`,
+    `steps:\n  - uses: actions/example@${refreshedPin} # version 2.3.4`,
   ];
-  assert.equal(references.length, 1);
-  assert.equal(references[0][1], newDockerLoginSha);
-  assert.equal(references[0][2], 'v4.6.0');
+  for (const fixture of invalidFixtures) {
+    assert.throws(() => assertImmutableWorkflowActionPins({ fixture }));
+  }
+  assert.throws(() => assertImmutableWorkflowActionPins({
+    first: refreshedWorkflow,
+    second: `steps:\n  - uses: actions/example@${'c'.repeat(40)} # v2.3.5`,
+  }));
 }
 
 function assertDependabotUnpdfPolicy(dependabot: string): void {
@@ -416,25 +468,26 @@ export async function runTests(): Promise<TestResult> {
     }
   }, results);
 
-  await testFunction('README and public workflow metadata state the Node support policy', () => {
+  await testFunction('README, client guide, and CI state the declared Node support policy', () => {
     const readme = readText(new URL('../../README.md', import.meta.url));
-    const ci = readText(new URL('../../.github/workflows/ci.yml', import.meta.url));
-    const codeql = readText(new URL('../../.github/workflows/codeql.yml', import.meta.url));
-    const scorecard = readText(new URL('../../.github/workflows/scorecard.yml', import.meta.url));
-    const dockerPublish = readText(new URL('../../.github/workflows/docker-publish.yml', import.meta.url));
-    const dockerRebuild = readText(new URL('../../.github/workflows/docker-rebuild.yml', import.meta.url));
-    const dependabot = readText(new URL('../../.github/dependabot.yml', import.meta.url));
-    assertPackageMetadata();
-    assertReadmeNodePolicy(readme);
-    assertClientGuideNodePolicy(readText(guideUrl));
-    assertCiMatrix(ci);
+    const minimumNode = minimumNodeMajor();
+    const ci = readText(workflowUrls.ci);
+    assertReadmeNodePolicy(readme, minimumNode);
+    assertClientGuideNodePolicy(readText(guideUrl), minimumNode);
+    assertCiMatrix(ci, minimumNode);
     assertCiCommonJob(ci);
-    assertCodeqlActionPins(codeql);
-    assertCodeqlActionPins(scorecard);
-    assertCodeqlActionPins(dockerPublish);
-    assertCodeqlActionPins(dockerRebuild);
-    assertDockerLoginPin(dockerPublish);
-    assertDockerLoginPin(dockerRebuild);
+  }, results);
+
+  await testFunction('workflow actions use immutable and internally consistent pins', () => {
+    assertWorkflowPinFixtures();
+    const workflows = Object.fromEntries(
+      Object.entries(workflowUrls).map(([name, url]) => [name, readText(url)]),
+    );
+    assertImmutableWorkflowActionPins(workflows);
+  }, results);
+
+  await testFunction('Dependabot may update unpdf', () => {
+    const dependabot = readText(new URL('../../.github/dependabot.yml', import.meta.url));
     assertDependabotUnpdfPolicy(dependabot);
   }, results);
 
