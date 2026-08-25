@@ -236,10 +236,11 @@ function extractWorkflowActionReferences(sourceName: string, workflow: string): 
   for (const [index, line] of workflow.split(/\r?\n/u).entries()) {
     if (!/^\s*-?\s*uses\s*:/u.test(line)) continue;
     const [actionSource, ...commentParts] = line.split('#');
-    const match = /^\s*-?\s*uses:\s*([^@\s]+)@([^\s#]+)\s*$/u.exec(actionSource);
+    const reference = actionSource.replace(/^\s*-?\s*uses:\s*/u, '').trimEnd();
+    if (reference.startsWith('./')) continue;
+    const match = /^([^@\s]+)@([^\s#]+)$/u.exec(reference);
     assert.ok(match, `${sourceName}:${index + 1} must use a pinned external action reference`);
     const path = match[1];
-    if (path.startsWith('./')) continue;
     const pathSegments = path.split('/');
     assert.ok(pathSegments.length >= 2, `${sourceName}:${index + 1} must name an action repository`);
     references.push({
