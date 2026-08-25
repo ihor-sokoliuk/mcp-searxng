@@ -9,7 +9,6 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -64,11 +63,13 @@ function propertyStructuralSnapshot(properties: Record<string, Record<string, un
 }
 
 function toolSnapshot(tool: ToolSnapshotInput) {
+  const properties = tool.inputSchema.properties ?? {};
   return {
     name: tool.name,
     annotations: tool.annotations,
     required: tool.inputSchema.required ?? [],
-    properties: propertyStructuralSnapshot(tool.inputSchema.properties ?? {}),
+    propertyOrder: Object.keys(properties),
+    properties: propertyStructuralSnapshot(properties),
   };
 }
 
@@ -76,16 +77,12 @@ function toolStructuralSnapshot(tools: ToolSnapshotInput[]) {
   return tools.map(toolSnapshot);
 }
 
-function structuralDigest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
 function wireJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-const FROZEN_FULL_TOOL_SNAPSHOTS = [
-  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
+const FULL_TOOL_STRUCTURAL_SNAPSHOTS = [
+  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'response_format', 'result_detail'], properties: {
     query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
     time_range: { type: 'string', minimum: undefined, maximum: undefined, enum: ['day', 'week', 'month', 'year'], default: undefined },
@@ -98,7 +95,7 @@ const FROZEN_FULL_TOOL_SNAPSHOTS = [
     response_format: { type: 'string', minimum: undefined, maximum: undefined, enum: ['text', 'json'], default: undefined },
     result_detail: { type: 'string', minimum: undefined, maximum: undefined, enum: ['compact', 'full'], default: undefined },
   } },
-  { name: 'web_url_read', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['url'], properties: {
+  { name: 'web_url_read', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['url'], propertyOrder: ['url', 'startChar', 'maxLength', 'section', 'paragraphRange', 'readHeadings'], properties: {
     url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     startChar: { type: 'number', minimum: 0, maximum: undefined, enum: undefined, default: undefined },
     maxLength: { type: 'number', minimum: 1, maximum: undefined, enum: undefined, default: undefined },
@@ -106,11 +103,11 @@ const FROZEN_FULL_TOOL_SNAPSHOTS = [
     paragraphRange: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     readHeadings: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
   } },
-  { name: 'searxng_search_suggestions', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], properties: {
+  { name: 'searxng_search_suggestions', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'language'], properties: {
     query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
   } },
-  { name: 'searxng_instance_info', annotations: { readOnlyHint: true, openWorldHint: true }, required: [], properties: {
+  { name: 'searxng_instance_info', annotations: { readOnlyHint: true, openWorldHint: true }, required: [], propertyOrder: ['includeEngines', 'includeDisabled', 'category', 'refresh'], properties: {
     includeEngines: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
     includeDisabled: { type: 'boolean', minimum: undefined, maximum: undefined, enum: undefined, default: false },
     category: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
@@ -118,11 +115,11 @@ const FROZEN_FULL_TOOL_SNAPSHOTS = [
   } },
 ];
 
-const FROZEN_LITE_TOOL_SNAPSHOTS = [
-  { name: 'searxng_web_search', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
-  { name: 'web_url_read', annotations: undefined, required: ['url'], properties: { url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
-  { name: 'searxng_search_suggestions', annotations: undefined, required: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
-  { name: 'searxng_instance_info', annotations: undefined, required: [], properties: {} },
+const LITE_TOOL_STRUCTURAL_SNAPSHOTS = [
+  { name: 'searxng_web_search', annotations: undefined, required: ['query'], propertyOrder: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+  { name: 'web_url_read', annotations: undefined, required: ['url'], propertyOrder: ['url'], properties: { url: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+  { name: 'searxng_search_suggestions', annotations: undefined, required: ['query'], propertyOrder: ['query'], properties: { query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined } } },
+  { name: 'searxng_instance_info', annotations: undefined, required: [], propertyOrder: [], properties: {} },
 ];
 
 /** Spin up a fresh Client↔Server pair for each test. Call client.close() when done. */
@@ -594,21 +591,16 @@ async function runTests() {
     await client.close();
   }, results);
 
-  await testFunction('full and lite tool schemas and annotations retain their frozen structural contract', async () => {
+  await testFunction('full and lite tools retain reviewable source, wire, and structural contracts', async () => {
     const fullDefinitions = [WEB_SEARCH_TOOL, SUGGESTIONS_TOOL, INSTANCE_INFO_TOOL, READ_URL_TOOL];
     const liteDefinitions = [LITE_WEB_SEARCH_TOOL, LITE_SUGGESTIONS_TOOL, LITE_INSTANCE_INFO_TOOL, LITE_READ_URL_TOOL];
-    assert.equal(
-      structuralDigest(fullDefinitions),
-      '2a5a607d2614632059e9f98e5fa7468374a9086312071f8895f4ba10a3a4618a',
-      'full tool definitions changed from the frozen pre-migration structure',
-    );
-    assert.equal(
-      structuralDigest(liteDefinitions),
-      '0d0bb57c16c482517642677de2ec590cda44bff70aead56b6c5110dc6764e782',
-      'lite tool definitions changed from the frozen pre-migration structure',
-    );
-    const fullExpectedInServedOrder = [FROZEN_FULL_TOOL_SNAPSHOTS[0], FROZEN_FULL_TOOL_SNAPSHOTS[2], FROZEN_FULL_TOOL_SNAPSHOTS[3], FROZEN_FULL_TOOL_SNAPSHOTS[1]];
-    const liteExpectedInServedOrder = [FROZEN_LITE_TOOL_SNAPSHOTS[0], FROZEN_LITE_TOOL_SNAPSHOTS[2], FROZEN_LITE_TOOL_SNAPSHOTS[3], FROZEN_LITE_TOOL_SNAPSHOTS[1]];
+    const fullExpectedInServedOrder = [FULL_TOOL_STRUCTURAL_SNAPSHOTS[0], FULL_TOOL_STRUCTURAL_SNAPSHOTS[2], FULL_TOOL_STRUCTURAL_SNAPSHOTS[3], FULL_TOOL_STRUCTURAL_SNAPSHOTS[1]];
+    const liteExpectedInServedOrder = [LITE_TOOL_STRUCTURAL_SNAPSHOTS[0], LITE_TOOL_STRUCTURAL_SNAPSHOTS[2], LITE_TOOL_STRUCTURAL_SNAPSHOTS[3], LITE_TOOL_STRUCTURAL_SNAPSHOTS[1]];
+
+    const descriptionsChanged = wireJson(fullDefinitions);
+    descriptionsChanged[0].description = 'Updated search tool wording';
+    descriptionsChanged[0].inputSchema.properties!.query.description = 'Updated query wording';
+    assert.deepEqual(toolStructuralSnapshot(descriptionsChanged), toolStructuralSnapshot(fullDefinitions));
 
     delete process.env.SEARXNG_LITE_TOOLS;
     const full = await connect();
