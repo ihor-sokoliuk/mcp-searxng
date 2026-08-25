@@ -12,15 +12,6 @@ import { packageVersion } from '../../src/version.js';
 import { testFunction, createTestResults, printTestSummary, TestResult } from '../helpers/test-utils.js';
 
 const results = createTestResults();
-const numericIdentifier = String.raw`(?:0|[1-9]\d*)`;
-const nonNumericIdentifier = String.raw`(?:\d*[A-Za-z-][0-9A-Za-z-]*)`;
-const prereleaseIdentifier = `(?:${numericIdentifier}|${nonNumericIdentifier})`;
-// eslint-disable-next-line security/detect-non-literal-regexp -- composed only from fixed SemVer grammar fragments
-const exactSemver = new RegExp(
-  String.raw`^${numericIdentifier}\.${numericIdentifier}\.${numericIdentifier}`
-  + String.raw`(?:-${prereleaseIdentifier}(?:\.${prereleaseIdentifier})*)?`
-  + String.raw`(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`,
-);
 
 interface ReleaseVersionSurfaces {
   packageJson: string;
@@ -41,6 +32,49 @@ function requiredString(object: Record<string, unknown>, field: string, descript
   return value;
 }
 
+function isAsciiDigit(character: string): boolean {
+  return character >= '0' && character <= '9';
+}
+
+function isIdentifierCharacter(character: string): boolean {
+  return isAsciiDigit(character)
+    || (character >= 'A' && character <= 'Z')
+    || (character >= 'a' && character <= 'z')
+    || character === '-';
+}
+
+function isNumericIdentifier(value: string): boolean {
+  return value.length > 0
+    && !(value.length > 1 && value[0] === '0')
+    && [...value].every(isAsciiDigit);
+}
+
+function isPrereleaseIdentifier(value: string): boolean {
+  return isNumericIdentifier(value)
+    || (value.length > 0 && [...value].every(isIdentifierCharacter) && [...value].some((character) => !isAsciiDigit(character)));
+}
+
+function isExactSemver(version: string): boolean {
+  const buildSeparator = version.indexOf('+');
+  const hasBuild = buildSeparator !== -1;
+  const coreAndPrerelease = hasBuild ? version.slice(0, buildSeparator) : version;
+  const build = hasBuild ? version.slice(buildSeparator + 1) : undefined;
+
+  if (hasBuild && (version.indexOf('+', buildSeparator + 1) !== -1 || !build || !build.split('.').every(
+    (identifier) => identifier.length > 0 && [...identifier].every(isIdentifierCharacter),
+  ))) {
+    return false;
+  }
+
+  const prereleaseSeparator = coreAndPrerelease.indexOf('-');
+  const core = prereleaseSeparator === -1 ? coreAndPrerelease : coreAndPrerelease.slice(0, prereleaseSeparator);
+  const prerelease = prereleaseSeparator === -1 ? undefined : coreAndPrerelease.slice(prereleaseSeparator + 1);
+
+  return core.split('.').length === 3
+    && core.split('.').every(isNumericIdentifier)
+    && (prerelease === undefined || prerelease.split('.').every(isPrereleaseIdentifier));
+}
+
 function assertReleaseVersionContract(surfaces: ReleaseVersionSurfaces): void {
   const versions = [
     ['package.json', surfaces.packageJson],
@@ -51,7 +85,7 @@ function assertReleaseVersionContract(surfaces: ReleaseVersionSurfaces): void {
   ];
 
   for (const [surface, version] of versions) {
-    assert.match(version, exactSemver, `${surface} version must be valid exact SemVer`);
+    assert.ok(isExactSemver(version), `${surface} version must be valid exact SemVer`);
     assert.equal(version, surfaces.packageJson, `${surface} version must match package.json`);
   }
 }
@@ -100,10 +134,12 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('release version contract rejects malformed versions and surface drift', () => {
-    assert.throws(
-      () => assertReleaseVersionContract(consistentReleaseVersionSurfaces('02.0.1')),
-      /valid exact SemVer/,
-    );
+    for (const version of ['02.0.1', '2.0.1-01', '2.0.1-', '2.0.1+']) {
+      assert.throws(
+        () => assertReleaseVersionContract(consistentReleaseVersionSurfaces(version)),
+        /valid exact SemVer/,
+      );
+    }
     assert.throws(
       () => assertReleaseVersionContract({
         ...consistentReleaseVersionSurfaces('2.0.1'),
