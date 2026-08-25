@@ -36,11 +36,16 @@ function isAsciiDigit(character: string): boolean {
   return character >= '0' && character <= '9';
 }
 
+function isAsciiLetter(character: string): boolean {
+  return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
+}
+
 function isIdentifierCharacter(character: string): boolean {
-  return isAsciiDigit(character)
-    || (character >= 'A' && character <= 'Z')
-    || (character >= 'a' && character <= 'z')
-    || character === '-';
+  return isAsciiDigit(character) || isAsciiLetter(character) || character === '-';
+}
+
+function isSemverIdentifier(value: string): boolean {
+  return value.length > 0 && [...value].every(isIdentifierCharacter);
 }
 
 function isNumericIdentifier(value: string): boolean {
@@ -51,28 +56,43 @@ function isNumericIdentifier(value: string): boolean {
 
 function isPrereleaseIdentifier(value: string): boolean {
   return isNumericIdentifier(value)
-    || (value.length > 0 && [...value].every(isIdentifierCharacter) && [...value].some((character) => !isAsciiDigit(character)));
+    || (isSemverIdentifier(value) && [...value].some((character) => !isAsciiDigit(character)));
+}
+
+function hasValidBuildMetadata(value: string): boolean {
+  return value.split('.').every(isSemverIdentifier);
+}
+
+function coreAndPrereleaseWithoutBuild(version: string): string | undefined {
+  const [coreAndPrerelease, buildMetadata, ...extraParts] = version.split('+');
+
+  if (extraParts.length > 0 || (buildMetadata !== undefined && !hasValidBuildMetadata(buildMetadata))) {
+    return undefined;
+  }
+
+  return coreAndPrerelease;
+}
+
+function hasValidCoreVersion(value: string): boolean {
+  const identifiers = value.split('.');
+  return identifiers.length === 3 && identifiers.every(isNumericIdentifier);
+}
+
+function hasValidCoreAndPrerelease(value: string): boolean {
+  const prereleaseSeparator = value.indexOf('-');
+
+  if (prereleaseSeparator === -1) {
+    return hasValidCoreVersion(value);
+  }
+
+  const core = value.slice(0, prereleaseSeparator);
+  const prerelease = value.slice(prereleaseSeparator + 1);
+  return hasValidCoreVersion(core) && prerelease.split('.').every(isPrereleaseIdentifier);
 }
 
 function isExactSemver(version: string): boolean {
-  const buildSeparator = version.indexOf('+');
-  const hasBuild = buildSeparator !== -1;
-  const coreAndPrerelease = hasBuild ? version.slice(0, buildSeparator) : version;
-  const build = hasBuild ? version.slice(buildSeparator + 1) : undefined;
-
-  if (hasBuild && (version.indexOf('+', buildSeparator + 1) !== -1 || !build || !build.split('.').every(
-    (identifier) => identifier.length > 0 && [...identifier].every(isIdentifierCharacter),
-  ))) {
-    return false;
-  }
-
-  const prereleaseSeparator = coreAndPrerelease.indexOf('-');
-  const core = prereleaseSeparator === -1 ? coreAndPrerelease : coreAndPrerelease.slice(0, prereleaseSeparator);
-  const prerelease = prereleaseSeparator === -1 ? undefined : coreAndPrerelease.slice(prereleaseSeparator + 1);
-
-  return core.split('.').length === 3
-    && core.split('.').every(isNumericIdentifier)
-    && (prerelease === undefined || prerelease.split('.').every(isPrereleaseIdentifier));
+  const coreAndPrerelease = coreAndPrereleaseWithoutBuild(version);
+  return coreAndPrerelease !== undefined && hasValidCoreAndPrerelease(coreAndPrerelease);
 }
 
 function assertReleaseVersionContract(surfaces: ReleaseVersionSurfaces): void {
