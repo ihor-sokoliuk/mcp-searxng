@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.1.0] - 2026-08-25
+
+### Changed
+
+- **Explicit engine time-range searches now fail closed instead of returning misleading empty results:** When `engines` and `time_range` are combined, every configured SearXNG instance must provide `/config` and every selected engine must confirm time-range support before the search runs. Callers can omit `time_range` or use an engine-specific query filter when capability cannot be confirmed. This is an intentional, backward-compatible tool behavior change and is therefore released as a minor version. ([#244](https://github.com/ihor-sokoliuk/mcp-searxng/pull/244))
+
+### Testing
+
+- **Release and protocol contract tests now validate stable semantics:** Version surfaces, workflow action pins, Node support, and MCP tool definitions are checked structurally instead of against mutable release literals or opaque whole-definition digests. This prevents routine releases, action refreshes, and description-only updates from failing unrelated tests while preserving the supported contracts. ([#259](https://github.com/ihor-sokoliuk/mcp-searxng/pull/259), [#260](https://github.com/ihor-sokoliuk/mcp-searxng/pull/260))
+
 ## [2.0.0] - 2026-08-20
 
 ### Breaking Changes
