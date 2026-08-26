@@ -20,6 +20,12 @@ import { performWebSearch } from "./search.js";
 import { performSearchSuggestions } from "./suggestions.js";
 import { fetchInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
+import {
+  extractImageRefs,
+  getImageLimits,
+  inlineImages,
+  type ImageRef,
+} from "./web-images.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
 import {
@@ -118,6 +124,7 @@ export function isWebUrlReadArgs(args: unknown): args is {
   section?: string;
   paragraphRange?: string;
   readHeadings?: boolean;
+  images?: "none" | "links" | "inline";
 } {
   if (
     typeof args !== "object" ||
@@ -148,6 +155,14 @@ export function isWebUrlReadArgs(args: unknown): args is {
     return false;
   }
   if (urlArgs.readHeadings !== undefined && typeof urlArgs.readHeadings !== "boolean") {
+    return false;
+  }
+  if (
+    urlArgs.images !== undefined &&
+    urlArgs.images !== "none" &&
+    urlArgs.images !== "links" &&
+    urlArgs.images !== "inline"
+  ) {
     return false;
   }
 
@@ -193,7 +208,10 @@ function getDefaultUrlReadMaxChars(mcpServer: McpServer): number | undefined {
 }
 
 type ToolCallResult = {
-  content: Array<{ type: "text"; text: string }>;
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+  >;
   isError?: boolean;
 };
 
@@ -243,7 +261,7 @@ async function executeUrlRead(
 ): Promise<ToolCallResult> {
   if (!isWebUrlReadArgs(args)) throw new Error("Invalid arguments for URL reading");
   const defaultMaxLength = getDefaultUrlReadMaxChars(mcpServer);
-  return textToolResult(await fetchAndConvertToMarkdown(
+  const markdown = await fetchAndConvertToMarkdown(
     mcpServer,
     args.url,
     getFetchTimeoutMs(mcpServer),
@@ -255,7 +273,59 @@ async function executeUrlRead(
       readHeadings: args.readHeadings,
     },
     signal,
-  ));
+  );
+
+  const imagesMode: "none" | "links" | "inline" =
+    args.images === "none" || args.images === "inline" ? args.images : "links";
+
+  if (imagesMode === "none") {
+    // Drop image links from the markdown so the model sees no images at all.
+    return textToolResult(markdown.replace(/!\[[^\]]*\]\([^)]+\)/g, ""));
+  }
+
+  if (imagesMode !== "inline") {
+    return textToolResult(markdown);
+  }
+
+  // inline: fetch the images referenced by the markdown and attach them as
+  // image content blocks alongside the markdown. Failures degrade to the
+  // plain markdown link with a note; they never fail the whole read.
+  const limits = getImageLimits();
+  let refs: ImageRef[] = [];
+  try {
+    refs = extractImageRefs(markdown, new URL(args.url), limits.maxImages);
+  } catch {
+    // Unparseable input URL: leave the markdown links as-is.
+  }
+  const images = refs.length > 0
+    ? await inlineImages(refs, limits, getFetchTimeoutMs(mcpServer), signal)
+    : [];
+  if (images.length === 0) {
+    return textToolResult(markdown);
+  }
+
+  const inlined = images.filter((img) => img.data !== undefined && img.mimeType !== undefined);
+  let attachedNumber = 0;
+  const notes = images
+    .map((img, index) => {
+      const label = img.alt ? `alt="${img.alt}"` : "(no alt text)";
+      const context = img.heading ? ` — under "${img.heading}"` : "";
+      const status = img.data !== undefined
+        ? `inlined as attached image ${++attachedNumber}`
+        : `left as link (${img.note ?? "unknown"})`;
+      return `${index + 1}. ${label}${context} — ${img.absoluteSrc} — ${status}`;
+    })
+    .join("\n");
+  return {
+    content: [
+      { type: "text" as const, text: `${markdown}\n\n**Images found on this page (in order):**\n${notes}` },
+      ...inlined.map((img) => ({
+        type: "image" as const,
+        data: img.data as string,
+        mimeType: img.mimeType as string,
+      })),
+    ],
+  };
 }
 
 async function executeTool(

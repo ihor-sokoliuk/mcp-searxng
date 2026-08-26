@@ -168,6 +168,7 @@ Reads and converts web page content to Markdown format.
 - \`section\` (optional): Extract content under a heading
 - \`paragraphRange\` (optional): Return a paragraph range such as "1-5" or "10-"
 - \`readHeadings\` (optional): Return only headings
+- \`images\` (optional): How to handle images in HTML pages. Values: \`links\` (default, keep markdown image links), \`inline\` (download the referenced images within bounded limits and attach them as image content blocks; limits set via \`URL_READ_MAX_IMAGES\`, \`URL_READ_MAX_IMAGE_BYTES\`, \`URL_READ_MAX_TOTAL_IMAGE_BYTES\`), \`none\` (drop image links from the markdown). Applies to HTML pages only.
 
 ## Configuration
 

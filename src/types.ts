@@ -386,6 +386,7 @@ export const READ_URL_TOOL: Tool = {
     "(1) Full content — omit filtering params; use `startChar`/`maxLength` to paginate large pages. " +
     "(2) Section extraction — set `section` to return content under a specific heading. " +
     "(3) Headings only — set `readHeadings: true` to list all headings (mutually exclusive with other filtering params). " +
+    "Images in HTML: `images` parameter controls handling — links (default) keep markdown image links, inline downloads images within bounded limits and attaches them as image content blocks, none drops image links. " +
     "Returns an error string if the URL is unreachable or content cannot be extracted. " +
     "Use after `searxng_web_search` to read the full content of individual result URLs.",
   annotations: {
@@ -420,6 +421,12 @@ export const READ_URL_TOOL: Tool = {
       readHeadings: {
         type: "boolean",
         description: "Return only a list of headings instead of full content",
+      },
+      images: {
+        type: "string",
+        enum: ["none", "links", "inline"],
+        description:
+          "How to handle images found in HTML pages. links (default): keep markdown image links. inline: download the referenced images (bounded by URL_READ_MAX_IMAGES, URL_READ_MAX_IMAGE_BYTES, and URL_READ_MAX_TOTAL_IMAGE_BYTES; defaults 6 / 512 KB / 1.5 MB) and attach them as image content blocks alongside the markdown, with per-image context lines (alt text, nearest heading, source URL, and inline/skip status). none: drop image links from the markdown. Applies to HTML content only; JSON, plain text, and PDF reads ignore this parameter.",
       },
     },
     required: ["url"],
