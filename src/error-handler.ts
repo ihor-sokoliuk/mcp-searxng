@@ -133,9 +133,24 @@ function asEngineFailureText(value: unknown): string {
   return value.replace(/[\r\n\u2028\u2029]+/gu, ' ').trim().slice(0, MAX_ENGINE_FAILURE_TEXT_CHARS);
 }
 
-function describeEngineFailure(entry: [string, string]): string {
-  const engine = asEngineFailureText(entry[0]) || 'unknown engine';
-  const reason = asEngineFailureText(entry[1]);
+const UNKNOWN_ENGINE_LABEL = 'unknown engine';
+
+/**
+ * Coerce one `unresponsive_engines` entry into a usable `[engine, reason]` pair.
+ *
+ * SearXNG responses are cast to `SearXNGWeb`, never runtime-validated, so an
+ * entry can be `null`, a bare string, a short tuple, or anything else. Both the
+ * zero-row classifier in search.ts and the renderer below normalize through
+ * here, so "malformed" means one thing in this code path and the engine name is
+ * always a string — safe to use as a map key and safe to interpolate.
+ */
+export function normalizeEngineFailure(entry: unknown): [string, string] {
+  const [rawEngine, rawReason] = Array.isArray(entry) ? entry : [entry, undefined];
+  return [asEngineFailureText(rawEngine) || UNKNOWN_ENGINE_LABEL, asEngineFailureText(rawReason)];
+}
+
+function describeEngineFailure(entry: unknown): string {
+  const [engine, reason] = normalizeEngineFailure(entry);
   return reason ? `${engine} (${reason})` : engine;
 }
 

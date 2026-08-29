@@ -2415,6 +2415,70 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('malformed unresponsive_engines entries raise the bounded error, not a TypeError', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'untrusted entries',
+        results: [],
+        // Only cast to SearXNGWeb upstream, so any of these shapes can arrive.
+        unresponsive_engines: [null, 'brave', ['yahoo'], ['startpage', 'Suspended: CAPTCHA']],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'untrusted entries'),
+        (error: Error) => {
+          assert.equal(error.name, 'MCPSearXNGError', `raw ${error.name} escaped: ${error.message}`);
+          assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+          assert.ok(error.message.includes('brave'), error.message);
+          assert.ok(error.message.includes('yahoo'), error.message);
+          assert.ok(error.message.includes('unknown engine'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('a replica whose failures are all malformed still counts as failed', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'all malformed',
+        results: [],
+        unresponsive_engines: [null, [], 42],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'all malformed'),
+        (error: Error) => {
+          assert.equal(error.name, 'MCPSearXNGError', `raw ${error.name} escaped: ${error.message}`);
+          // The replica reported failures, so it is not a clean empty even
+          // though none of them could be identified; they collapse to one key.
+          assert.equal(
+            error.message.split('unknown engine').length - 1,
+            1,
+            `unidentifiable failures must collapse to one entry: ${error.message}`,
+          );
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('failover: a clean empty replica outranks an earlier replica whose engines failed', async () => {
     clearSearxngInstanceStateForTests();
     envManager.delete('SEARXNG_FANOUT');

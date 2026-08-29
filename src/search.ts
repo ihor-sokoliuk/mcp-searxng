@@ -30,6 +30,7 @@ import {
   createDataError,
   createEngineFailureError,
   createNoResultsMessage,
+  normalizeEngineFailure,
   type ErrorContext
 } from "./error-handler.js";
 
@@ -709,6 +710,13 @@ function hasSearchResults(data: SearXNGWeb): boolean {
  * evidence that nothing matched, whichever replica produced it. Engines are
  * keyed by name and kept in first-seen order, so the message is stable across
  * runs and an engine failing on several replicas is named once.
+ *
+ * Entries are normalized through normalizeEngineFailure rather than indexed
+ * raw: the response is external data that is only cast to SearXNGWeb, so an
+ * entry may be null or otherwise malformed. A replica that reported failures
+ * still counts as failed even when none of them can be identified — those
+ * collapse to a single "unknown engine" — because hasItems has already
+ * established that this replica did not come back clean.
  */
 function classifyEmptyResponses(responses: SearXNGWeb[]): Array<[string, string]> | null {
   const failedEngines = new Map<string, [string, string]>();
@@ -718,8 +726,9 @@ function classifyEmptyResponses(responses: SearXNGWeb[]): Array<[string, string]
       return null;
     }
     for (const entry of unresponsive) {
-      if (!failedEngines.has(entry[0])) {
-        failedEngines.set(entry[0], entry);
+      const failure = normalizeEngineFailure(entry);
+      if (!failedEngines.has(failure[0])) {
+        failedEngines.set(failure[0], failure);
       }
     }
   }

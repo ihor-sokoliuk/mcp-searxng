@@ -154,6 +154,31 @@ async function runTests() {
     assert.ok(!error.message.includes('\n'), error.message);
   }, results);
 
+  await testFunction('createEngineFailureError survives entries that are not tuples', () => {
+    // unresponsive_engines is external data that is only cast to SearXNGWeb, so
+    // an entry may be anything. None of these may throw a raw TypeError.
+    const error = createEngineFailureError('untrusted', [
+      null,
+      ['yahoo'],
+      [],
+      42,
+      ['startpage', 'Suspended: CAPTCHA'],
+    ] as any);
+
+    assert.ok(error instanceof MCPSearXNGError);
+    assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+    assert.ok(error.message.includes('yahoo'), error.message);
+    assert.ok(error.message.includes('unknown engine'), error.message);
+  }, results);
+
+  await testFunction('createEngineFailureError reads a bare string entry as the engine name', () => {
+    // Indexing a string entry positionally would render "b (r)" instead.
+    const error = createEngineFailureError('bare string', ['brave'] as any);
+
+    assert.ok(error.message.includes('these engines failed: brave.'), error.message);
+    assert.ok(!error.message.includes('b (r)'), error.message);
+  }, results);
+
   await testFunction('createEngineFailureError bounds an oversized failure reason', () => {
     const error = createEngineFailureError('bounded', [['brave', 'x'.repeat(500)]]);
 
