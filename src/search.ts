@@ -28,6 +28,7 @@ import {
   createServerError,
   createJSONError,
   createDataError,
+  createEngineFailureError,
   createNoResultsMessage,
   type ErrorContext
 } from "./error-handler.js";
@@ -940,6 +941,22 @@ export async function performWebSearch(
   const slicedResults = effectiveMax !== undefined
     ? results.slice(0, effectiveMax)
     : results;
+
+  // A zero-result response is ambiguous once engines have failed: it can mean
+  // the query matched nothing, or that the search never actually ran. Test the
+  // raw result set rather than slicedResults, because rows that min_score or
+  // num_results filtered away are a filtering outcome and still deserve the
+  // plain no-results message. This sits above the json branch so both response
+  // formats are covered.
+  if (data.results.length === 0 && hasItems(data.unresponsive_engines)) {
+    logMessage(
+      mcpServer,
+      "error",
+      `Zero results with failing engines for query: "${query}"`,
+      { unresponsiveEngines: data.unresponsive_engines },
+    );
+    throw createEngineFailureError(query, data.unresponsive_engines);
+  }
 
   if (effectiveResponseFormat === "json") {
     const result = result_detail === "compact"

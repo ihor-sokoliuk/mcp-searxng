@@ -126,6 +126,34 @@ export function createNoResultsMessage(query: string): string {
   return `🔍 No results found for "${query}". Try different search terms or check if SearXNG search engines are working.`;
 }
 
+const MAX_ENGINE_FAILURE_TEXT_CHARS = 120;
+
+function asEngineFailureText(value: unknown): string {
+  if (typeof value !== "string") return '';
+  return value.replace(/[\r\n\u2028\u2029]+/gu, ' ').trim().slice(0, MAX_ENGINE_FAILURE_TEXT_CHARS);
+}
+
+function describeEngineFailure(entry: [string, string]): string {
+  const engine = asEngineFailureText(entry[0]) || 'unknown engine';
+  const reason = asEngineFailureText(entry[1]);
+  return reason ? `${engine} (${reason})` : engine;
+}
+
+/**
+ * Raised when SearXNG returns zero results and reports failing engines.
+ *
+ * Without this the caller receives createNoResultsMessage(), which is
+ * indistinguishable from a search that ran cleanly and matched nothing.
+ */
+export function createEngineFailureError(query: string, unresponsiveEngines: Array<[string, string]>): MCPSearXNGError {
+  const failures = unresponsiveEngines.map(describeEngineFailure).join(', ');
+  return new MCPSearXNGError(
+    `🔍 SearXNG Engine Error: "${query}" returned 0 results and these engines failed: ${failures}. ` +
+    `An empty result set alongside failing engines does not mean nothing matched — the search may not have run. ` +
+    `Retry, select different engines, or check the SearXNG instance.`
+  );
+}
+
 export function createURLFormatError(url: string): MCPSearXNGError {
   return new MCPSearXNGError(`🔧 URL Format Error: Invalid URL "${url}"`);
 }

@@ -2283,6 +2283,138 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('zero results with failing engines raises instead of reporting no results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'captcha query',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [
+          ['startpage', 'Suspended: CAPTCHA'],
+          ['brave', 'too many requests'],
+        ],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'captcha query'),
+        (error: Error) => {
+          assert.ok(error.message.includes('SearXNG Engine Error'), error.message);
+          assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+          assert.ok(error.message.includes('brave (too many requests)'), error.message);
+          assert.ok(!error.message.includes('No results found'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('zero results with failing engines raises for the json response format too', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'json captcha query',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [['startpage', 'Suspended: CAPTCHA']],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'json captcha query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json'),
+        /SearXNG Engine Error/,
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('zero results with no failing engines keeps the existing no-results message', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'genuinely empty',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'genuinely empty');
+    assert.ok(result.includes('No results found for "genuinely empty"'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('failing engines alongside returned rows still produce results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'partial outage',
+        results: [
+          {
+            title: 'Partial Result',
+            content: 'One engine answered',
+            url: 'https://example.com/partial',
+            score: 0.9,
+          },
+        ],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'partial outage');
+    assert.ok(result.includes('Title: Partial Result'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('rows filtered away by min_score keep the no-results message even when engines failed', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'filtered query',
+        results: [
+          {
+            title: 'Low Score Result',
+            content: 'Below the requested threshold',
+            url: 'https://example.com/low',
+            score: 0.2,
+          },
+        ],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'filtered query', 1, undefined, undefined, undefined, 0.9);
+    assert.ok(result.includes('No results found for "filtered query"'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
   await testFunction('text output preserves metadata when filters remove all results', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
