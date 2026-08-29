@@ -340,6 +340,9 @@ type InstanceSearchResult = {
 type MultiInstanceSearchResult = {
   data: SearXNGWeb;
   servedBy: string[];
+  // Every zero-row response behind this result. Multi-instance search keeps a
+  // single replica's payload, so engine-failure classification needs them all.
+  emptyResponses?: SearXNGWeb[];
 };
 
 type FailedInstanceResult = {
@@ -697,6 +700,33 @@ function hasSearchResults(data: SearXNGWeb): boolean {
   return data.results.length > 0;
 }
 
+/**
+ * Decide whether a set of zero-row responses means the search failed.
+ *
+ * Returns the deduplicated union of failing engines when every zero-row
+ * response reported at least one, and null as soon as one of them came back
+ * clean: a zero-row response with no unresponsive engines is authoritative
+ * evidence that nothing matched, whichever replica produced it. Engines are
+ * keyed by name and kept in first-seen order, so the message is stable across
+ * runs and an engine failing on several replicas is named once.
+ */
+function classifyEmptyResponses(responses: SearXNGWeb[]): Array<[string, string]> | null {
+  const failedEngines = new Map<string, [string, string]>();
+  for (const response of responses) {
+    const unresponsive = response.unresponsive_engines;
+    if (!hasItems(unresponsive)) {
+      return null;
+    }
+    for (const entry of unresponsive) {
+      if (!failedEngines.has(entry[0])) {
+        failedEngines.set(entry[0], entry);
+      }
+    }
+  }
+
+  return failedEngines.size > 0 ? [...failedEngines.values()] : null;
+}
+
 function createAllInstancesFailedError(failures: FailedInstanceResult[], skippedInstances: string[]): MCPSearXNGError {
   if (failures.length === 0 && skippedInstances.length > 0) {
     return new MCPSearXNGError(
@@ -748,6 +778,7 @@ async function performFailoverSearch(
     return {
       data: emptyResults[0].data,
       servedBy: emptyResults.map((result) => result.instanceUrl),
+      emptyResponses: emptyResults.map((result) => result.data),
     };
   }
 
@@ -829,6 +860,7 @@ async function performFanoutSearch(
     return {
       data: successes[0].data,
       servedBy: successes.map((result) => result.instanceUrl),
+      emptyResponses: successes.map((result) => result.data),
     };
   }
 
@@ -923,6 +955,7 @@ export async function performWebSearch(
 
   let data: SearXNGWeb;
   let servedBy: string[] = [];
+  let emptyResponses: SearXNGWeb[] | undefined;
 
   if (instances.length === 1) {
     const result = await fetchSearchFromInstance(mcpServer, instances[0], request);
@@ -933,6 +966,7 @@ export async function performWebSearch(
       : await performFailoverSearch(mcpServer, instances, request);
     data = multiResult.data;
     servedBy = multiResult.servedBy;
+    emptyResponses = multiResult.emptyResponses;
   }
   const redactedServedBy = servedBy.map(redactSearxngInstanceUrl);
 
@@ -943,19 +977,25 @@ export async function performWebSearch(
     : results;
 
   // A zero-result response is ambiguous once engines have failed: it can mean
-  // the query matched nothing, or that the search never actually ran. Test the
-  // raw result set rather than slicedResults, because rows that min_score or
-  // num_results filtered away are a filtering outcome and still deserve the
-  // plain no-results message. This sits above the json branch so both response
-  // formats are covered.
-  if (data.results.length === 0 && hasItems(data.unresponsive_engines)) {
-    logMessage(
-      mcpServer,
-      "error",
-      `Zero results with failing engines for query: "${query}"`,
-      { unresponsiveEngines: data.unresponsive_engines },
-    );
-    throw createEngineFailureError(query, data.unresponsive_engines);
+  // the query matched nothing, or that the search never actually ran. Classify
+  // across every zero-row response rather than the single payload that survived
+  // multi-instance selection, so the verdict does not depend on replica
+  // ordering: one replica finishing cleanly with zero rows still means "nothing
+  // matched". Test the raw result set rather than slicedResults, because rows
+  // that min_score or num_results filtered away are a filtering outcome and
+  // still deserve the plain no-results message. This sits above the json branch
+  // so both response formats are covered.
+  if (data.results.length === 0) {
+    const failedEngines = classifyEmptyResponses(emptyResponses ?? [data]);
+    if (failedEngines) {
+      logMessage(
+        mcpServer,
+        "error",
+        `Zero results with failing engines for query: "${query}"`,
+        { unresponsiveEngines: failedEngines },
+      );
+      throw createEngineFailureError(query, failedEngines);
+    }
   }
 
   if (effectiveResponseFormat === "json") {
