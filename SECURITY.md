@@ -70,12 +70,15 @@ Private and internal URLs are **blocked by default** in all transport modes. The
 - `localhost` and `*.localhost`
 - IPv4 loopback (`127.0.0.0/8`), private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local (`169.254.0.0/16`), unspecified (`0.0.0.0/8`), CGNAT (`100.64.0.0/10`), IETF protocol assignments (`192.0.0.0/24`), 6to4 relay anycast (`192.88.99.0/24`), documentation/test ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`), benchmarking (`198.18.0.0/15`), multicast (`224.0.0.0/4`), and reserved/broadcast (`240.0.0.0/4`) ranges
 - IPv6 loopback (`::1`), unspecified (`::`), ULA (`fc00::/7`), link-local (`fe80::/10`)
-- IPv4-mapped IPv6 addresses that resolve to any of the above (e.g. `::ffff:127.0.0.1`)
+- Embedded IPv4 payloads in IPv4-compatible `::/96`, IPv4-mapped `::ffff:0:0/96`, IPv4-translated `::ffff:0:0:0/96`, 6to4 `2002::/16`, and RFC6052 `64:ff9b::/96` forms whenever the decoded IPv4 address is blocked above. This includes dotted and hexadecimal mapped literals.
+- The entire RFC8215 local-use `64:ff9b:1::/48` range, as a whole-prefix local-use denial regardless of its payload
 - Redirects are validated **before** they are followed — a public URL that redirects to a private address is also blocked
 
 For direct `web_url_read` requests, DNS answers are also validated before the TCP/TLS connection is established. If a public-looking hostname resolves to any blocked private, loopback, link-local, or unspecified address, the request is rejected. The connection is pinned to the validated DNS answer so a hostname cannot pass validation and then rebind to a different address for the actual connection.
 
-When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. In that mode, this client-side DNS validation cannot inspect the final resolved IP address; proxied deployments should rely on proxy, firewall, and egress controls to restrict internal network access.
+When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. In that mode, this client-side DNS validation cannot inspect the final resolved IP address; proxied deployments should rely on routing or firewall controls and egress controls to restrict internal network access.
+
+These targeted decoded forms protect untrusted URL reading; they do not claim complete NAT64 or complete transition coverage. Teredo and Network-Specific Prefix forms are not decoded by this classifier.
 
 To allow private URL reads and private DNS-resolved targets (e.g. for internal deployments), set `MCP_HTTP_ALLOW_PRIVATE_URLS=true`. Do this only when internal fetching is intentional.
 
