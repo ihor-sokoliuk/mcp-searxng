@@ -22,6 +22,7 @@ import {
   MAX_BYPARR_RESPONSE_BYTES,
 } from '../../src/browser-solver.js';
 import { createUrlReaderLookup } from '../../src/proxy.js';
+import { isUrlSecurityPolicyDnsError } from '../../src/url-security.js';
 import { urlCache } from '../../src/cache.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
@@ -2043,6 +2044,7 @@ async function runTests() {
       'http://127.0.0.1:1/private',
       'http://localhost:1/private',
       'http://10.0.0.1/private',
+      'http://[::ffff:0:127.0.0.1]:1/private',
     ];
 
     try {
@@ -2120,6 +2122,7 @@ async function runTests() {
       'v6-loopback.example': [{ address: '::1', family: 6 }],
       'v6-ula.example': [{ address: 'fc00::1', family: 6 }],
       'v6-linklocal.example': [{ address: 'fe80::1', family: 6 }],
+      'v6-translated.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
     };
     const restoreDns = installDnsLookupMock(privateCases);
 
@@ -2141,7 +2144,7 @@ async function runTests() {
     }
   }, results);
 
-  await testFunction('default mode allows hostnames resolving only to public addresses and pins the connection', async () => {
+  await testFunction('default mode pins the first resolver-ordered public answer without relookup', async () => {
     envManager.delete('MCP_HTTP_HARDEN');
     envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
 
@@ -2155,7 +2158,10 @@ async function runTests() {
       lookupCount++;
       const cb = typeof options === 'function' ? options : callback;
       if (options?.all) {
-        cb(null, [{ address: TEST_PUBLIC_IP, family: 4 }]);
+        cb(null, [
+          { address: TEST_PUBLIC_IP, family: 4 },
+          { address: '1.1.1.1', family: 4 },
+        ]);
         return;
       }
       cb(null, TEST_PUBLIC_IP, 4);
@@ -2186,7 +2192,7 @@ async function runTests() {
       });
 
       assert.deepEqual(allResult, [{ address: TEST_PUBLIC_IP, family: 4 }]);
-      assert.equal(lookupCount, 2, 'Expected one DNS lookup per custom lookup invocation');
+      assert.equal(lookupCount, 2, 'Expected exactly one DNS lookup per custom lookup invocation');
     } finally {
       (dnsModule as any).lookup = originalLookup;
       syncBuiltinESMExports();
@@ -2210,7 +2216,7 @@ async function runTests() {
     const restoreDns = installDnsLookupMock({
       'mixed.example': [
         { address: TEST_PUBLIC_IP, family: 4 },
-        { address: '127.0.0.1', family: 4 },
+        { address: '::ffff:0:127.0.0.1', family: 6 },
       ],
     });
 
@@ -2222,6 +2228,42 @@ async function runTests() {
         error.message.includes('blocked by security policy'),
         `Expected security policy error, got: ${error.message}`,
       );
+    } finally {
+      restoreDns();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('translated DNS answers produce URLSecurityPolicyDnsError while public answers map through', async () => {
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+    const restoreDns = installDnsLookupMock({
+      'translated-dns.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
+      'scoped-dns.example': [{ address: 'fe80::1%eth0', family: 6 }],
+      'public-dns.example': [{ address: TEST_PUBLIC_IP, family: 4 }],
+    });
+    const lookup = createUrlReaderLookup();
+
+    try {
+      const blocked = await new Promise<unknown>((resolve) => {
+        lookup('translated-dns.example', {}, (error) => resolve(error));
+      });
+      assert.equal((blocked as Error).name, 'URLSecurityPolicyDnsError');
+      assert.equal(isUrlSecurityPolicyDnsError(blocked), true);
+
+      const scopedBlocked = await new Promise<unknown>((resolve) => {
+        lookup('scoped-dns.example', {}, (error) => resolve(error));
+      });
+      assert.equal((scopedBlocked as Error).name, 'URLSecurityPolicyDnsError');
+      assert.equal(isUrlSecurityPolicyDnsError(scopedBlocked), true);
+
+      const allowed = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+        lookup('public-dns.example', {}, (error, address, family) => {
+          if (error) return reject(error);
+          resolve({ address: address as string, family: family as number });
+        });
+      });
+      assert.deepEqual(allowed, { address: TEST_PUBLIC_IP, family: 4 });
     } finally {
       restoreDns();
       envManager.restore();
@@ -2244,6 +2286,8 @@ async function runTests() {
 
     const restoreDns = installDnsLookupMock({
       'internal.example': [{ address: '127.0.0.1', family: 4 }],
+      'translated-override.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
+      'rfc8215-override.example': [{ address: '64:ff9b:1::1', family: 6 }],
     });
     const { url, close } = await startTestServer({ body: '<html><body><h1>Internal DNS target</h1></body></html>' });
     const port = new URL(url).port;
@@ -2251,6 +2295,15 @@ async function runTests() {
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, `http://internal.example:${port}/article`, 1000);
       assert.ok(result.includes('Internal DNS target'), `Expected private DNS opt-out fetch, got: ${result}`);
+      for (const hostname of ['translated-override.example', 'rfc8215-override.example']) {
+        const allowed = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+          createUrlReaderLookup()(hostname, {}, (error, address, family) => {
+            if (error) return reject(error);
+            resolve({ address: address as string, family: family as number });
+          });
+        });
+        assert.equal(allowed.family, 6, `${hostname} should be allowed by the override`);
+      }
     } finally {
       restoreDns();
       await close();
@@ -2264,7 +2317,7 @@ async function runTests() {
     envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
 
     const restoreDns = installDnsLookupMock({
-      'private-redirect.example': [{ address: '127.0.0.1', family: 4 }],
+      'private-redirect.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
     });
     const lookup = createUrlReaderLookup();
 

@@ -43,6 +43,62 @@ export function isPrivateIpv4(hostname: string): boolean {
   return BLOCKED_V4_CIDRS.some(([net, bits]) => ((ip ^ net) >>> (32 - bits)) === 0);
 }
 
+function parseIpv6Bytes(address: string): Uint8Array {
+  const compressionAt = address.indexOf("::");
+  const hasCompression = compressionAt !== -1;
+  if (hasCompression && address.indexOf("::", compressionAt + 1) !== -1) {
+    throw new Error("invalid IPv6 compression");
+  }
+
+  const leftParts = hasCompression
+    ? address.slice(0, compressionAt).split(":").filter(Boolean)
+    : address.split(":");
+  const rightParts = hasCompression
+    ? address.slice(compressionAt + 2).split(":").filter(Boolean)
+    : [];
+  const parts = [...leftParts, ...rightParts];
+  const octets: number[] = [];
+  let leftOctetLength = 0;
+
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index];
+    if (part.includes(".")) {
+      if (index !== parts.length - 1 || isIP(part) !== 4) {
+        throw new Error("invalid embedded IPv4");
+      }
+      octets.push(...part.split(".").map(Number));
+    } else {
+      if (!/^[0-9a-f]{1,4}$/i.test(part)) {
+        throw new Error("invalid IPv6 hextet");
+      }
+      const value = Number.parseInt(part, 16);
+      octets.push(value >> 8, value & 0xff);
+    }
+    if (index < leftParts.length) {
+      leftOctetLength = octets.length;
+    }
+  }
+
+  if (!hasCompression) {
+    if (octets.length !== 16) throw new Error("invalid IPv6 length");
+    return Uint8Array.from(octets);
+  }
+  if (octets.length >= 16) throw new Error("invalid IPv6 compression length");
+
+  const bytes = new Uint8Array(16);
+  bytes.set(octets.slice(0, leftOctetLength));
+  bytes.set(octets.slice(leftOctetLength), 16 - (octets.length - leftOctetLength));
+  return bytes;
+}
+
+function ipv4FromBytes(bytes: Uint8Array, offset: number): string {
+  return `${bytes[offset]}.${bytes[offset + 1]}.${bytes[offset + 2]}.${bytes[offset + 3]}`;
+}
+
+function hasPrefix(bytes: Uint8Array, prefix: number[]): boolean {
+  return prefix.every((value, index) => bytes[index] === value);
+}
+
 export function isPrivateIPv6(hostname: string): boolean {
   // url.hostname wraps IPv6 in brackets (e.g. "[::1]") - strip them first
   const addr = (hostname.startsWith("[") && hostname.endsWith("]")
@@ -52,22 +108,34 @@ export function isPrivateIPv6(hostname: string): boolean {
 
   if (isIP(addr) !== 6) return false;
 
-  if (addr === "::1") return true;                     // loopback
-  if (addr === "::") return true;                      // unspecified
-  if (/^f[cd]/i.test(addr)) return true;               // ULA fc00::/7
-  if (/^fe[89ab][0-9a-f]:/i.test(addr)) return true;  // link-local fe80::/10
+  let bytes: Uint8Array;
+  try {
+    bytes = parseIpv6Bytes(addr);
+  } catch {
+    return true;
+  }
+  if (bytes.length !== 16) return true;
 
-  // IPv4-mapped ::ffff:<ipv4> - delegate to the IPv4 check
-  const mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (mapped) return isPrivateIpv4(mapped[1]);
+  // Native singleton and CIDR denials.
+  if (bytes.every((value) => value === 0)) return true; // unspecified ::
+  if (bytes.slice(0, 15).every((value) => value === 0) && bytes[15] === 1) return true; // loopback ::1
+  if ((bytes[0] & 0xfe) === 0xfc) return true; // ULA fc00::/7
+  if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true; // link-local fe80::/10
 
-  // IPv4-mapped ::ffff:<hhhh>:<hhhh> - convert the hex segments to dotted decimal
-  const hexMapped = addr.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexMapped) {
-    const high = parseInt(hexMapped[1], 16);
-    const low = parseInt(hexMapped[2], 16);
-    const ipv4 = `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
-    return isPrivateIpv4(ipv4);
+  // RFC 8215 local-use prefix is entirely non-public, regardless of payload.
+  if (hasPrefix(bytes, [0x00, 0x64, 0xff, 0x9b, 0x00, 0x01])) return true;
+
+  // Mutually exclusive IPv4 embedding forms, in their RFC prefix order.
+  if (hasPrefix(bytes, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])) { // IPv4-compatible ::/96
+    return isPrivateIpv4(ipv4FromBytes(bytes, 12));
+  } else if (hasPrefix(bytes, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff])) { // IPv4-mapped ::ffff:0:0/96
+    return isPrivateIpv4(ipv4FromBytes(bytes, 12));
+  } else if (hasPrefix(bytes, [0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0])) { // IPv4-translated ::ffff:0:0:0/96
+    return isPrivateIpv4(ipv4FromBytes(bytes, 12));
+  } else if (hasPrefix(bytes, [0x20, 0x02])) { // 6to4 2002::/16, bits 16-47 carry IPv4
+    return isPrivateIpv4(ipv4FromBytes(bytes, 2));
+  } else if (hasPrefix(bytes, [0x00, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0])) { // RFC 6052 64:ff9b::/96
+    return isPrivateIpv4(ipv4FromBytes(bytes, 12));
   }
 
   return false;

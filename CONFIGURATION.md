@@ -426,13 +426,17 @@ Every present `Origin` on `/mcp` is validated in all modes; an absent `Origin` r
 
 ## URL Reader Security
 
-`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, CGNAT (`100.64.0.0/10`), IANA special-purpose IPv4 ranges, IPv6 loopback/ULA/link-local addresses, and IPv4-mapped IPv6 private addresses.
+`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, CGNAT (`100.64.0.0/10`), IANA special-purpose IPv4 ranges, IPv6 loopback/ULA/link-local addresses, and decoded private IPv4 payloads from `::/96`, `::ffff:0:0/96`, `::ffff:0:0:0/96`, `2002::/16`, and `64:ff9b::/96`. The entire `64:ff9b:1::/48` local-use range is a whole-prefix local-use denial before payload inspection.
+
+These targeted decoded forms protect untrusted URL reading; they do not claim complete NAT64 or complete transition coverage. Teredo and Network-Specific Prefix forms are not decoded by this classifier.
 
 Redirects are also checked before they are followed. A public URL that redirects to a private/internal URL is blocked.
 
 For direct URL-reader requests without a proxy, DNS answers are validated before connecting. A public-looking hostname that resolves to a private/internal address is blocked, and the connection is pinned to the validated DNS answer to prevent DNS rebinding between validation and connection.
 
-When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions, so proxied deployments should rely on proxy, firewall, and egress controls.
+### Residual proxy-resolution boundary
+
+When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTPS_PROXY`, `HTTP_PROXY`, or `HTTPS_PROXY`), the proxy performs DNS resolution. Client-side DNS-answer validation cannot inspect proxied resolutions. Retain explicit proxy-side controls: restrict destinations at the proxy and use routing or firewall controls plus egress controls to protect internal networks.
 
 `URL_READ_MAX_CONTENT_LENGTH_BYTES` is enforced while streaming the response
 body, including chunked responses and responses whose GET body is larger than
