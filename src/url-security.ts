@@ -43,42 +43,48 @@ export function isPrivateIpv4(hostname: string): boolean {
   return BLOCKED_V4_CIDRS.some(([net, bits]) => ((ip ^ net) >>> (32 - bits)) === 0);
 }
 
-function parseIpv6Bytes(address: string): Uint8Array {
+function splitIpv6Parts(address: string): {
+  hasCompression: boolean;
+  leftParts: string[];
+  rightParts: string[];
+} {
   const compressionAt = address.indexOf("::");
   const hasCompression = compressionAt !== -1;
   if (hasCompression && address.indexOf("::", compressionAt + 1) !== -1) {
     throw new Error("invalid IPv6 compression");
   }
 
-  const leftParts = hasCompression
-    ? address.slice(0, compressionAt).split(":").filter(Boolean)
-    : address.split(":");
-  const rightParts = hasCompression
-    ? address.slice(compressionAt + 2).split(":").filter(Boolean)
-    : [];
-  const parts = [...leftParts, ...rightParts];
-  const octets: number[] = [];
-  let leftOctetLength = 0;
+  return {
+    hasCompression,
+    leftParts: hasCompression
+      ? address.slice(0, compressionAt).split(":").filter(Boolean)
+      : address.split(":"),
+    rightParts: hasCompression
+      ? address.slice(compressionAt + 2).split(":").filter(Boolean)
+      : [],
+  };
+}
 
-  for (let index = 0; index < parts.length; index++) {
-    const part = parts[index];
-    if (part.includes(".")) {
-      if (index !== parts.length - 1 || isIP(part) !== 4) {
-        throw new Error("invalid embedded IPv4");
-      }
-      octets.push(...part.split(".").map(Number));
-    } else {
-      if (!/^[0-9a-f]{1,4}$/i.test(part)) {
-        throw new Error("invalid IPv6 hextet");
-      }
-      const value = Number.parseInt(part, 16);
-      octets.push(value >> 8, value & 0xff);
+function parseIpv6Part(part: string, isLast: boolean): number[] {
+  if (part.includes(".")) {
+    if (!isLast || isIP(part) !== 4) {
+      throw new Error("invalid embedded IPv4");
     }
-    if (index < leftParts.length) {
-      leftOctetLength = octets.length;
-    }
+    return part.split(".").map(Number);
   }
 
+  if (!/^[0-9a-f]{1,4}$/i.test(part)) {
+    throw new Error("invalid IPv6 hextet");
+  }
+  const value = Number.parseInt(part, 16);
+  return [value >> 8, value & 0xff];
+}
+
+function parseIpv6Parts(parts: string[]): number[] {
+  return parts.flatMap((part, index) => parseIpv6Part(part, index === parts.length - 1));
+}
+
+function expandIpv6Bytes(octets: number[], hasCompression: boolean, leftOctetLength: number): Uint8Array {
   if (!hasCompression) {
     if (octets.length !== 16) throw new Error("invalid IPv6 length");
     return Uint8Array.from(octets);
@@ -89,6 +95,14 @@ function parseIpv6Bytes(address: string): Uint8Array {
   bytes.set(octets.slice(0, leftOctetLength));
   bytes.set(octets.slice(leftOctetLength), 16 - (octets.length - leftOctetLength));
   return bytes;
+}
+
+function parseIpv6Bytes(address: string): Uint8Array {
+  const { hasCompression, leftParts, rightParts } = splitIpv6Parts(address);
+  const parts = [...leftParts, ...rightParts];
+  const octets = parseIpv6Parts(parts);
+  const leftOctetLength = parseIpv6Parts(leftParts).length;
+  return expandIpv6Bytes(octets, hasCompression, leftOctetLength);
 }
 
 function ipv4FromBytes(bytes: Uint8Array, offset: number): string {
