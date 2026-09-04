@@ -34,6 +34,8 @@ const BLOCKED_V4_CIDRS: [number, number][] = [
   [ipv4ToInt("240.0.0.0"), 4],     // reserved / 255.255.255.255 broadcast
 ];
 
+const IPV6_HEX_DIGITS = "0123456789abcdef";
+
 export function isPrivateIpv4(hostname: string): boolean {
   if (isIP(hostname) !== 4) {
     return false;
@@ -73,7 +75,11 @@ function parseIpv6Part(part: string, isLast: boolean): number[] {
     return part.split(".").map(Number);
   }
 
-  if (!/^[0-9a-f]{1,4}$/i.test(part)) {
+  if (
+    part.length < 1
+    || part.length > 4
+    || ![...part.toLowerCase()].every((character) => IPV6_HEX_DIGITS.includes(character))
+  ) {
     throw new Error("invalid IPv6 hextet");
   }
   const value = Number.parseInt(part, 16);
