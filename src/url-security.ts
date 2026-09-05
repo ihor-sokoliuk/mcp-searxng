@@ -141,6 +141,8 @@ export function isPrivateIPv6(hostname: string): boolean {
   if (bytes.slice(0, 15).every((value) => value === 0) && bytes[15] === 1) return true; // loopback ::1
   if ((bytes[0] & 0xfe) === 0xfc) return true; // ULA fc00::/7
   if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true; // link-local fe80::/10
+  if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0xc0) return true; // site-local fec0::/10
+  if (bytes[0] === 0xff) return true; // multicast ff00::/8
 
   // RFC 8215 local-use prefix is entirely non-public, regardless of payload.
   if (hasPrefix(bytes, [0x00, 0x64, 0xff, 0x9b, 0x00, 0x01])) return true;

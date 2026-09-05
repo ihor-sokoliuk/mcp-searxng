@@ -426,7 +426,7 @@ Every present `Origin` on `/mcp` is validated in all modes; an absent `Origin` r
 
 ## URL Reader Security
 
-`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, CGNAT (`100.64.0.0/10`), IANA special-purpose IPv4 ranges, IPv6 loopback/ULA/link-local addresses, and decoded private IPv4 payloads from `::/96`, `::ffff:0:0/96`, `::ffff:0:0:0/96`, `2002::/16`, and `64:ff9b::/96`. The entire `64:ff9b:1::/48` local-use range is a whole-prefix local-use denial before payload inspection.
+`web_url_read` blocks private/internal URLs by default in all transport modes. This includes localhost, loopback addresses, private IPv4 ranges, link-local addresses, `0.0.0.0/8`, CGNAT (`100.64.0.0/10`), IANA special-purpose IPv4 ranges, IPv6 loopback/ULA/link-local addresses, deprecated site-local (`fec0::/10`), multicast (`ff00::/8`), and decoded private IPv4 payloads from `::/96`, `::ffff:0:0/96`, `::ffff:0:0:0/96`, `2002::/16`, and `64:ff9b::/96`. The site-local range protects networks that still route it; the multicast denial is defense in depth. The entire `64:ff9b:1::/48` local-use range is a whole-prefix local-use denial before payload inspection.
 
 These targeted decoded forms protect untrusted URL reading; they do not claim complete NAT64 or complete transition coverage. Teredo and Network-Specific Prefix forms are not decoded by this classifier.
 
@@ -465,7 +465,7 @@ HEAD preflight (up to 3 seconds), solver acquisition (the selected provider
 timeout plus up to 5 response-transfer seconds), and then the same replay-fetch
 and parser budgets.
 
-Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses.
+Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses, including the site-local and multicast IPv6 ranges above.
 
 
 ## Combined Example (Representative Options)

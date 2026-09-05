@@ -139,12 +139,26 @@ async function runTests() {
   await testFunction('isPrivateIPv6 preserves native denials and blocks RFC8215 local-use prefix', () => {
     for (const address of [
       '::', '0:0:0:0:0:0:0:1', 'fc00::1', 'FD12::1', 'fe80::1', 'febf::1',
+      'febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
       '64:ff9b:1::', '64:ff9b:1:ffff:ffff:ffff:ffff:ffff',
     ]) {
       assert.equal(isPrivateIPv6(address), true, `${address} should be blocked`);
     }
-    for (const address of ['64:ff9b:0:ffff::', '64:ff9b:2::']) {
+    for (const address of ['fe7f::1', '64:ff9b:0:ffff::', '64:ff9b:2::']) {
       assert.equal(isPrivateIPv6(address), false, `${address} should remain public`);
+    }
+  }, results);
+
+  await testFunction('isPrivateIPv6 blocks native site-local and multicast ranges across URL spellings', () => {
+    for (const address of [
+      'fec0::', 'feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+      'FEC0::1', 'fec0:0000:0000:0000:0000:0000:0000:0001',
+      'ff00::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 'ff0e::1',
+    ]) {
+      assert.equal(isPrivateIPv6(address), true, `${address} should be blocked`);
+    }
+    for (const literal of ['http://[FEC0::1]/', 'http://[ff0e::1]/']) {
+      assert.equal(isPrivateIPv6(new URL(literal).hostname), true, `${literal} should be blocked`);
     }
   }, results);
 
@@ -233,6 +247,7 @@ async function runTests() {
     const requiredTerms = [
       '::/96', '::ffff:0:0/96', '::ffff:0:0:0/96', '2002::/16', '64:ff9b::/96',
       '64:ff9b:1::/48', 'whole-prefix local-use denial', 'Teredo', 'Network-Specific Prefix',
+      'fec0::/10', 'ff00::/8', 'defense in depth',
       'routing or firewall controls', 'untrusted URL reading',
       'do not claim complete NAT64 or complete transition coverage',
     ];
@@ -257,11 +272,21 @@ async function runTests() {
         () => assertUrlAllowed(new URL('http://100.64.0.1/')),
         /blocked by security policy/,
       );
+      assert.throws(
+        () => assertUrlAllowed(new URL('http://[fec0::1]/')),
+        /blocked by security policy/,
+      );
+      assert.throws(
+        () => assertUrlAllowed(new URL('http://[ff0e::1]/')),
+        /blocked by security policy/,
+      );
 
       envManager.set('MCP_HTTP_ALLOW_PRIVATE_URLS', 'true');
       assert.doesNotThrow(() => assertUrlAllowed(new URL('http://100.64.0.1/')));
       assert.doesNotThrow(() => assertUrlAllowed(new URL('http://[::ffff:0:127.0.0.1]/')));
       assert.doesNotThrow(() => assertUrlAllowed(new URL('http://[64:ff9b:1::1]/')));
+      assert.doesNotThrow(() => assertUrlAllowed(new URL('http://[fec0::1]/')));
+      assert.doesNotThrow(() => assertUrlAllowed(new URL('http://[ff0e::1]/')));
     } finally {
       envManager.restore();
     }
