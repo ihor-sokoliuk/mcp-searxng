@@ -61,7 +61,7 @@
         "node-html-parser": "^6.1.13",
         "undici": "7.29.0",
         "unpdf": "1.8.1",
-        "zod": "4.2.0"
+        "zod": "4.4.3"
     },
     "devDependencies": {
         "@modelcontextprotocol/client": "2.0.0",
