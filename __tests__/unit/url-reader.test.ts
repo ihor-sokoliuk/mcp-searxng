@@ -2064,6 +2064,35 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('default mode blocks native non-global IPv6 literals before proxy dispatch', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    let deniedTargetDispatches = 0;
+    const proxy = await startConnectProxyServer(() => {
+      deniedTargetDispatches++;
+      return { body: '<html><body><h1>Denied target</h1></body></html>' };
+    });
+    envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+    envManager.delete('NO_PROXY');
+
+    try {
+      for (const literal of ['http://[fec0::1]:12345/private', 'http://[ff0e::1]:12345/private']) {
+        try {
+          await fetchAndConvertToMarkdown(mockServer as any, literal, 250);
+          assert.fail(`Expected native non-global IPv6 literal to be blocked: ${literal}`);
+        } catch (error: any) {
+          assert.ok(error.message.includes('blocked by security policy'));
+        }
+      }
+      assert.equal(deniedTargetDispatches, 0, 'Denied literal targets must not be dispatched');
+    } finally {
+      await proxy.close();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('default mode blocks hostnames resolving to private IPv4 ranges', async () => {
     const mockServer = createMockServer();
     envManager.delete('MCP_HTTP_HARDEN');
@@ -2122,6 +2151,8 @@ async function runTests() {
       'v6-loopback.example': [{ address: '::1', family: 6 }],
       'v6-ula.example': [{ address: 'fc00::1', family: 6 }],
       'v6-linklocal.example': [{ address: 'fe80::1', family: 6 }],
+      'v6-site-local.example': [{ address: 'FEC0::1', family: 6 }],
+      'v6-multicast.example': [{ address: 'ff0e::1', family: 6 }],
       'v6-translated.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
     };
     const restoreDns = installDnsLookupMock(privateCases);
@@ -2218,16 +2249,28 @@ async function runTests() {
         { address: TEST_PUBLIC_IP, family: 4 },
         { address: '::ffff:0:127.0.0.1', family: 6 },
       ],
+      'mixed-native-v6.example': [
+        { address: TEST_PUBLIC_IP, family: 4 },
+        { address: 'ff0e::1', family: 6 },
+      ],
+      'mixed-site-local-v6.example': [
+        { address: TEST_PUBLIC_IP, family: 4 },
+        { address: 'fec0::1', family: 6 },
+      ],
     });
 
     try {
-      await fetchAndConvertToMarkdown(mockServer as any, 'http://mixed.example/private', 250);
-      assert.fail('Expected hostname with any private DNS answer to be blocked');
-    } catch (error: any) {
-      assert.ok(
-        error.message.includes('blocked by security policy'),
-        `Expected security policy error, got: ${error.message}`,
-      );
+      for (const hostname of ['mixed.example', 'mixed-native-v6.example', 'mixed-site-local-v6.example']) {
+        try {
+          await fetchAndConvertToMarkdown(mockServer as any, `http://${hostname}/private`, 250);
+          assert.fail(`Expected hostname with a denied DNS answer to be blocked: ${hostname}`);
+        } catch (error: any) {
+          assert.ok(
+            error.message.includes('blocked by security policy'),
+            `Expected security policy error, got: ${error.message}`,
+          );
+        }
+      }
     } finally {
       restoreDns();
       envManager.restore();
@@ -2240,6 +2283,8 @@ async function runTests() {
     const restoreDns = installDnsLookupMock({
       'translated-dns.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
       'scoped-dns.example': [{ address: 'fe80::1%eth0', family: 6 }],
+      'site-local-dns.example': [{ address: 'fec0::1', family: 6 }],
+      'multicast-dns.example': [{ address: 'ff00::1', family: 6 }],
       'public-dns.example': [{ address: TEST_PUBLIC_IP, family: 4 }],
     });
     const lookup = createUrlReaderLookup();
@@ -2256,6 +2301,14 @@ async function runTests() {
       });
       assert.equal((scopedBlocked as Error).name, 'URLSecurityPolicyDnsError');
       assert.equal(isUrlSecurityPolicyDnsError(scopedBlocked), true);
+
+      for (const hostname of ['site-local-dns.example', 'multicast-dns.example']) {
+        const nativeBlocked = await new Promise<unknown>((resolve) => {
+          lookup(hostname, {}, (error) => resolve(error));
+        });
+        assert.equal((nativeBlocked as Error).name, 'URLSecurityPolicyDnsError');
+        assert.equal(isUrlSecurityPolicyDnsError(nativeBlocked), true);
+      }
 
       const allowed = await new Promise<{ address: string; family: number }>((resolve, reject) => {
         lookup('public-dns.example', {}, (error, address, family) => {
@@ -2288,6 +2341,8 @@ async function runTests() {
       'internal.example': [{ address: '127.0.0.1', family: 4 }],
       'translated-override.example': [{ address: '::ffff:0:127.0.0.1', family: 6 }],
       'rfc8215-override.example': [{ address: '64:ff9b:1::1', family: 6 }],
+      'site-local-override.example': [{ address: 'fec0::1', family: 6 }],
+      'multicast-override.example': [{ address: 'ff0e::1', family: 6 }],
     });
     const { url, close } = await startTestServer({ body: '<html><body><h1>Internal DNS target</h1></body></html>' });
     const port = new URL(url).port;
@@ -2295,7 +2350,10 @@ async function runTests() {
     try {
       const result = await fetchAndConvertToMarkdown(mockServer as any, `http://internal.example:${port}/article`, 1000);
       assert.ok(result.includes('Internal DNS target'), `Expected private DNS opt-out fetch, got: ${result}`);
-      for (const hostname of ['translated-override.example', 'rfc8215-override.example']) {
+      for (const hostname of [
+        'translated-override.example', 'rfc8215-override.example',
+        'site-local-override.example', 'multicast-override.example',
+      ]) {
         const allowed = await new Promise<{ address: string; family: number }>((resolve, reject) => {
           createUrlReaderLookup()(hostname, {}, (error, address, family) => {
             if (error) return reject(error);
@@ -2401,6 +2459,44 @@ async function runTests() {
         error.message.includes('blocked by security policy'),
         `Expected security policy error, got: ${error.message}`,
       );
+    } finally {
+      await proxy.close();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('redirects to native non-global IPv6 URLs are blocked before target dispatch', async () => {
+    const mockServer = createMockServer();
+    envManager.delete('MCP_HTTP_HARDEN');
+    envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+
+    let deniedTargetDispatches = 0;
+    const redirectTargets = ['fec0::1', 'ff0e::1'];
+    let currentTarget = redirectTargets[0];
+    const proxy = await startConnectProxyServer((authority) => {
+      if (authority === 'public.example:80') {
+        return {
+          status: 302,
+          headers: { Location: `http://[${currentTarget}]:12345/private` },
+        };
+      }
+      deniedTargetDispatches++;
+      return { body: '<html><body><h1>Denied target</h1></body></html>' };
+    });
+
+    envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+    envManager.delete('NO_PROXY');
+    try {
+      for (const target of redirectTargets) {
+        currentTarget = target;
+        try {
+          await fetchAndConvertToMarkdown(mockServer as any, `http://public.example/${target}`, 1000);
+          assert.fail(`Expected redirect to native non-global IPv6 URL to be blocked: ${target}`);
+        } catch (error: any) {
+          assert.ok(error.message.includes('blocked by security policy'));
+        }
+      }
+      assert.equal(deniedTargetDispatches, 0, 'Denied redirect target must not be dispatched');
     } finally {
       await proxy.close();
       envManager.restore();

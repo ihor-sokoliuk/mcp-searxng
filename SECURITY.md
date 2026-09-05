@@ -69,7 +69,7 @@ Private and internal URLs are **blocked by default** in all transport modes. The
 
 - `localhost` and `*.localhost`
 - IPv4 loopback (`127.0.0.0/8`), private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local (`169.254.0.0/16`), unspecified (`0.0.0.0/8`), CGNAT (`100.64.0.0/10`), IETF protocol assignments (`192.0.0.0/24`), 6to4 relay anycast (`192.88.99.0/24`), documentation/test ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`), benchmarking (`198.18.0.0/15`), multicast (`224.0.0.0/4`), and reserved/broadcast (`240.0.0.0/4`) ranges
-- IPv6 loopback (`::1`), unspecified (`::`), ULA (`fc00::/7`), link-local (`fe80::/10`)
+- IPv6 loopback (`::1`), unspecified (`::`), ULA (`fc00::/7`), link-local (`fe80::/10`), deprecated site-local (`fec0::/10`), and multicast (`ff00::/8`). Site-local is blocked to protect networks that still route it; multicast is a defense in depth denial.
 - Embedded IPv4 payloads in IPv4-compatible `::/96`, IPv4-mapped `::ffff:0:0/96`, IPv4-translated `::ffff:0:0:0/96`, 6to4 `2002::/16`, and RFC6052 `64:ff9b::/96` forms whenever the decoded IPv4 address is blocked above. This includes dotted and hexadecimal mapped literals.
 - The entire RFC8215 local-use `64:ff9b:1::/48` range, as a whole-prefix local-use denial regardless of its payload
 - Redirects are validated **before** they are followed — a public URL that redirects to a private address is also blocked
@@ -80,7 +80,7 @@ When a URL-reader proxy is configured (`URL_READER_HTTP_PROXY`, `URL_READER_HTTP
 
 These targeted decoded forms protect untrusted URL reading; they do not claim complete NAT64 or complete transition coverage. Teredo and Network-Specific Prefix forms are not decoded by this classifier.
 
-To allow private URL reads and private DNS-resolved targets (e.g. for internal deployments), set `MCP_HTTP_ALLOW_PRIVATE_URLS=true`. Do this only when internal fetching is intentional.
+To allow private URL reads and private DNS-resolved targets (e.g. for internal deployments), set `MCP_HTTP_ALLOW_PRIVATE_URLS=true`. This intentional opt-out also allows the site-local and multicast ranges above; do this only when internal fetching is intentional.
 
 ### Delegated Browser Service
 
