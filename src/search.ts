@@ -759,6 +759,44 @@ function hasSearchResults(data: SearXNGWeb): boolean {
 }
 
 /**
+ * Does this response carry direct content that stands on its own without rows?
+ *
+ * A direct answer or an infobox is output the search demonstrably produced for
+ * this query — an answerer plugin can supply a calculator result while a web
+ * engine times out — so a zero-row response carrying one is not the bare
+ * "nothing matched" reply the engine-failure guard exists to disambiguate.
+ *
+ * "Carries content" is deliberately defined as "the metadata renderer would
+ * emit something", by reusing that renderer rather than re-deriving the rule.
+ * The response is only cast to SearXNGWeb and never runtime validated, so a
+ * blank or non-string answer and an infobox with no title, content or links
+ * are all dropped there; a second notion of empty here could disagree with what
+ * the caller actually receives, which is the only thing the guard cares about.
+ */
+function hasUsableDirectContent(data: SearXNGWeb): boolean {
+  if (asMetadataLines(data.answers).length > 0) {
+    return true;
+  }
+
+  const { infoboxes } = data;
+  return Array.isArray(infoboxes) && infoboxes.some((infobox) => formatInfobox(infobox) !== "");
+}
+
+/**
+ * Pick which zero-row response to return once every replica came back empty.
+ *
+ * Prefers the first response carrying direct content so a replica's answer or
+ * infobox is not dropped in favour of an emptier neighbour's payload, which
+ * would both lose the content and — since the guard below reads the payload it
+ * is about to return — turn a search that produced output into a failure.
+ * Falls back to the first response, the previous behaviour, when no replica
+ * carries any. `servedBy` still names every replica either way.
+ */
+function selectEmptyResponse(responses: InstanceSearchResult[]): InstanceSearchResult {
+  return responses.find((result) => hasUsableDirectContent(result.data)) ?? responses[0];
+}
+
+/**
  * Decide whether a set of zero-row responses means the search failed.
  *
  * Returns the deduplicated union of failing engines when every zero-row
@@ -774,6 +812,11 @@ function hasSearchResults(data: SearXNGWeb): boolean {
  * still counts as failed even when none of them can be identified — those
  * collapse to a single "unknown engine" — because hasItems has already
  * established that this replica did not come back clean.
+ *
+ * Direct answers and infoboxes are deliberately not consulted here. That
+ * exemption is decided once in performWebSearch against the payload it is about
+ * to return, because whether the content reaches the caller also depends on
+ * result_detail, which this classifier does not see.
  */
 function classifyEmptyResponses(responses: SearXNGWeb[]): Array<[string, string]> | null {
   const failedEngines = new Map<string, [string, string]>();
@@ -791,6 +834,53 @@ function classifyEmptyResponses(responses: SearXNGWeb[]): Array<[string, string]
   }
 
   return failedEngines.size > 0 ? [...failedEngines.values()] : null;
+}
+
+/**
+ * Raise when a zero-row response means the search failed rather than matched nothing.
+ *
+ * A zero-result response is ambiguous once engines have failed: it can mean the
+ * query matched nothing, or that the search never actually ran. Classification
+ * runs across every zero-row response rather than the single payload that
+ * survived multi-instance selection, so the verdict does not depend on replica
+ * ordering — one replica finishing cleanly with zero rows still means "nothing
+ * matched".
+ *
+ * Two things are deliberately not failures. Rows that min_score or num_results
+ * filtered away are a filtering outcome, so this reads the raw result set and
+ * not the sliced one. And a response whose direct answer or infobox will reach
+ * the caller is exempt: that content is output the search produced, so the
+ * reply is not the bare no-results message this guard exists to disambiguate,
+ * and raising would discard it. selectEmptyResponse has already made data the
+ * content-bearing replica when any replica had one, so this reads the payload
+ * about to be returned rather than re-deriving the verdict per replica. The
+ * exemption is tied to resultDetail because compact drops metadata from both
+ * formats: the reply there is the bare no-results message again.
+ */
+function assertSearchRan(
+  mcpServer: McpServer,
+  query: string,
+  data: SearXNGWeb,
+  emptyResponses: SearXNGWeb[] | undefined,
+  resultDetail: ResultDetail,
+): void {
+  const rendersDirectContent = resultDetail === "full" && hasUsableDirectContent(data);
+  if (data.results.length > 0 || rendersDirectContent) {
+    return;
+  }
+
+  const failedEngines = classifyEmptyResponses(emptyResponses ?? [data]);
+  if (!failedEngines) {
+    return;
+  }
+
+  logMessage(
+    mcpServer,
+    "error",
+    `Zero results with failing engines for query: "${query}"`,
+    { unresponsiveEngines: failedEngines },
+  );
+  throw createEngineFailureError(query, failedEngines);
 }
 
 function createAllInstancesFailedError(failures: FailedInstanceResult[], skippedInstances: string[]): MCPSearXNGError {
@@ -842,7 +932,7 @@ async function performFailoverSearch(
 
   if (emptyResults.length > 0) {
     return {
-      data: emptyResults[0].data,
+      data: selectEmptyResponse(emptyResults).data,
       servedBy: emptyResults.map((result) => result.instanceUrl),
       emptyResponses: emptyResults.map((result) => result.data),
     };
@@ -924,7 +1014,7 @@ async function performFanoutSearch(
   const contributing = successes.filter((result) => hasSearchResults(result.data));
   if (contributing.length === 0) {
     return {
-      data: successes[0].data,
+      data: selectEmptyResponse(successes).data,
       servedBy: successes.map((result) => result.instanceUrl),
       emptyResponses: successes.map((result) => result.data),
     };
@@ -1042,27 +1132,8 @@ export async function performWebSearch(
     ? results.slice(0, effectiveMax)
     : results;
 
-  // A zero-result response is ambiguous once engines have failed: it can mean
-  // the query matched nothing, or that the search never actually ran. Classify
-  // across every zero-row response rather than the single payload that survived
-  // multi-instance selection, so the verdict does not depend on replica
-  // ordering: one replica finishing cleanly with zero rows still means "nothing
-  // matched". Test the raw result set rather than slicedResults, because rows
-  // that min_score or num_results filtered away are a filtering outcome and
-  // still deserve the plain no-results message. This sits above the json branch
-  // so both response formats are covered.
-  if (data.results.length === 0) {
-    const failedEngines = classifyEmptyResponses(emptyResponses ?? [data]);
-    if (failedEngines) {
-      logMessage(
-        mcpServer,
-        "error",
-        `Zero results with failing engines for query: "${query}"`,
-        { unresponsiveEngines: failedEngines },
-      );
-      throw createEngineFailureError(query, failedEngines);
-    }
-  }
+  // Runs above the json branch so both response formats are covered.
+  assertSearchRan(mcpServer, query, data, emptyResponses, result_detail);
 
   if (effectiveResponseFormat === "json") {
     const result = result_detail === "compact"
