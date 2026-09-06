@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { parse } from "node-html-parser";
-import { SearXNGWeb, type ResultDetail } from "./types.js";
+import { SearXNGWeb, type ResultDetail, type SearXNGWebInfobox } from "./types.js";
 import { getEngineTimeRangeSupport, getKnownCategories, getKnownEngines } from "./instance-info.js";
 import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import { logMessage } from "./logging.js";
@@ -437,38 +437,95 @@ async function normalizeSearchFilters(
   };
 }
 
+/**
+ * Collapse an untrusted string array into renderable single-line entries.
+ *
+ * Metadata arrays are only cast to `SearXNGWeb`, never runtime validated, so an
+ * entry can be any shape. Non-strings render as "[object Object]" when
+ * interpolated, and embedded newlines let a metadata section forge extra
+ * "Title:" or "URL:" lines in the text output — which is why every result field
+ * already goes through asTextLineString. Entries left blank are dropped rather
+ * than rendered as a bare label.
+ */
+function asMetadataLines(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .map((value) => asTextLineString(value).trim())
+    .filter((text) => text !== "");
+}
+
+/**
+ * Render one metadata section, or "" when its array holds nothing usable.
+ *
+ * Every section shares the same shape — coerce an untrusted array, render only
+ * if something survived — so it is expressed once here and each section below
+ * supplies just its own wording.
+ */
+function formatMetadataSection(values: unknown, render: (lines: string[]) => string): string {
+  const lines = asMetadataLines(values);
+  return lines.length === 0 ? "" : render(lines);
+}
+
+function formatInfoboxUrl(entry: unknown): string[] {
+  if (entry === null || typeof entry !== "object") {
+    return [];
+  }
+
+  const { title, url } = entry as { title?: unknown; url?: unknown };
+  const parts = [title, url].map((value) => asTextLineString(value).trim());
+  return parts.every((part) => part === "") ? [] : [parts.join(": ")];
+}
+
+/**
+ * Render one infobox, or "" when it holds nothing worth showing.
+ *
+ * Returning "" rather than a bare "Infobox:" label makes this the single
+ * definition of an infobox that carries content: callers decide whether an
+ * infobox is usable by asking whether it renders, so the renderer and any
+ * check upstream of it cannot drift apart on what counts as empty.
+ */
+function formatInfobox(infobox: unknown): string {
+  if (infobox === null || typeof infobox !== "object") {
+    return "";
+  }
+
+  const { infobox: title, content, urls } = infobox as SearXNGWebInfobox;
+  const titleText = asTextLineString(title).trim();
+  const body = [
+    asTextLineString(content).trim(),
+    ...(Array.isArray(urls) ? urls.flatMap(formatInfoboxUrl) : []),
+  ].filter((line) => line !== "");
+
+  return titleText === "" && body.length === 0
+    ? ""
+    : [`Infobox: ${titleText}`, ...body].join("\n");
+}
+
+function formatInfoboxes(infoboxes: SearXNGWeb["infoboxes"]): string {
+  if (!hasItems(infoboxes)) {
+    return "";
+  }
+
+  return infoboxes
+    .map(formatInfobox)
+    .filter((text) => text !== "")
+    .join("\n\n");
+}
+
 function formatSearchMetadata(data: SearXNGWeb): string {
-  const sections: string[] = [];
-
-  if (hasItems(data.answers)) {
-    sections.push(data.answers.map((answer) => `Direct answer: ${answer}`).join("\n"));
-  }
-
-  if (hasItems(data.corrections)) {
-    sections.push(data.corrections.map((correction) => `Spelling correction: did you mean "${correction}"?`).join("\n"));
-  }
-
-  if (hasItems(data.suggestions)) {
-    sections.push(`Suggestions: ${data.suggestions.join(", ")}`);
-  }
-
-  if (hasItems(data.infoboxes)) {
-    const infoboxText = data.infoboxes
-      .map((infobox) => {
-        const lines = [`Infobox: ${infobox.infobox}`];
-        if (infobox.content) {
-          lines.push(infobox.content);
-        }
-        if (hasItems(infobox.urls)) {
-          lines.push(...infobox.urls.map((entry) => `${entry.title}: ${entry.url}`));
-        }
-        return lines.join("\n");
-      })
-      .join("\n\n");
-    sections.push(infoboxText);
-  }
-
-  return sections.join("\n\n");
+  return [
+    formatMetadataSection(data.answers, (lines) =>
+      lines.map((answer) => `Direct answer: ${answer}`).join("\n")),
+    formatMetadataSection(data.corrections, (lines) =>
+      lines.map((correction) => `Spelling correction: did you mean "${correction}"?`).join("\n")),
+    formatMetadataSection(data.suggestions, (lines) => `Suggestions: ${lines.join(", ")}`),
+    formatInfoboxes(data.infoboxes),
+  ]
+    .filter((section) => section !== "")
+    .join("\n\n");
 }
 
 function getDefaultLanguage(): string {
