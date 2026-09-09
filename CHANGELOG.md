@@ -5,6 +5,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.2.0] - 2026-09-09
+
+### Added
+
+- Optional MCP OAuth protected-resource mode with resource discovery, signed access-token validation and authenticated legacy-session ownership. Static-token deployments and STDIO remain available. See the OAuth configuration guide for provider and HTTPS routing requirements. ([#277](https://github.com/ihor-sokoliuk/mcp-searxng/pull/277))
+
+### Fixed and security
+
+- Block private IPv4 destinations embedded in IPv6 and native non-global IPv6 URL targets. ([#266](https://github.com/ihor-sokoliuk/mcp-searxng/pull/266), [#268](https://github.com/ihor-sokoliuk/mcp-searxng/pull/268))
+- Preserve successful search results when upstream metadata contains malformed entries, and prevent metadata from injecting misleading result-shaped lines. Thanks to @shauneccles. ([#271](https://github.com/ihor-sokoliuk/mcp-searxng/pull/271))
+- Refresh the vulnerable query-parser dependency. ([#269](https://github.com/ihor-sokoliuk/mcp-searxng/pull/269))
+
+### Dependencies and CI
+
+- Update tested runtime/development dependencies and CodeQL/QEMU action pins. The production dependency audit is clean; the documented Node.js 22+ requirement remains unchanged. ([#276](https://github.com/ihor-sokoliuk/mcp-searxng/pull/276))
+
+### Contributors
+
+- @shauneccles — search metadata resilience and rendering safeguards.
+- @ihor-sokoliuk — URL-policy fixes, dependency maintenance and release work.
+
 ## [2.1.0] - 2026-08-25
 
 ### Changed
