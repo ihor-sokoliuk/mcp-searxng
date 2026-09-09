@@ -579,7 +579,9 @@ Send tokens in the `Authorization` header using the `Bearer` scheme, with `typ: 
 ES256 or EdDSA signature, `iss`, `aud`, `exp`, `iat`, nonempty `sub`, `client_id` and `jti`,
 and a space-separated `scope` claim. Signature, issuer, resource audience, expiry,
 activation time and scopes are checked on every request, including retained
-legacy sessions. ID tokens, opaque tokens and URL token parameters are not
+legacy sessions. Each retained session is bound to the issuer, subject and client
+that created it; a refreshed token for the same identity can continue using it.
+ID tokens, opaque tokens and URL token parameters are not
 accepted. The JWKS URL is operator configuration, never taken from a token.
 Keys are fetched and cached by `jose`, including refresh for a new signing key.
 
