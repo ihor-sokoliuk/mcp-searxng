@@ -435,3 +435,13 @@ audience, expiry and scopes for modern and retained legacy HTTP requests.
 See [OAuth configuration](CONFIGURATION.md#optional-oauth-protected-resource)
 for the provider requirements. The existing static bearer gate remains available
 as a non-OAuth deployment control; default and STDIO behavior are unchanged.
+
+### MCP error handling
+
+Unknown tools or resources and malformed tool arguments return the protocol's
+invalid-params error (`-32602`). Expected execution failures, such as unavailable
+upstreams, timeouts or URL-policy rejections, return a tool result with
+`isError: true` so clients can explain or recover from the failure. Unexpected
+server faults return a generic internal error (`-32603`). Error content remains
+credential-redacted, and request cancellation remains distinct from a tool
+failure. These distinctions apply to modern and retained legacy transports.

@@ -41,6 +41,7 @@ import { runTests as runHttpServerTests } from './integration/http-server.test.j
 import { runTests as runOAuthHttpTests } from './integration/oauth-http.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
 import { runTests as runMcpHandlersTests } from './integration/mcp-handlers.test.js';
+import { runTests as runMcpErrorsTests } from './integration/mcp-errors.test.js';
 import { runTests as runCliTests } from './integration/cli.test.js';
 import { runTests as runDiagnosticSecurityTests } from './integration/diagnostic-security.test.js';
 
@@ -86,6 +87,7 @@ const testSuites: TestSuite[] = [
   { name: 'HTTP Server', category: 'integration', run: runHttpServerTests },
   { name: 'Main Index', category: 'integration', run: runIndexTests },
   { name: 'MCP Handlers', category: 'integration', run: runMcpHandlersTests },
+  { name: 'MCP Errors', category: 'integration', run: runMcpErrorsTests },
   { name: 'CLI', category: 'integration', run: runCliTests },
   { name: 'Credential-Safe Diagnostics', category: 'integration', run: runDiagnosticSecurityTests },
 ];

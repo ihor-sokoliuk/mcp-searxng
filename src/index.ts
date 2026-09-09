@@ -1,4 +1,4 @@
-import { McpServer, fromJsonSchema, type ReadResourceCallback } from "@modelcontextprotocol/server";
+import { McpServer, fromJsonSchema, ProtocolError, ProtocolErrorCode, ResourceNotFoundError, type ReadResourceCallback } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 // Import modularized functionality
@@ -28,9 +28,11 @@ import {
 } from "./searxng-instances.js";
 import {
   initializeDiagnosticSanitizer,
+  sanitizeDiagnosticText,
   sanitizeErrorForTransport,
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
+import { MCPSearXNGError } from "./error-handler.js";
 import { parseBoundedInteger, parseStrictInteger } from "./env-int.js";
 import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
 
@@ -201,8 +203,17 @@ function textToolResult(text: string): ToolCallResult {
   return { content: [{ type: "text", text }] };
 }
 
+function toolFailure(mcpServer: McpServer, name: string, error: unknown): ToolCallResult {
+  if (error instanceof ProtocolError && error.code === ProtocolErrorCode.InvalidParams) throw error;
+  const expected = error instanceof MCPSearXNGError && error.expected;
+  const message = expected ? sanitizeErrorForTransport(error).message : "Internal server error";
+  logMessage(mcpServer, "error", `Tool execution error: ${message}`, { tool: name });
+  if (expected) return { content: [{ type: "text", text: message }], isError: true };
+  throw new ProtocolError(ProtocolErrorCode.InternalError, message);
+}
+
 async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
-  if (!isSearXNGWebSearchArgs(args)) throw new Error("Invalid arguments for web search");
+  if (!isSearXNGWebSearchArgs(args)) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid arguments for web search");
   return textToolResult(await performWebSearch(
     mcpServer,
     args.query,
@@ -220,13 +231,13 @@ async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<To
 }
 
 async function executeSuggestions(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
-  if (!isSearXNGSearchSuggestionsArgs(args)) throw new Error("Invalid arguments for search suggestions");
+  if (!isSearXNGSearchSuggestionsArgs(args)) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid arguments for search suggestions");
   const suggestions = await performSearchSuggestions(mcpServer, args.query, args.language);
   return textToolResult(JSON.stringify({ query: args.query, suggestions }, null, 2));
 }
 
 async function executeInstanceInfo(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
-  if (!isSearXNGInstanceInfoArgs(args)) throw new Error("Invalid arguments for instance info");
+  if (!isSearXNGInstanceInfoArgs(args)) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid arguments for instance info");
   return textToolResult(await fetchInstanceInfo(
     mcpServer,
     args.includeEngines,
@@ -241,7 +252,7 @@ async function executeUrlRead(
   args: unknown,
   signal?: AbortSignal,
 ): Promise<ToolCallResult> {
-  if (!isWebUrlReadArgs(args)) throw new Error("Invalid arguments for URL reading");
+  if (!isWebUrlReadArgs(args)) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid arguments for URL reading");
   const defaultMaxLength = getDefaultUrlReadMaxChars(mcpServer);
   return textToolResult(await fetchAndConvertToMarkdown(
     mcpServer,
@@ -268,20 +279,32 @@ async function executeTool(
   if (name === "searxng_search_suggestions") return executeSuggestions(mcpServer, args);
   if (name === "searxng_instance_info") return executeInstanceInfo(mcpServer, args);
   if (name === "web_url_read") return executeUrlRead(mcpServer, args, signal);
-  throw new Error(`Unknown tool: ${name}`);
+  throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Unknown tool");
 }
 
 type CallTool = (name: string, args: unknown, signal?: AbortSignal) => Promise<ToolCallResult>;
 
+function legacyToolInput(name: string, args: Record<string, unknown> | undefined) {
+  // Legacy clients have always been allowed numeric safesearch, while the
+  // advertised SDK schema uses its equivalent string representation.
+  if (name === "searxng_web_search" && typeof args?.safesearch === "number") {
+    return { ...args, safesearch: String(args.safesearch) };
+  }
+  return args;
+}
+
 function registerMcpTools(mcpServer: McpServer, modern: boolean, callTool: CallTool): void {
   const useLiteTools = process.env.SEARXNG_LITE_TOOLS === "true";
+  const schemas = new Map<string, ReturnType<typeof fromJsonSchema>>();
   const registerTool = (tool: typeof WEB_SEARCH_TOOL) => {
+    const schema = fromJsonSchema(tool.inputSchema as Record<string, unknown>);
+    schemas.set(tool.name, schema);
     mcpServer.registerTool(
       tool.name,
       {
         description: tool.description,
         annotations: tool.annotations,
-        inputSchema: fromJsonSchema(tool.inputSchema as Record<string, unknown>),
+        inputSchema: schema,
       },
       async (args, context) => {
         if (modern) {
@@ -296,13 +319,27 @@ function registerMcpTools(mcpServer: McpServer, modern: boolean, callTool: CallT
   registerTool(useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL);
   registerTool(useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL);
   registerTool(useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL);
-  if (!modern) {
-    // Preserve the legacy wire error and admission boundary while the modern
-    // era keeps SDK-owned schema validation and tool dispatch.
-    mcpServer.server.setRequestHandler("tools/call", async (request, context) => (
-      callTool(request.params.name, request.params.arguments, context.mcpReq.signal)
-    ));
-  }
+  // SDK 2.0's high-level catch converts even invalid-input/internal exceptions
+  // to tool results. Own classification here while retaining SDK schemas and
+  // its protocol-era result projection.
+  mcpServer.server.setRequestHandler("tools/call", async (request, context) => {
+    const callback = async () => {
+      try {
+        const schema = schemas.get(request.params.name);
+        if (!schema) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Unknown tool");
+        const input = modern ? request.params.arguments : legacyToolInput(request.params.name, request.params.arguments);
+        const parsed = await schema["~standard"].validate(input ?? {});
+        if (parsed.issues) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid tool arguments");
+        const result = await callTool(request.params.name, parsed.value, context.mcpReq.signal);
+        return mcpServer.server.projectCallToolResult(result, undefined);
+      } catch (error) {
+        if (context.mcpReq.signal.aborted || error instanceof ProtocolError) throw error;
+        throw new ProtocolError(ProtocolErrorCode.InternalError, "Internal server error");
+      }
+    };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- required compatibility log bridge
+    return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
+  });
 }
 
 function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
@@ -344,7 +381,7 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
     if (request.params.uri === "help://usage-guide") {
       return readHelpResource(new URL(request.params.uri), context);
     }
-    throw sanitizeErrorForTransport(new Error(`Unknown resource: ${request.params.uri}`));
+    throw new ResourceNotFoundError(sanitizeDiagnosticText(request.params.uri));
   });
   mcpServer.server.setRequestHandler("logging/setLevel", async (request, context) => {
     const callback = async () => {
@@ -382,28 +419,20 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
   if (modern) markModernServer(mcpServer);
 
   const callTool = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallResult> => {
-    const admission = admissionController.admit();
-    if (!admission.release) {
-      return {
-        content: [{ type: "text", text: TOOL_ADMISSION_REJECTION_MESSAGE }],
-        isError: true,
-      };
-    }
-
     try {
-      logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
-
-      return await executeTool(mcpServer, name, args, signal);
+      const admission = admissionController.admit();
+      if (!admission.release) {
+        return { content: [{ type: "text", text: TOOL_ADMISSION_REJECTION_MESSAGE }], isError: true };
+      }
+      try {
+        logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+        return await executeTool(mcpServer, name, args, signal);
+      } finally {
+        admission.release();
+      }
     } catch (error) {
-      const safeError = sanitizeErrorForTransport(error);
-      logMessage(mcpServer, "error", `Tool execution error: ${safeError.message}`, {
-        tool: name,
-        args: args,
-        error: safeError.stack,
-      });
-      throw safeError;
-    } finally {
-      admission.release();
+      if (signal?.aborted) throw signal.reason ?? error;
+      return toolFailure(mcpServer, name, error);
     }
   };
 

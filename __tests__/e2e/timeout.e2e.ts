@@ -345,11 +345,8 @@ async function runTests() {
       const r = responses[2];
       assert.ok(r, 'expected a response — server should have timed out, not hung');
 
-      // Either an error field at the protocol level, or isError content
-      const hasError = r.error ||
-        r.result?.isError ||
-        (r.result?.content?.[0]?.text ?? '').toLowerCase().includes('error');
-      assert.ok(hasError, `expected error response, got: ${JSON.stringify(r)}`);
+      assert.equal(r.error, undefined, JSON.stringify(r));
+      assert.equal(r.result?.isError, true, JSON.stringify(r));
 
       // The whole interaction completed well within TEST_TIMEOUT_MS
       assert.ok(
@@ -387,10 +384,8 @@ async function runTests() {
       const r = responses[2];
       assert.ok(r, 'expected a response — server should have timed out, not hung');
 
-      const hasError = r.error ||
-        r.result?.isError ||
-        (r.result?.content?.[0]?.text ?? '').toLowerCase().includes('error');
-      assert.ok(hasError, `expected error response, got: ${JSON.stringify(r)}`);
+      assert.equal(r.error, undefined, JSON.stringify(r));
+      assert.equal(r.result?.isError, true, JSON.stringify(r));
 
       assert.ok(elapsed < TEST_TIMEOUT_MS, `took ${elapsed}ms — should be under ${TEST_TIMEOUT_MS}ms`);
     } finally {

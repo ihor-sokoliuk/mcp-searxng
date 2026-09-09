@@ -17,7 +17,7 @@ export interface ErrorContext {
 }
 
 export class MCPSearXNGError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly expected = true) {
     super(message);
     this.name = 'MCPSearXNGError';
   }
@@ -155,7 +155,7 @@ export function createEmptyContentWarning(url: string): string {
 }
 
 export function createUnexpectedError(error: any, context: ErrorContext): MCPSearXNGError {
-  return new MCPSearXNGError(`❓ Unexpected Error: ${error.message || String(error)}`);
+  return new MCPSearXNGError(`❓ Unexpected Error: ${error.message || String(error)}`, false);
 }
 
 /**

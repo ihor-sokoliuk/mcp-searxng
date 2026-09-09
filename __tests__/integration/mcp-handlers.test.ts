@@ -974,7 +974,7 @@ async function runTests() {
     try {
       await assert.rejects(
         () => client.callTool({ name: 'searxng_web_search', arguments: { notQuery: 'oops' } }),
-        /Invalid arguments for web search/,
+        { code: -32602 },
       );
 
       let fetchCount = 0;
@@ -1277,7 +1277,7 @@ async function runTests() {
 
     await assert.rejects(
       () => client.callTool({ name: 'web_url_read', arguments: { notUrl: 'oops' } }),
-      /Invalid arguments for URL reading/,
+      { code: -32602 },
     );
 
     await client.close();
@@ -1293,6 +1293,7 @@ async function runTests() {
       assert.fail('Expected error was not thrown');
     } catch (error) {
       assert.ok(error instanceof Error);
+      assert.equal((error as { code?: number }).code, -32602);
       assert.ok(
         error.message.toLowerCase().includes('unknown') ||
         error.message.toLowerCase().includes('tool'),
@@ -1429,6 +1430,7 @@ async function runTests() {
       assert.fail('Expected error was not thrown');
     } catch (error) {
       assert.ok(error instanceof Error);
+      assert.equal((error as { code?: number }).code, -32602);
       assert.ok(
         error.message.toLowerCase().includes('unknown') ||
         error.message.toLowerCase().includes('resource'),
@@ -1466,7 +1468,7 @@ async function runTests() {
     assert.ok(caughtError instanceof Error, 'Expected resource error');
     assert.equal(
       caughtError.message,
-      'Unknown resource: https://search.example.com/',
+      'Resource not found: https://search.example.com/',
       output,
     );
   }, results);
