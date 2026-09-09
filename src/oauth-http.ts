@@ -7,7 +7,6 @@ import {
   type OAuthTokenVerifier,
 } from "@modelcontextprotocol/server";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
-import { createHash } from "node:crypto";
 
 export interface HttpOAuthConfig {
   issuer: string;
@@ -54,11 +53,12 @@ export function getHttpOAuthConfig(): HttpOAuthConfig | undefined {
   };
 }
 
-export function createJwtVerifier(config: HttpOAuthConfig, resolveKey: JWTVerifyGetKey = createRemoteJWKSet(new URL(config.jwksUrl))): OAuthTokenVerifier {
+export function createJwtVerifier(config: HttpOAuthConfig, resolver?: JWTVerifyGetKey): OAuthTokenVerifier {
+  const jwks = resolver ?? createRemoteJWKSet(new URL(config.jwksUrl));
   return {
     async verifyAccessToken(token) {
       try {
-        const { payload } = await jwtVerify(token, resolveKey, {
+        const { payload } = await jwtVerify(token, jwks, {
           issuer: config.issuer,
           audience: config.resource,
           typ: "at+jwt",
@@ -67,7 +67,9 @@ export function createJwtVerifier(config: HttpOAuthConfig, resolveKey: JWTVerify
         });
         const validIdentities = [payload.client_id, payload.sub, payload.jti].every(value => typeof value === "string" && value.length > 0);
         if (!validIdentities || typeof payload.scope !== "string" || !Number.isFinite(payload.exp)) throw new Error();
-        const principal = createHash("sha256").update(JSON.stringify([config.issuer, payload.sub, payload.client_id])).digest("hex");
+        // A collision-free identity tuple for private session comparison, never
+        // a password/verifier and never returned to clients or diagnostics.
+        const principal = JSON.stringify([config.issuer, payload.sub, payload.client_id]);
         return { token, clientId: payload.client_id as string, scopes: payload.scope.split(" ").filter(Boolean), expiresAt: payload.exp, extra: { principal } };
       } catch {
         // Never expose JWTs, claims, JWKS URLs, or provider errors to clients/logs.

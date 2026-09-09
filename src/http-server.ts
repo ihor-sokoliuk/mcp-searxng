@@ -2,12 +2,11 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
-import { createMcpHandler, isInitializeRequest, isLegacyRequest, type McpServer } from "@modelcontextprotocol/server";
+import { createMcpHandler, isInitializeRequest, isLegacyRequest, type McpServer, type OAuthTokenVerifier } from "@modelcontextprotocol/server";
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import { logMessage } from "./logging.js";
 import { packageVersion } from "./version.js";
 import { createOAuthProtection } from "./oauth-http.js";
-import type { OAuthTokenVerifier } from "@modelcontextprotocol/server";
 import {
   sanitizeDiagnosticText,
   sanitizeDiagnosticValue,
