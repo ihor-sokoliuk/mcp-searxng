@@ -38,6 +38,7 @@ import { runTests as runDocumentationTests } from './unit/documentation.test.js'
 import { runTests as runSearxngResponseTests } from './unit/searxng-response.test.js';
 import { runTests as runFuzzTests } from './fuzz/search-params.fuzz.js';
 import { runTests as runHttpServerTests } from './integration/http-server.test.js';
+import { runTests as runOAuthHttpTests } from './integration/oauth-http.test.js';
 import { runTests as runIndexTests } from './integration/index.test.js';
 import { runTests as runMcpHandlersTests } from './integration/mcp-handlers.test.js';
 import { runTests as runCliTests } from './integration/cli.test.js';
@@ -81,6 +82,7 @@ const testSuites: TestSuite[] = [
   { name: 'Fuzz Properties', category: 'unit', run: runFuzzTests },
 
   // Integration Tests
+  { name: 'OAuth HTTP', category: 'integration', run: runOAuthHttpTests },
   { name: 'HTTP Server', category: 'integration', run: runHttpServerTests },
   { name: 'Main Index', category: 'integration', run: runIndexTests },
   { name: 'MCP Handlers', category: 'integration', run: runMcpHandlersTests },

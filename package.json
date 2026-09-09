@@ -57,6 +57,7 @@
         "cors": "^2.8.6",
         "express": "^5.2.1",
         "express-rate-limit": "8.7.0",
+        "jose": "6.2.2",
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "9.0.4",
         "undici": "7.29.0",

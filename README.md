@@ -426,3 +426,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
+
+### Optional MCP OAuth
+
+HTTP deployments can opt into an OAuth protected resource backed by an external
+authorization server. It provides discovery and validates signed access tokens,
+audience, expiry and scopes for modern and retained legacy HTTP requests.
+See [OAuth configuration](CONFIGURATION.md#optional-oauth-protected-resource)
+for the provider requirements. The existing static bearer gate remains available
+as a non-OAuth deployment control; default and STDIO behavior are unchanged.
