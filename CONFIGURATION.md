@@ -412,7 +412,7 @@ Opt-in security layer for when you expose the HTTP transport on a network. Defau
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MCP_HTTP_HARDEN` | No | `false` | Set to `true` to enable all hardening features |
-| `MCP_HTTP_AUTH_TOKEN` | No | — | Required bearer token for all HTTP requests in hardened mode |
+| `MCP_HTTP_AUTH_TOKEN` | No | — | Static bearer token required for MCP requests in hardened static mode; incompatible with OAuth mode |
 | `MCP_HTTP_ALLOWED_ORIGINS` | No | — | Comma-separated CORS origin allowlist (e.g. `https://app.example.com`) |
 | `MCP_HTTP_ALLOWED_HOSTS` | No | `127.0.0.1`, `localhost`, `[::1]` (+ their `:PORT` forms) | Comma-separated DNS-rebinding allowlist. Entries are matched **exactly** against the request `Host` header, **including the port** (e.g. `app.example.com:8443`). Setting this replaces the default entirely. |
 | `MCP_HTTP_ALLOW_PRIVATE_URLS` | No | `false` | Allow `web_url_read` to fetch internal/private URLs, including hostnames that DNS-resolve to private/internal addresses. Private URL reads are blocked by default in all modes. |
@@ -470,7 +470,7 @@ Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentio
 
 ## Combined Example (Representative Options)
 
-This combined MCP client configuration shows the supported option groups in one place. Remove settings you do not need. Some options have dependencies: `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN`, and `MCP_HTTP_ALLOWED_ORIGINS` must be configured together; `MCP_HTTP_ALLOWED_HOSTS` and `MCP_HTTP_TRUST_PROXY` depend on the exact network and proxy topology. The representative `MCP_HTTP_TRUST_PROXY=1` value assumes exactly one trusted proxy hop. Without that trusted proxy boundary, clients can spoof `X-Forwarded-For` and influence IP-based rate limiting and logs.
+This combined MCP client configuration shows the supported option groups in one place. Remove settings you do not need. In static mode, `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN`, and `MCP_HTTP_ALLOWED_ORIGINS` must be configured together; OAuth mode replaces the static token with the configuration below. `MCP_HTTP_ALLOWED_HOSTS` and `MCP_HTTP_TRUST_PROXY` depend on the exact network and proxy topology. The representative `MCP_HTTP_TRUST_PROXY=1` value assumes exactly one trusted proxy hop. Without that trusted proxy boundary, clients can spoof `X-Forwarded-For` and influence IP-based rate limiting and logs.
 
 ```json
 {
@@ -533,3 +533,59 @@ This combined MCP client configuration shows the supported option groups in one 
   }
 }
 ```
+
+## Optional OAuth protected resource
+
+The static bearer-token gate is a non-OAuth deployment control. For MCP OAuth
+clients, configure an external authorization server to issue RFC 9068 JWT access
+tokens for this resource, then set:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MCP_HTTP_AUTH_MODE` | `static` | Set `oauth` to require OAuth on every MCP HTTP POST, GET and DELETE, independently of `MCP_HTTP_HARDEN`. |
+| `MCP_HTTP_OAUTH_ISSUER` | unset | Exact HTTPS issuer identifier in the token's `iss` claim. |
+| `MCP_HTTP_OAUTH_JWKS_URL` | unset | Trusted authorization server's HTTPS public signing-key endpoint. |
+| `MCP_HTTP_OAUTH_RESOURCE` | unset | Public HTTPS MCP URL; tokens must include this exact audience. |
+| `MCP_HTTP_OAUTH_SCOPES` | unset | Space-separated required scopes; every listed scope is required. |
+
+All four OAuth settings are required in OAuth mode. URLs cannot contain userinfo,
+query strings or fragments. Configuring OAuth settings in static mode, an unknown
+mode, or a static `MCP_HTTP_AUTH_TOKEN` alongside OAuth prevents startup.
+
+Example settings for an HTTPS reverse proxy forwarding `/mcp` and the discovery
+path to this server:
+
+```dotenv
+MCP_HTTP_AUTH_MODE=oauth
+MCP_HTTP_OAUTH_ISSUER=https://login.example.com
+MCP_HTTP_OAUTH_JWKS_URL=https://login.example.com/.well-known/jwks.json
+MCP_HTTP_OAUTH_RESOURCE=https://mcp.example.com/mcp
+MCP_HTTP_OAUTH_SCOPES=mcp:tools mcp:resources
+MCP_HTTP_HARDEN=true
+MCP_HTTP_ALLOWED_ORIGINS=https://client.example.com
+MCP_HTTP_ALLOWED_HOSTS=mcp.example.com
+```
+
+Keep TLS termination, allowed hosts/origins, bind address and trusted proxy
+configuration appropriate for your deployment. OAuth adds authentication; it
+does not configure your reverse proxy or replace these controls. Route
+`/.well-known/oauth-protected-resource/mcp` without authentication to this server;
+its public metadata advertises the resource, issuer and scopes. The metadata
+path follows the configured resource path using RFC 9728. Do not rewrite that
+path at the proxy. Clients also discover it through `WWW-Authenticate` on 401
+and 403 responses; CORS exposes that header to allowed origins.
+
+Send tokens in the `Authorization` header using the `Bearer` scheme, with `typ: at+jwt`, an RS256, PS256,
+ES256 or EdDSA signature, `iss`, `aud`, `exp`, `iat`, nonempty `sub`, `client_id` and `jti`,
+and a space-separated `scope` claim. Signature, issuer, resource audience, expiry,
+activation time and scopes are checked on every request, including retained
+legacy sessions. ID tokens, opaque tokens and URL token parameters are not
+accepted. The JWKS URL is operator configuration, never taken from a token.
+Keys are fetched and cached by `jose`, including refresh for a new signing key.
+
+This server is a protected resource, not an authorization server: login,
+registration and token issuance belong to your provider. Opaque-token
+introspection and immediate revocation are not implemented; locally verified
+JWTs remain valid until expiry. Use short-lived access tokens. The MCP access
+token is not forwarded as SearXNG credentials or included in error messages or
+configuration resources. Static mode and STDIO remain available.

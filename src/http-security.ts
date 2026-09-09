@@ -1,9 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { getHttpOAuthConfig, type HttpOAuthConfig } from "./oauth-http.js";
 
 export interface HttpSecurityConfig {
   harden: boolean;
   requireAuth: boolean;
   authToken?: string;
+  oauth?: HttpOAuthConfig;
   restrictOrigins: boolean;
   allowedOrigins: string[];
   enableDnsRebindingProtection: boolean;
@@ -78,6 +80,7 @@ function defaultAllowedOrigins(port?: number): string[] {
 
 export function getHttpSecurityConfig(port?: number): HttpSecurityConfig {
   const harden = isEnabled(process.env.MCP_HTTP_HARDEN);
+  const oauth = getHttpOAuthConfig();
   const authToken = process.env.MCP_HTTP_AUTH_TOKEN;
   const explicitAllowedOrigins = parseCsv(process.env.MCP_HTTP_ALLOWED_ORIGINS);
   const allowedOrigins = explicitAllowedOrigins.length > 0
@@ -87,7 +90,8 @@ export function getHttpSecurityConfig(port?: number): HttpSecurityConfig {
 
   return {
     harden,
-    requireAuth: harden,
+    requireAuth: harden || !!oauth,
+    oauth,
     authToken,
     restrictOrigins: true,
     allowedOrigins,
@@ -104,7 +108,7 @@ export function validateHttpSecurityConfig(config: HttpSecurityConfig): void {
     return;
   }
 
-  if (!config.authToken) {
+  if (!config.authToken && !config.oauth) {
     throw new Error("MCP_HTTP_HARDEN=true requires MCP_HTTP_AUTH_TOKEN to be set.");
   }
 

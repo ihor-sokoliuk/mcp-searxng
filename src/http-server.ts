@@ -6,6 +6,8 @@ import { createMcpHandler, isInitializeRequest, isLegacyRequest, type McpServer 
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import { logMessage } from "./logging.js";
 import { packageVersion } from "./version.js";
+import { createOAuthProtection } from "./oauth-http.js";
+import type { OAuthTokenVerifier } from "@modelcontextprotocol/server";
 import {
   sanitizeDiagnosticText,
   sanitizeDiagnosticValue,
@@ -238,12 +240,14 @@ function makeRateLimiters() {
 
 export async function createHttpServer(
   createMcpServer: (modern?: boolean) => McpServer,
-  port?: number
+  port?: number,
+  oauthVerifier?: OAuthTokenVerifier,
 ): Promise<express.Application> {
   const app = express();
   const security = getHttpSecurityConfig(port);
   const stateless = resolveStatelessHttpConfig();
   validateHttpSecurityConfig(security);
+  const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
     app.set('trust proxy', security.trustProxy);
   }
@@ -276,7 +280,7 @@ export async function createHttpServer(
       }
       callback(null, false);
     },
-    exposedHeaders: ["Mcp-Session-Id", "Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name"],
+    exposedHeaders: ["Mcp-Session-Id", "Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name", ...(oauth ? ["WWW-Authenticate"] : [])],
     allowedHeaders: ["Content-Type", "mcp-session-id", "authorization", "mcp-protocol-version", "mcp-method", "mcp-name"],
   }));
 
@@ -289,6 +293,19 @@ export async function createHttpServer(
       },
       id: null,
     });
+  }
+
+  async function authorize(req: express.Request, res: express.Response): Promise<boolean> {
+    if (oauth) {
+      const failure = await oauth.authorize(req.headers.authorization);
+      if (!failure) return true;
+      failure.headers.forEach((value, name) => res.setHeader(name, value));
+      res.status(failure.status).send(await failure.text());
+      return false;
+    }
+    if (isRequestAuthorized(req.headers.authorization, security)) return true;
+    rejectUnauthorized(res);
+    return false;
   }
 
   function rejectInvalidHostHeader(
@@ -356,6 +373,9 @@ export async function createHttpServer(
   }
 
   const { initLimiter, sessionLimiter, healthLimiter } = makeRateLimiters();
+  if (oauth) {
+    app.get(oauth.metadataPath, healthLimiter, (_req, res) => res.json(oauth.metadata));
+  }
 
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
@@ -449,8 +469,7 @@ export async function createHttpServer(
 
   // Handle POST requests for client-to-server communication
   app.post('/mcp', postRateLimiter, async (req, res) => {
-    if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
-      rejectUnauthorized(res);
+    if (!await authorize(req, res)) {
       return;
     }
 
@@ -672,8 +691,7 @@ export async function createHttpServer(
 
   // Handle GET requests for server-to-client notifications via SSE
   app.get('/mcp', sessionLimiter, async (req, res) => {
-    if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
-      rejectUnauthorized(res);
+    if (!await authorize(req, res)) {
       return;
     }
 
@@ -714,8 +732,7 @@ export async function createHttpServer(
 
   // Handle DELETE requests for session termination
   app.delete('/mcp', sessionLimiter, async (req, res) => {
-    if (!isRequestAuthorized(req.headers.authorization as string | undefined, security)) {
-      rejectUnauthorized(res);
+    if (!await authorize(req, res)) {
       return;
     }
 
