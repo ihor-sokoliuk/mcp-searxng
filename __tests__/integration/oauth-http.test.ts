@@ -87,15 +87,18 @@ export async function runTests() {
       await testFunction(`OAuth rejects invalid ${name} with a safe discovery challenge`, async () => {
         const value = await makeToken();
         const failure = await protection.authorize(`Bearer ${value}`);
+        assert.ok(failure instanceof Response);
         assert.equal(failure?.status, 401);
         assert.match(failure!.headers.get("www-authenticate")!, /resource_metadata="https:\/\/mcp.example.com\/\.well-known\/oauth-protected-resource\/mcp"/);
         assert.ok(!(await failure!.text()).includes(value));
       }, results);
     }
     await testFunction("OAuth requires every configured scope and accepts a correctly signed access token", async () => {
-      assert.match(await protection.authorize(`Bearer ${await token()}`) as string, /^[a-f0-9]{64}$/);
-      assert.match(await protection.authorize(`Bearer ${await token({ aud: [config.resource, "https://other.example.com"] })}`) as string, /^[a-f0-9]{64}$/);
+      const identity = await protection.authorize(`Bearer ${await token()}`);
+      assert.equal(typeof identity, "string");
+      assert.equal(await protection.authorize(`Bearer ${await token({ aud: [config.resource, "https://other.example.com"] })}`), identity);
       const failure = await protection.authorize(`Bearer ${await token({ scope: "mcp:tools" })}`);
+      assert.ok(failure instanceof Response);
       assert.equal(failure?.status, 403);
       assert.match(failure!.headers.get("www-authenticate")!, /insufficient_scope/);
       assert.match(failure!.headers.get("www-authenticate")!, /mcp:tools mcp:resources/);
@@ -103,8 +106,32 @@ export async function runTests() {
     await testFunction("OAuth hides signing-key fetch failures", async () => {
       const failingVerifier = createJwtVerifier(config, async () => { throw new Error("private-provider-detail"); });
       const failure = await createOAuthProtection(config, failingVerifier).authorize(`Bearer ${await token()}`);
+      assert.ok(failure instanceof Response);
       assert.equal(failure?.status, 401);
       assert.ok(!(await failure!.text()).includes("private-provider-detail"));
+    }, results);
+    await testFunction("OAuth production resolver uses the configured JWKS endpoint", async () => {
+      const originalFetch = globalThis.fetch;
+      const destinations: string[] = [];
+      globalThis.fetch = async input => {
+        destinations.push(String(input));
+        return new Response(JSON.stringify({ keys: [jwk] }), { status: 200, headers: { "content-type": "application/json" } });
+      };
+      try {
+        const realProtection = createOAuthProtection(config);
+        assert.equal(typeof await realProtection.authorize(`Bearer ${await token()}`), "string");
+        assert.deepEqual(destinations, [config.jwksUrl]);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    }, results);
+    await testFunction("OAuth metadata honors hardened Host validation without authentication", async () => {
+      process.env.MCP_HTTP_HARDEN = "true";
+      process.env.MCP_HTTP_ALLOWED_HOSTS = "mcp.example.com";
+      process.env.MCP_HTTP_ALLOWED_ORIGINS = "https://client.example.com";
+      const hardened = await createHttpServer(() => new McpServer({ name: "host-test", version: "1" }), undefined, verifier);
+      assert.equal((await request(hardened).get(protection.metadataPath).set("Host", "attacker.example.com")).status, 403);
+      assert.equal((await request(hardened).get(protection.metadataPath).set("Host", "mcp.example.com")).status, 200);
     }, results);
 
     let dispatches = 0;
