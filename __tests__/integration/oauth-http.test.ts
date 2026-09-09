@@ -80,6 +80,8 @@ export async function runTests() {
       ["missing token identity", () => token({ jti: undefined })],
       ["malformed scopes", () => token({ scope: ["mcp:tools"] })],
       ["opaque token", async () => "not-a-jwt-secret"],
+      ["unsigned token", async () => `${Buffer.from(JSON.stringify({ alg: "none", typ: "at+jwt" })).toString("base64url")}.${(await token()).split(".")[1]}.`],
+      ["symmetric algorithm confusion", async () => new SignJWT({}).setProtectedHeader({ alg: "HS256", typ: "at+jwt" }).sign(new TextEncoder().encode(JSON.stringify(jwk)))],
     ];
     for (const [name, makeToken] of invalidCases) {
       await testFunction(`OAuth rejects invalid ${name} with a safe discovery challenge`, async () => {
@@ -91,7 +93,8 @@ export async function runTests() {
       }, results);
     }
     await testFunction("OAuth requires every configured scope and accepts a correctly signed access token", async () => {
-      assert.equal(await protection.authorize(`Bearer ${await token()}`), undefined);
+      assert.match(await protection.authorize(`Bearer ${await token()}`) as string, /^[a-f0-9]{64}$/);
+      assert.match(await protection.authorize(`Bearer ${await token({ aud: [config.resource, "https://other.example.com"] })}`) as string, /^[a-f0-9]{64}$/);
       const failure = await protection.authorize(`Bearer ${await token({ scope: "mcp:tools" })}`);
       assert.equal(failure?.status, 403);
       assert.match(failure!.headers.get("www-authenticate")!, /insufficient_scope/);
@@ -139,11 +142,19 @@ export async function runTests() {
       assert.equal(legacy.status, 200, legacy.text);
       const session = legacy.headers["mcp-session-id"];
       assert.ok(session);
+      for (const identity of [{ sub: "different-user" }, { client_id: "different-client" }]) {
+        for (const method of ["post", "get", "delete"] as const) {
+          const denied = await request(app)[method]("/mcp").set("mcp-session-id", session).auth(await token(identity), { type: "bearer" })
+            .set("Accept", "application/json, text/event-stream")
+            .send(method === "post" ? { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} } : undefined);
+          assert.equal(denied.status, 403, denied.text);
+        }
+      }
       for (const method of ["get", "delete"] as const) {
         const denied = await request(app)[method]("/mcp").set("mcp-session-id", session);
         assert.equal(denied.status, 401);
       }
-      const removed = await request(app).delete("/mcp").set("mcp-session-id", session).auth(accessToken, { type: "bearer" });
+      const removed = await request(app).delete("/mcp").set("mcp-session-id", session).auth(await token({ jti: "refreshed-token" }), { type: "bearer" });
       assert.ok(removed.status >= 200 && removed.status < 300);
     }, results);
     await testFunction("OAuth tokens stay out of upstream requests, resources, tool output and diagnostics", async () => {

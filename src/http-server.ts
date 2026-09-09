@@ -25,6 +25,7 @@ import {
 interface Session {
   transport: NodeStreamableHTTPServerTransport;
   mcpServer: McpServer;
+  oauthPrincipal?: string;
 }
 
 export const DEFAULT_STATELESS_MAX_IN_FLIGHT = 16;
@@ -298,14 +299,23 @@ export async function createHttpServer(
   async function authorize(req: express.Request, res: express.Response): Promise<boolean> {
     if (oauth) {
       const failure = await oauth.authorize(req.headers.authorization);
-      if (!failure) return true;
+      if (typeof failure === "string") {
+        res.locals.oauthPrincipal = failure;
+        return true;
+      }
       failure.headers.forEach((value, name) => res.setHeader(name, value));
-      res.status(failure.status).send(await failure.text());
+      res.status(failure.status).json(await failure.json());
       return false;
     }
     if (isRequestAuthorized(req.headers.authorization, security)) return true;
     rejectUnauthorized(res);
     return false;
+  }
+
+  function rejectSessionPrincipal(session: Session, res: express.Response): boolean {
+    if (!oauth || session.oauthPrincipal === res.locals.oauthPrincipal) return false;
+    res.status(403).json({ jsonrpc: "2.0", error: { code: -32001, message: "Session not authorized" }, id: null });
+    return true;
   }
 
   function rejectInvalidHostHeader(
@@ -374,7 +384,9 @@ export async function createHttpServer(
 
   const { initLimiter, sessionLimiter, healthLimiter } = makeRateLimiters();
   if (oauth) {
-    app.get(oauth.metadataPath, healthLimiter, (_req, res) => res.json(oauth.metadata));
+    app.get(oauth.metadataPath, healthLimiter, (req, res) => {
+      if (!rejectInvalidHostHeader(req, res)) res.json(oauth.metadata);
+    });
   }
 
   // Map to store sessions by session ID
@@ -654,6 +666,7 @@ export async function createHttpServer(
     if (sessionId && sessions.has(sessionId)) {
       // Reuse existing session
       const session = sessions.get(sessionId)!;
+      if (rejectSessionPrincipal(session, res)) return;
       transport = session.transport;
       mcpServer = session.mcpServer;
       logMessage(mcpServer, "debug", `Reusing session: ${sessionId}`);
@@ -664,7 +677,7 @@ export async function createHttpServer(
       transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sessionId) => {
-          sessions.set(sessionId, { transport, mcpServer });
+          sessions.set(sessionId, { transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal });
           logMessage(mcpServer, "debug", `Session initialized: ${sessionId}`);
         },
         enableDnsRebindingProtection: security.enableDnsRebindingProtection,
@@ -718,6 +731,7 @@ export async function createHttpServer(
     }
 
     const session = sessions.get(sessionId)!;
+    if (rejectSessionPrincipal(session, res)) return;
     try {
       await session.transport.handleRequest(req, res);
     } catch (error) {
@@ -759,6 +773,7 @@ export async function createHttpServer(
     }
 
     const session = sessions.get(sessionId)!;
+    if (rejectSessionPrincipal(session, res)) return;
     try {
       await session.transport.handleRequest(req, res);
     } catch (error) {
