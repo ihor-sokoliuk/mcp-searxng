@@ -18,7 +18,7 @@ import {
 } from '../helpers/test-utils.js';
 import {
   commandResult, installedPackage, invalidPublishWorkflows, safeTree, SpawnCall,
-  treeWithCoreZodRange, treeWithNodeServer, treeWithZod, validMcpSmokeOutput,
+  treeWithCoreZodRange, treeWithMcpMetadata, treeWithNodeServer, treeWithZod, validMcpSmokeOutput,
   validWorkflow, zeroAudit,
 } from './packed-consumer-fixtures.js';
 
@@ -118,6 +118,34 @@ async function runDependencyContractTests(): Promise<void> {
     assert.throws(
       () => assertSafeDependencyTree(treeWithCoreZodRange('latest'), installedPackage),
       /unsafe_dependency_tree:.*zod.*range/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithMcpMetadata(
+        '@modelcontextprotocol/core',
+        { _dependencies: {} },
+      ), installedPackage),
+      /unsafe_dependency_tree:.*core.*required zod range.*missing/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithMcpMetadata(
+        '@modelcontextprotocol/server',
+        { _dependencies: { '@modelcontextprotocol/core': '2.0.0' } },
+      ), installedPackage),
+      /unsafe_dependency_tree:.*server.*required zod range.*missing/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithMcpMetadata(
+        '@modelcontextprotocol/core',
+        { peerDependencies: { zod: '^5.0.0' } },
+      ), installedPackage),
+      /unsafe_dependency_tree:.*peerDependencies.*zod.*range/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithMcpMetadata(
+        '@modelcontextprotocol/server',
+        { optionalDependencies: { zod: '^5.0.0' } },
+      ), installedPackage),
+      /unsafe_dependency_tree:.*optionalDependencies.*zod.*range/iu,
     );
     assert.throws(
       () => assertSafeDependencyTree({
@@ -265,8 +293,11 @@ async function runProcessContractTests(): Promise<void> {
     );
   }, results);
 
-  await testFunction('accepts successful MCP initialize and tools/list responses from the packed CLI', () => {
-    assert.equal(assertMcpSmokeResponses(validMcpSmokeOutput()), 4);
+  await testFunction('accepts successful MCP tools and resources from the packed CLI', () => {
+    assert.deepEqual(assertMcpSmokeResponses(validMcpSmokeOutput()), {
+      toolCount: 4,
+      resourceCount: 2,
+    });
     assert.throws(
       () => assertMcpSmokeResponses(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools: [] } })),
       /mcp_smoke:.*initialize/,
@@ -291,6 +322,18 @@ async function runProcessContractTests(): Promise<void> {
         JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools: [] } }),
       ].join('\n')),
       /mcp_smoke:.*expected/,
+    );
+    assert.throws(
+      () => assertMcpSmokeResponses(
+        validMcpSmokeOutput().split('\n').filter((line) => !line.includes('"id":3')).join('\n'),
+      ),
+      /mcp_smoke:.*resources\/list.*missing/iu,
+    );
+    assert.throws(
+      () => assertMcpSmokeResponses(
+        validMcpSmokeOutput().split('\n').filter((line) => !line.includes('"id":4')).join('\n'),
+      ),
+      /mcp_smoke:.*server-config.*missing/iu,
     );
   }, results);
 }
@@ -522,6 +565,7 @@ async function runOrchestrationTests(): Promise<void> {
     ]);
     assert.equal(outcome.auditTotal, 0);
     assert.equal(outcome.toolCount, 4);
+    assert.equal(outcome.resourceCount, 2);
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- unique test output is created under the OS temporary directory
     assert.equal(readFileSync(artifactOutput, 'utf8'), 'fixture');
     assert.deepEqual(

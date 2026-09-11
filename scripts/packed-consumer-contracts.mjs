@@ -3,18 +3,26 @@ const REQUIRED_MCP_RUNTIME = new Map([
   ['@modelcontextprotocol/node', '2.0.0'],
   ['@modelcontextprotocol/server', '2.0.0'],
 ]);
+const REQUIRED_MCP_ZOD_DECLARATIONS = new Set([
+  '@modelcontextprotocol/core',
+  '@modelcontextprotocol/server',
+]);
 const EXPECTED_TOOLS = Object.freeze([
   'searxng_web_search',
   'web_url_read',
   'searxng_search_suggestions',
   'searxng_instance_info',
 ]);
+const EXPECTED_RESOURCES = Object.freeze([
+  'config://server-config',
+  'help://usage-guide',
+]);
 
 export function fail(category, message) {
   throw new Error(`${category}: ${message}`);
 }
 
-function parseStableSemver(value, label = 'SDK runtime') {
+function parseStableSemver(value, label = 'runtime dependency') {
   if (typeof value !== 'string') {
     fail('unsafe_dependency_tree', `${label} version is missing`);
   }
@@ -63,6 +71,36 @@ function assertZodRangeAccepts(range, version, packageName) {
   );
 }
 
+function declaredZodRanges(dependency, packageName) {
+  const dependencies = requireDependencyNode(
+    dependency._dependencies,
+    `${packageName} declared dependencies are missing`,
+  );
+  const ranges = [];
+  if (Object.hasOwn(dependencies, 'zod')) {
+    ranges.push({ field: 'dependencies', range: dependencies.zod });
+  }
+  if (dependency.peerDependencies !== undefined) {
+    const peers = requireDependencyNode(
+      dependency.peerDependencies,
+      `${packageName} peer dependencies are malformed`,
+    );
+    if (Object.hasOwn(peers, 'zod')) {
+      ranges.push({ field: 'peerDependencies', range: peers.zod });
+    }
+  }
+  if (dependency.optionalDependencies !== undefined) {
+    const optional = requireDependencyNode(
+      dependency.optionalDependencies,
+      `${packageName} optional dependencies are malformed`,
+    );
+    if (Object.hasOwn(optional, 'zod')) {
+      ranges.push({ field: 'optionalDependencies', range: optional.zod });
+    }
+  }
+  return ranges;
+}
+
 function requireManifestZodVersion(installedPackage) {
   const manifest = requireDependencyNode(
     installedPackage,
@@ -104,7 +142,7 @@ function assertDependencyFlags(name, dependency) {
 
 function recordMcpRuntimeVersion(name, dependency, versions, zodVersion) {
   assertDependencyFlags(name, dependency);
-  const parsed = parseStableSemver(dependency.version);
+  const parsed = parseStableSemver(dependency.version, name);
   const requiredVersion = REQUIRED_MCP_RUNTIME.get(name);
   if (requiredVersion !== undefined && dependency.version !== requiredVersion) {
     fail(
@@ -113,12 +151,12 @@ function recordMcpRuntimeVersion(name, dependency, versions, zodVersion) {
     );
   }
   if (parsed[0] === 2) {
-    const declaredDependencies = requireDependencyNode(
-      dependency._dependencies,
-      `${name} declared dependencies are missing`,
-    );
-    if (Object.hasOwn(declaredDependencies, 'zod')) {
-      assertZodRangeAccepts(declaredDependencies.zod, zodVersion, name);
+    const ranges = declaredZodRanges(dependency, name);
+    if (REQUIRED_MCP_ZOD_DECLARATIONS.has(name) && ranges.length === 0) {
+      fail('unsafe_dependency_tree', `${name} required zod range is missing`);
+    }
+    for (const { field, range } of ranges) {
+      assertZodRangeAccepts(range, zodVersion, `${name} ${field}`);
     }
   }
   if (requiredVersion !== undefined) {
@@ -175,7 +213,7 @@ export function assertSafeDependencyTree(tree, installedPackage) {
   const found = new Set(uniqueVersions.keys());
   const missing = [...REQUIRED_MCP_RUNTIME.keys(), 'zod'].filter((name) => !found.has(name));
   if (missing.length > 0) {
-    fail('unsafe_dependency_tree', `required SDK runtime dependency is missing: ${missing.join(', ')}`);
+    fail('unsafe_dependency_tree', `required runtime dependency is missing: ${missing.join(', ')}`);
   }
   if (zodPaths.size !== 1) {
     fail('unsafe_dependency_tree', `exactly one installed zod is required; found ${zodPaths.size}`);
@@ -307,10 +345,43 @@ function requireExpectedTools(responses) {
   return toolsList.result.tools;
 }
 
+function requireExpectedResources(responses) {
+  const resourcesList = requireSuccessfulResponse(responses, 3, 'resources/list');
+  if (!Array.isArray(resourcesList.result?.resources)) {
+    fail('mcp_smoke', 'resources/list resources result is malformed');
+  }
+  const resourceUris = new Set(
+    resourcesList.result.resources.map((resource) => resource?.uri).filter(Boolean),
+  );
+  const missingResources = EXPECTED_RESOURCES.filter((uri) => !resourceUris.has(uri));
+  if (
+    missingResources.length > 0
+    || resourcesList.result.resources.length !== EXPECTED_RESOURCES.length
+  ) {
+    fail('mcp_smoke', `expected resources are missing or duplicated: ${missingResources.join(', ')}`);
+  }
+  return resourcesList.result.resources;
+}
+
+function requireReadableResource(responses, id, expectedUri) {
+  const resourceRead = requireSuccessfulResponse(responses, id, `resources/read ${expectedUri}`);
+  if (!Array.isArray(resourceRead.result?.contents)) {
+    fail('mcp_smoke', `resources/read ${expectedUri} contents are malformed`);
+  }
+  const content = resourceRead.result.contents.find((entry) => entry?.uri === expectedUri);
+  if (typeof content?.text !== 'string' || content.text.length === 0) {
+    fail('mcp_smoke', `resources/read ${expectedUri} text is missing`);
+  }
+}
+
 export function assertMcpSmokeResponses(stdout) {
   const responses = collectJsonRpcResponses(stdout);
   assertInitializeResponse(responses);
-  return requireExpectedTools(responses).length;
+  const toolCount = requireExpectedTools(responses).length;
+  const resourceCount = requireExpectedResources(responses).length;
+  requireReadableResource(responses, 4, EXPECTED_RESOURCES[0]);
+  requireReadableResource(responses, 5, EXPECTED_RESOURCES[1]);
+  return { toolCount, resourceCount };
 }
 
 function isStepStart(line) {

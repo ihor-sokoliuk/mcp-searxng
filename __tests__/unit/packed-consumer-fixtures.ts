@@ -76,6 +76,34 @@ export function treeWithCoreZodRange(range: unknown): object {
   };
 }
 
+export function treeWithMcpMetadata(
+  packageName: '@modelcontextprotocol/core' | '@modelcontextprotocol/server',
+  metadata: object,
+): object {
+  const current = packageName === '@modelcontextprotocol/core'
+    ? safeTree.dependencies['mcp-searxng'].dependencies['@modelcontextprotocol/core']
+    : safeTree.dependencies['mcp-searxng'].dependencies['@modelcontextprotocol/server'];
+  const replacement = { ...current, ...metadata };
+  const dependencies = packageName === '@modelcontextprotocol/core'
+    ? {
+        ...safeTree.dependencies['mcp-searxng'].dependencies,
+        '@modelcontextprotocol/core': replacement,
+      }
+    : {
+        ...safeTree.dependencies['mcp-searxng'].dependencies,
+        '@modelcontextprotocol/server': replacement,
+      };
+  return {
+    ...safeTree,
+    dependencies: {
+      'mcp-searxng': {
+        ...safeTree.dependencies['mcp-searxng'],
+        dependencies,
+      },
+    },
+  };
+}
+
 export const validWorkflow = `name: Publish
 jobs:
   build-and-publish:
@@ -221,6 +249,30 @@ export function validMcpSmokeOutput(): string {
           { name: 'searxng_search_suggestions' },
           { name: 'searxng_instance_info' },
         ],
+      },
+    }),
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 3,
+      result: {
+        resources: [
+          { uri: 'config://server-config', name: 'Server Configuration' },
+          { uri: 'help://usage-guide', name: 'Usage Guide' },
+        ],
+      },
+    }),
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 4,
+      result: {
+        contents: [{ uri: 'config://server-config', text: '{}' }],
+      },
+    }),
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 5,
+      result: {
+        contents: [{ uri: 'help://usage-guide', text: '# Usage' }],
       },
     }),
   ].join('\n');
