@@ -327,7 +327,7 @@ export function verifyPackedConsumer({
     }
 
     const treeInvocation = npmInvocation(
-      ['ls', '--all', '--json'],
+      ['ls', '--all', '--long', '--json'],
     );
     const treeResult = runJsonCommand(
       treeInvocation.command,
@@ -340,7 +340,7 @@ export function verifyPackedConsumer({
         label: 'npm ls',
       },
     );
-    const adapterVersions = assertSafeDependencyTree(treeResult.json);
+    const adapterVersions = assertSafeDependencyTree(treeResult.json, installedPackage);
     if (treeResult.status !== 0) {
       fail('infrastructure', `npm ls exited with status ${treeResult.status}`);
     }

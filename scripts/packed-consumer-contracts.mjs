@@ -1,8 +1,7 @@
-const REQUIRED_SDK_RUNTIME = new Map([
+const REQUIRED_MCP_RUNTIME = new Map([
   ['@modelcontextprotocol/core', '2.0.0'],
   ['@modelcontextprotocol/node', '2.0.0'],
   ['@modelcontextprotocol/server', '2.0.0'],
-  ['zod', '4.2.0'],
 ]);
 const EXPECTED_TOOLS = Object.freeze([
   'searxng_web_search',
@@ -15,19 +14,70 @@ export function fail(category, message) {
   throw new Error(`${category}: ${message}`);
 }
 
-function parseStableSemver(value) {
+function parseStableSemver(value, label = 'SDK runtime') {
   if (typeof value !== 'string') {
-    fail('unsafe_dependency_tree', 'SDK runtime version is missing');
+    fail('unsafe_dependency_tree', `${label} version is missing`);
   }
   if (value.length > 64) {
-    fail('unsafe_dependency_tree', 'SDK runtime version is invalid');
+    fail('unsafe_dependency_tree', `${label} version is invalid`);
   }
   // eslint-disable-next-line security/detect-unsafe-regex -- input is capped at 64 characters above
   const match = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
   if (!match) {
-    fail('unsafe_dependency_tree', `SDK runtime version is invalid: ${value}`);
+    fail('unsafe_dependency_tree', `${label} version is invalid: ${value}`);
   }
   return match.slice(1, 4).map(Number);
+}
+
+function compareSemver(
+  [leftMajor, leftMinor, leftPatch],
+  [rightMajor, rightMinor, rightPatch],
+) {
+  if (leftMajor !== rightMajor) return leftMajor - rightMajor;
+  if (leftMinor !== rightMinor) return leftMinor - rightMinor;
+  if (leftPatch !== rightPatch) return leftPatch - rightPatch;
+  return 0;
+}
+
+function caretUpperBound([major, minor, patch]) {
+  if (major > 0) return [major + 1, 0, 0];
+  if (minor > 0) return [0, minor + 1, 0];
+  return [0, 0, patch + 1];
+}
+
+function assertZodRangeAccepts(range, version, packageName) {
+  if (typeof range !== 'string' || range.length > 64) {
+    fail('unsafe_dependency_tree', `${packageName} zod range is missing or malformed`);
+  }
+  const actual = parseStableSemver(version, 'zod');
+  if (range.startsWith('^')) {
+    const minimum = parseStableSemver(range.slice(1), `${packageName} zod range`);
+    const maximum = caretUpperBound(minimum);
+    if (compareSemver(actual, minimum) >= 0 && compareSemver(actual, maximum) < 0) return;
+  } else if (range === version) {
+    return;
+  }
+  fail(
+    'unsafe_dependency_tree',
+    `${packageName} zod range ${range} does not accept ${version}`,
+  );
+}
+
+function requireManifestZodVersion(installedPackage) {
+  const manifest = requireDependencyNode(
+    installedPackage,
+    'installed package manifest is malformed',
+  );
+  const version = manifest.dependencies?.zod;
+  try {
+    parseStableSemver(version, 'packed manifest zod');
+  } catch {
+    fail(
+      'unsafe_dependency_tree',
+      'packed manifest zod must be one exact stable version',
+    );
+  }
+  return version;
 }
 
 function requireDependencyNode(node, message) {
@@ -43,25 +93,56 @@ function assertNoNpmProblems(node) {
   }
 }
 
-function recordSdkRuntimeVersion(name, dependency, versions) {
+function assertDependencyFlags(name, dependency) {
   if (dependency.invalid) {
     fail('unsafe_dependency_tree', `${name} is marked invalid`);
   }
   if (dependency.extraneous) {
     fail('unsafe_dependency_tree', `${name} is marked extraneous`);
   }
-  parseStableSemver(dependency.version);
-  const requiredVersion = REQUIRED_SDK_RUNTIME.get(name);
-  if (dependency.version !== requiredVersion) {
+}
+
+function recordMcpRuntimeVersion(name, dependency, versions, zodVersion) {
+  assertDependencyFlags(name, dependency);
+  const parsed = parseStableSemver(dependency.version);
+  const requiredVersion = REQUIRED_MCP_RUNTIME.get(name);
+  if (requiredVersion !== undefined && dependency.version !== requiredVersion) {
     fail(
       'unsafe_dependency_tree',
       `${name} version ${dependency.version} must be ${requiredVersion}`,
     );
   }
-  versions.push({ name, version: dependency.version });
+  if (parsed[0] === 2) {
+    const declaredDependencies = requireDependencyNode(
+      dependency._dependencies,
+      `${name} declared dependencies are missing`,
+    );
+    if (Object.hasOwn(declaredDependencies, 'zod')) {
+      assertZodRangeAccepts(declaredDependencies.zod, zodVersion, name);
+    }
+  }
+  if (requiredVersion !== undefined) {
+    versions.push({ name, version: dependency.version });
+  }
 }
 
-function visitDependencyNode(node, versions) {
+function recordZodVersion(dependency, versions, zodVersion, zodPaths) {
+  assertDependencyFlags('zod', dependency);
+  parseStableSemver(dependency.version, 'zod');
+  if (dependency.version !== zodVersion) {
+    fail(
+      'unsafe_dependency_tree',
+      `zod version ${dependency.version} must match packed manifest ${zodVersion}`,
+    );
+  }
+  if (typeof dependency.path !== 'string' || dependency.path.length === 0) {
+    fail('unsafe_dependency_tree', 'zod installation path is missing');
+  }
+  zodPaths.add(dependency.path);
+  versions.push({ name: 'zod', version: dependency.version });
+}
+
+function visitDependencyNode(node, versions, zodVersion, zodPaths) {
   const dependencyNode = requireDependencyNode(
     node,
     'dependency node is malformed',
@@ -75,22 +156,29 @@ function visitDependencyNode(node, versions) {
       dependencyValue,
       `dependency ${name} is malformed`,
     );
-    if (REQUIRED_SDK_RUNTIME.has(name)) {
-      recordSdkRuntimeVersion(name, dependency, versions);
+    if (name.startsWith('@modelcontextprotocol/')) {
+      recordMcpRuntimeVersion(name, dependency, versions, zodVersion);
+    } else if (name === 'zod') {
+      recordZodVersion(dependency, versions, zodVersion, zodPaths);
     }
-    visitDependencyNode(dependency, versions);
+    visitDependencyNode(dependency, versions, zodVersion, zodPaths);
   }
 }
 
-export function assertSafeDependencyTree(tree) {
+export function assertSafeDependencyTree(tree, installedPackage) {
   requireDependencyNode(tree, 'npm ls output is not an object');
+  const zodVersion = requireManifestZodVersion(installedPackage);
   const versions = [];
-  visitDependencyNode(tree, versions);
+  const zodPaths = new Set();
+  visitDependencyNode(tree, versions, zodVersion, zodPaths);
   const uniqueVersions = new Map(versions.map((entry) => [entry.name, entry]));
   const found = new Set(uniqueVersions.keys());
-  const missing = [...REQUIRED_SDK_RUNTIME.keys()].filter((name) => !found.has(name));
+  const missing = [...REQUIRED_MCP_RUNTIME.keys(), 'zod'].filter((name) => !found.has(name));
   if (missing.length > 0) {
     fail('unsafe_dependency_tree', `required SDK runtime dependency is missing: ${missing.join(', ')}`);
+  }
+  if (zodPaths.size !== 1) {
+    fail('unsafe_dependency_tree', `exactly one installed zod is required; found ${zodPaths.size}`);
   }
   return [...uniqueVersions.values()].sort((left, right) => left.name.localeCompare(right.name));
 }

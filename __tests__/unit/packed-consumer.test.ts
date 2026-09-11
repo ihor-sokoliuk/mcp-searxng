@@ -17,59 +17,60 @@ import {
   TestResult,
 } from '../helpers/test-utils.js';
 import {
-  commandResult, invalidPublishWorkflows, safeTree, SpawnCall,
-  treeWithNodeServer, validMcpSmokeOutput, validWorkflow, zeroAudit,
+  commandResult, installedPackage, invalidPublishWorkflows, safeTree, SpawnCall,
+  treeWithCoreZodRange, treeWithNodeServer, treeWithZod, validMcpSmokeOutput,
+  validWorkflow, zeroAudit,
 } from './packed-consumer-fixtures.js';
 
 const results = createTestResults();
 
 async function runDependencyContractTests(): Promise<void> {
   await testFunction('accepts an exact v2 runtime dependency tree', () => {
-    assert.deepEqual(assertSafeDependencyTree(safeTree), [
+    assert.deepEqual(assertSafeDependencyTree(safeTree, installedPackage), [
       { name: '@modelcontextprotocol/core', version: '2.0.0' },
       { name: '@modelcontextprotocol/node', version: '2.0.0' },
       { name: '@modelcontextprotocol/server', version: '2.0.0' },
-      { name: 'zod', version: '4.2.0' },
+      { name: 'zod', version: '4.5.4' },
     ]);
   }, results);
 
   await testFunction('rejects every mismatched, prerelease, missing, or malformed v2 runtime tree', () => {
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '1.19.17' })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '1.19.17' }), installedPackage),
       /unsafe_dependency_tree:.*1\.19\.17/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0-beta.1' })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0-beta.1' }), installedPackage),
       /unsafe_dependency_tree:.*2\.0\.0-beta\.1/,
     );
     assert.throws(
-      () => assertSafeDependencyTree({ name: 'consumer', dependencies: {} }),
+      () => assertSafeDependencyTree({ name: 'consumer', dependencies: {} }, installedPackage),
       /unsafe_dependency_tree:.*missing/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({})),
+      () => assertSafeDependencyTree(treeWithNodeServer({}), installedPackage),
       /unsafe_dependency_tree:.*version/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: 'not-semver' })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: 'not-semver' }), installedPackage),
       /unsafe_dependency_tree:.*not-semver/,
     );
   }, results);
 
   await testFunction('rejects invalid, extraneous, npm-problem, and mixed-version trees', () => {
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', invalid: true })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', invalid: true }), installedPackage),
       /unsafe_dependency_tree:.*invalid/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', extraneous: true })),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', extraneous: true }), installedPackage),
       /unsafe_dependency_tree:.*extraneous/,
     );
     assert.throws(
       () => assertSafeDependencyTree({
         ...safeTree,
         problems: ['invalid: dependency tree'],
-      }),
+      }, installedPackage),
       /unsafe_dependency_tree:.*problems/,
     );
     assert.throws(
@@ -79,8 +80,101 @@ async function runDependencyContractTests(): Promise<void> {
           ...safeTree.dependencies,
           '@modelcontextprotocol/server': { version: '1.19.17' },
         },
-      }),
+      }, installedPackage),
       /unsafe_dependency_tree:.*1\.19\.17/,
+    );
+  }, results);
+
+  await testFunction('derives exact Zod from the packed manifest and validates the complete production tree', () => {
+    assert.throws(
+      () => assertSafeDependencyTree(safeTree, {
+        ...installedPackage,
+        dependencies: { ...installedPackage.dependencies, zod: '^4.5.4' },
+      }),
+      /unsafe_dependency_tree:.*packed manifest zod.*exact stable/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(safeTree, {
+        ...installedPackage,
+        dependencies: {
+          '@modelcontextprotocol/core': '2.0.0',
+          '@modelcontextprotocol/node': '2.0.0',
+          '@modelcontextprotocol/server': '2.0.0',
+        },
+      }),
+      /unsafe_dependency_tree:.*packed manifest zod.*exact stable/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithZod({
+        version: '4.2.0',
+        path: '/consumer/node_modules/zod',
+      }), installedPackage),
+      /unsafe_dependency_tree:.*zod.*4\.2\.0.*4\.5\.4/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithCoreZodRange('^5.0.0'), installedPackage),
+      /unsafe_dependency_tree:.*zod.*range/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithCoreZodRange('latest'), installedPackage),
+      /unsafe_dependency_tree:.*zod.*range/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree({
+        ...safeTree,
+        dependencies: {
+          'mcp-searxng': {
+            ...safeTree.dependencies['mcp-searxng'],
+            dependencies: {
+              ...safeTree.dependencies['mcp-searxng'].dependencies,
+              '@modelcontextprotocol/extra': {
+                version: '2.1.0',
+                path: '/consumer/node_modules/@modelcontextprotocol/extra',
+                _dependencies: { zod: '^5.0.0' },
+              },
+            },
+          },
+        },
+      }, installedPackage),
+      /unsafe_dependency_tree:.*zod.*range/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithZod({
+        version: '4.5.4',
+        path: '/consumer/node_modules/zod-second',
+        dependencies: {
+          zod: { version: '4.5.4', path: '/consumer/node_modules/zod' },
+        },
+      }), installedPackage),
+      /unsafe_dependency_tree:.*exactly one.*zod/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithZod({
+        version: '4.5.4',
+        path: '/consumer/node_modules/zod',
+        invalid: true,
+      }), installedPackage),
+      /unsafe_dependency_tree:.*zod.*invalid/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithZod({
+        version: '4.5.4',
+        path: '/consumer/node_modules/zod',
+        extraneous: true,
+      }), installedPackage),
+      /unsafe_dependency_tree:.*zod.*extraneous/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithZod({
+        version: '4.5.4',
+        path: '/consumer/node_modules/zod',
+        problems: ['invalid: zod tree'],
+      }), installedPackage),
+      /unsafe_dependency_tree:.*problems/iu,
+    );
+    assert.throws(
+      () => assertSafeDependencyTree(treeWithZod({}), installedPackage),
+      /unsafe_dependency_tree:.*zod.*version/iu,
     );
   }, results);
 
@@ -370,7 +464,10 @@ async function runOrchestrationTests(): Promise<void> {
           JSON.stringify({
             name: 'mcp-searxng',
             exports: {},
-            dependencies: { '@modelcontextprotocol/server': '2.0.0' },
+            dependencies: {
+              '@modelcontextprotocol/server': '2.0.0',
+              zod: '4.5.4',
+            },
           }),
         );
         return { status: 0, signal: null, stdout: '', stderr: '' };
@@ -421,7 +518,7 @@ async function runOrchestrationTests(): Promise<void> {
       { name: '@modelcontextprotocol/core', version: '2.0.0' },
       { name: '@modelcontextprotocol/node', version: '2.0.0' },
       { name: '@modelcontextprotocol/server', version: '2.0.0' },
-      { name: 'zod', version: '4.2.0' },
+      { name: 'zod', version: '4.5.4' },
     ]);
     assert.equal(outcome.auditTotal, 0);
     assert.equal(outcome.toolCount, 4);
@@ -444,7 +541,7 @@ async function runOrchestrationTests(): Promise<void> {
       assert.equal(call.options.env?.[credentialVariable], undefined);
     }
     const lsCall = calls.find(({ args }) => args.includes('ls'));
-    assert.deepEqual(lsCall?.args.slice(lsCall.args.indexOf('ls')), ['ls', '--all', '--json']);
+    assert.deepEqual(lsCall?.args.slice(lsCall.args.indexOf('ls')), ['ls', '--all', '--long', '--json']);
     assert.ok(installCall.options.env?.NPM_CONFIG_CACHE?.startsWith(temporaryRoot));
     assert.ok(installCall.options.env?.NPM_CONFIG_USERCONFIG?.startsWith(temporaryRoot));
     assert.ok(installCall.options.env?.NPM_CONFIG_GLOBALCONFIG?.startsWith(temporaryRoot));
@@ -489,7 +586,10 @@ async function runOrchestrationTests(): Promise<void> {
           JSON.stringify({
             name: 'mcp-searxng',
             exports: {},
-            dependencies: { '@modelcontextprotocol/server': '2.0.0' },
+            dependencies: {
+              '@modelcontextprotocol/server': '2.0.0',
+              zod: '4.5.4',
+            },
           }),
         );
       }
