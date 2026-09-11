@@ -4,15 +4,77 @@ export const safeTree = {
   dependencies: {
     'mcp-searxng': {
       version: '1.12.0',
+      path: '/consumer/node_modules/mcp-searxng',
       dependencies: {
-        '@modelcontextprotocol/core': { version: '2.0.0' },
-        '@modelcontextprotocol/node': { version: '2.0.0' },
-        '@modelcontextprotocol/server': { version: '2.0.0' },
-        zod: { version: '4.2.0' },
+        '@modelcontextprotocol/core': {
+          version: '2.0.0',
+          path: '/consumer/node_modules/@modelcontextprotocol/core',
+          _dependencies: { zod: '^4.2.0' },
+        },
+        '@modelcontextprotocol/node': {
+          version: '2.0.0',
+          path: '/consumer/node_modules/@modelcontextprotocol/node',
+          _dependencies: {},
+        },
+        '@modelcontextprotocol/server': {
+          version: '2.0.0',
+          path: '/consumer/node_modules/@modelcontextprotocol/server',
+          _dependencies: {
+            '@modelcontextprotocol/core': '2.0.0',
+            zod: '^4.2.0',
+          },
+        },
+        zod: {
+          version: '4.5.4',
+          path: '/consumer/node_modules/zod',
+        },
       },
     },
   },
 };
+
+export const installedPackage = {
+  name: 'mcp-searxng',
+  dependencies: {
+    '@modelcontextprotocol/core': '2.0.0',
+    '@modelcontextprotocol/node': '2.0.0',
+    '@modelcontextprotocol/server': '2.0.0',
+    zod: '4.5.4',
+  },
+};
+
+export function treeWithZod(zod: object): object {
+  return {
+    ...safeTree,
+    dependencies: {
+      'mcp-searxng': {
+        ...safeTree.dependencies['mcp-searxng'],
+        dependencies: {
+          ...safeTree.dependencies['mcp-searxng'].dependencies,
+          zod,
+        },
+      },
+    },
+  };
+}
+
+export function treeWithCoreZodRange(range: unknown): object {
+  return {
+    ...safeTree,
+    dependencies: {
+      'mcp-searxng': {
+        ...safeTree.dependencies['mcp-searxng'],
+        dependencies: {
+          ...safeTree.dependencies['mcp-searxng'].dependencies,
+          '@modelcontextprotocol/core': {
+            ...safeTree.dependencies['mcp-searxng'].dependencies['@modelcontextprotocol/core'],
+            _dependencies: { zod: range },
+          },
+        },
+      },
+    },
+  };
+}
 
 export const validWorkflow = `name: Publish
 jobs:
@@ -132,12 +194,10 @@ export function treeWithNodeServer(nodeServer: object): object {
     ...safeTree,
     dependencies: {
       'mcp-searxng': {
-        version: '1.12.0',
+        ...safeTree.dependencies['mcp-searxng'],
         dependencies: {
-          '@modelcontextprotocol/core': { version: '2.0.0' },
-          '@modelcontextprotocol/node': { version: '2.0.0' },
+          ...safeTree.dependencies['mcp-searxng'].dependencies,
           '@modelcontextprotocol/server': nodeServer,
-          zod: { version: '4.2.0' },
         },
       },
     },
