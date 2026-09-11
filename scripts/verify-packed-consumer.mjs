@@ -145,6 +145,24 @@ function mcpSmokeInput() {
       method: 'tools/list',
       params: {},
     },
+    {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'resources/list',
+      params: {},
+    },
+    {
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'resources/read',
+      params: { uri: 'config://server-config' },
+    },
+    {
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'resources/read',
+      params: { uri: 'help://usage-guide' },
+    },
   ].map((message) => JSON.stringify(message)).join('\n') + '\n';
 }
 
@@ -389,7 +407,7 @@ export function verifyPackedConsumer({
         spawn,
       },
     );
-    const toolCount = assertMcpSmokeResponses(smokeOutput);
+    const { toolCount, resourceCount } = assertMcpSmokeResponses(smokeOutput);
     if (artifactOutput) {
       copyVerifiedArtifact(artifactPath, artifactOutput);
     }
@@ -398,6 +416,7 @@ export function verifyPackedConsumer({
       adapterVersions,
       auditTotal: audit.total,
       toolCount,
+      resourceCount,
     };
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -431,7 +450,7 @@ if (
     }
     const outcome = verifyPackedConsumer({ artifactOutput });
     process.stdout.write(
-      `packed-consumer verification passed: sdk=${outcome.adapterVersions.map(({ name, version }) => `${name}@${version}`).join(',')} audit=${outcome.auditTotal} tools=${outcome.toolCount}\n`,
+      `packed-consumer verification passed: sdk=${outcome.adapterVersions.map(({ name, version }) => `${name}@${version}`).join(',')} audit=${outcome.auditTotal} tools=${outcome.toolCount} resources=${outcome.resourceCount}\n`,
     );
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
