@@ -506,8 +506,9 @@ Start the service separately and connect the client to its full `/mcp` URL.
 Use the [HTTP server guide](docs/http-server.md) for a complete static bearer
 example, network assumptions and verification. In static mode,
 `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN` and an explicit
-`MCP_HTTP_ALLOWED_ORIGINS` must be configured together. Configure trusted proxy
-hops deliberately; otherwise clients can spoof `X-Forwarded-For`.
+`MCP_HTTP_ALLOWED_ORIGINS` must be configured together. Trust only the actual
+proxy hops/subnets. With excessive trust, clients can spoof `X-Forwarded-For`.
+Leaving proxy trust unset behind a proxy makes clients share its per-IP quota.
 
 ## Optional OAuth protected resource
 
