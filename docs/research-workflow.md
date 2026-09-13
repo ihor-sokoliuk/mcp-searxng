@@ -187,9 +187,13 @@ the SearXNG deployment. Use the
 
 ## Lite Tools Mode
 
-With `SEARXNG_LITE_TOOLS=true`, the tool schemas intentionally save context:
-search and suggestions accept only `query`, instance information accepts no
-optional controls, and URL reading accepts only `url`. The workflow still
-applies, but parameter-based refinement and selective page extraction require
-full mode. Do not send full-mode parameters and assume they were honored.
+With `SEARXNG_LITE_TOOLS=true`, the advertised schemas expose only `query`
+for search and suggestions, no optional controls for instance information,
+and only `url` for URL reading. Models therefore do not see the optional
+refinement or extraction controls. Use full schemas when you want the model
+to discover those options naturally.
 
+Deliberately supplied optional arguments are still validated and forwarded by
+the server. Schema visibility and accepted arguments are different: a client
+or model may never send an option it cannot discover. Inspect the actual tool
+arguments when an override appears to have no effect.

@@ -9,6 +9,8 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import { FetchMocker, createMockFetch } from '../helpers/mock-fetch.js';
 import request from 'supertest';
 import { LOG_LEVEL_META_KEY, McpServer, isLegacyRequest } from '@modelcontextprotocol/server';
 import {
@@ -226,6 +228,46 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('modern Lite calls honor explicit search and URL read options', async () => {
+    envManager.set('SEARXNG_LITE_TOOLS', 'true');
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('MCP_HTTP_ALLOW_PRIVATE_URLS', 'true');
+    const target = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body><p>abcdefghijklmnopqrstuvwxyz</p></body></html>');
+    });
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve));
+    const fetchMocker = new FetchMocker();
+    fetchMocker.mock(createMockFetch({ json: { results: [
+      { title: 'One', url: 'https://example.com/one', content: 'First', score: 1 },
+      { title: 'Two', url: 'https://example.com/two', content: 'Second', score: 0.5 },
+    ] } }));
+    try {
+      const { envelope, modernPost } = await createModernHttpHarness();
+      const search = await modernPost({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        _meta: envelope, name: 'searxng_web_search', arguments: {
+          query: 'modern-lite-explicit-options', response_format: 'json', result_detail: 'compact', num_results: 1,
+        },
+      } }, 'tools/call', 'searxng_web_search');
+      assert.equal(search.status, 200);
+      const parsed = JSON.parse(search.body.result.content[0].text);
+      assert.equal(parsed.results.length, 1);
+      assert.deepEqual(Object.keys(parsed), ['results']);
+      const address = target.address();
+      assert.ok(address && typeof address === 'object');
+      const read = await modernPost({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+        _meta: envelope, name: 'web_url_read', arguments: { url: `http://127.0.0.1:${address.port}`, maxLength: 5 },
+      } }, 'tools/call', 'web_url_read');
+      assert.equal(read.status, 200);
+      assert.ok(read.body.result.content[0].text.includes('abcde'));
+      assert.ok(!read.body.result.content[0].text.includes('abcdef'));
+    } finally {
+      fetchMocker.restore();
+      target.closeAllConnections();
+      await new Promise<void>((resolve) => target.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
   console.log('🧪 Integration Testing: http-server.ts\n');
 
   await testFunction('temporary modern missing-version guard is exact and leaves every other shape to the SDK', () => {

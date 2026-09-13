@@ -561,6 +561,40 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('legacy Lite calls honor explicit search and URL read options', async () => {
+    const previousLite = process.env.SEARXNG_LITE_TOOLS;
+    const previousPrivate = process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+    const previousSearch = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = 'https://test-searx.example.com';
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = 'true';
+    const { client } = await connect();
+    fetchMocker.mock(createMockFetch({ body: MANY_SEARXNG_RESULTS_RESPONSE }));
+    try {
+      const search = await client.callTool({ name: 'searxng_web_search', arguments: {
+        query: 'legacy-lite-explicit-options', response_format: 'json', result_detail: 'compact', num_results: 1,
+      } });
+      const parsed = JSON.parse((search.content as Array<{ text: string }>)[0].text);
+      assert.equal(parsed.results.length, 1);
+      assert.deepEqual(Object.keys(parsed), ['results']);
+      await withLocalHtmlServer(LONG_HTML_RESPONSE, async (url) => {
+        const read = await client.callTool({ name: 'web_url_read', arguments: { url, maxLength: 5 } });
+        const text = (read.content as Array<{ text: string }>)[0].text;
+        assert.ok(text.includes('abcde'));
+        assert.ok(!text.includes('abcdef'));
+      });
+    } finally {
+      fetchMocker.restore();
+      if (previousLite === undefined) delete process.env.SEARXNG_LITE_TOOLS;
+      else process.env.SEARXNG_LITE_TOOLS = previousLite;
+      if (previousPrivate === undefined) delete process.env.MCP_HTTP_ALLOW_PRIVATE_URLS;
+      else process.env.MCP_HTTP_ALLOW_PRIVATE_URLS = previousPrivate;
+      if (previousSearch === undefined) delete process.env.SEARXNG_URL;
+      else process.env.SEARXNG_URL = previousSearch;
+      await client.close();
+    }
+  }, results);
+
   await testFunction('tools/list with SEARXNG_LITE_TOOLS unset returns full schemas', async () => {
     delete process.env.SEARXNG_LITE_TOOLS;
     const { client } = await connect();

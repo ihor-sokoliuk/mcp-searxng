@@ -137,7 +137,10 @@ acquisitions are bounded independently by the selected provider's
 `*_MAX_CONCURRENT_REQUESTS` variable.
 
 Each provider keeps its full timeout. The default dual-provider worst case is
-150 seconds across preflight, both acquisitions, and one direct GET. Repeated
+143 seconds of stage budgets before PDF parsing: a 3-second preflight,
+two 65-second acquisitions including response grace, and a 10-second final
+fetch. PDF parsing can add 30 seconds. Timer budgets are not a precise
+wall-clock completion guarantee. Repeated
 value-free `unavailable` warnings for the same provider should trigger
 operational alerting; this feature does not retain a health score or silently
 reverse provider order.

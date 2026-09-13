@@ -13,28 +13,33 @@ Choose one connection mode:
   server. The server operator, not the client configuration, sets
   `SEARXNG_URL`.
 
-## Verified support matrix
+<a id="verified-support-matrix"></a>
 
-The matrix reflects the current authoritative client schemas linked below. A
-`No` means this cookbook deliberately omits that combination; it does not claim
-that the client can never support it.
+## Recipe coverage
+
+These recipes were checked against the linked client documentation on
+2026-09-13. A recipe being included means its configuration is documented by the
+client; it does not mean every client/version/OS combination was exercised with
+this server. “Not provided” means this guide has no recipe for that combination.
 
 | Client | NPX/STDIO | Docker/STDIO | HTTP |
 | --- | --- | --- | --- |
-| Claude Desktop | Yes | Yes | No |
+| Claude Desktop | Yes | Yes | Not provided |
 | Claude Code | Yes | Yes | Yes |
 | Codex CLI | Yes | Yes | Yes |
-| Cursor | Yes | Yes | No |
+| Cursor | Yes | Yes | Not provided |
 | VS Code | Yes | Yes | Yes |
 | Windsurf | Yes | Yes | Yes |
 | Cline | Yes | Yes | Yes |
 | OpenCode | Yes | Yes | Yes |
 
-Claude Desktop remote connectors accept unauthenticated or OAuth servers, but a
-network-exposed `mcp-searxng` server uses its own static bearer-token hardening.
-Cursor's current remote MCP documentation likewise specifies OAuth. Because
-`mcp-searxng` does not implement MCP OAuth, this cookbook keeps both clients on
-local STDIO instead of recommending a weaker remote deployment.
+HTTP deployments support either a static bearer token or optional
+[OAuth through an external authorization server](../CONFIGURATION.md#optional-oauth-protected-resource).
+OAuth support is included in mcp-searxng 2.2.0. Client login, registration and
+token issuance require a compatible provider; this server only protects the
+resource. Claude Desktop and Cursor remote recipes remain untested here.
+Cursor also documents custom bearer headers; the absence of a recipe is not a
+claim that those clients cannot connect remotely.
 
 ## Values used below
 
@@ -89,8 +94,9 @@ the container's raw standard input and output.
 
 Open **Settings → Developer → Edit Config**, add one shared local entry, save,
 and restart Claude Desktop. Remote servers are added through Claude's
-Connectors UI rather than `claude_desktop_config.json`; no compatible hardened
-HTTP recipe is claimed here. See Anthropic's
+Connectors UI rather than `claude_desktop_config.json`. For a protected remote
+server, review the OAuth provider requirements above; an end-to-end Claude
+Desktop login flow has not been verified here. See Anthropic's
 [local MCP](https://support.anthropic.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 and [remote connector](https://support.anthropic.com/en/articles/11503834-building-custom-connectors-via-remote-mcp-servers)
 documentation.
@@ -99,9 +105,9 @@ documentation.
 
 Put one shared local entry in `.cursor/mcp.json` for a project or
 `~/.cursor/mcp.json` for all projects. Cursor documents STDIO plus remote
-OAuth; this guide uses STDIO because the server's hardened HTTP mode is static
-bearer authentication. See the
-[Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol).
+OAuth and custom HTTP headers; this guide provides local recipes, while remote
+client/provider combinations have not been exercised here. See the
+[Cursor MCP documentation](https://cursor.com/docs/mcp).
 
 ### Windsurf
 
@@ -351,7 +357,7 @@ For hardened HTTP, disable OAuth and read the static token from the environment:
 }
 ```
 
-Run `opencode2 mcp list` for the V2 CLI. See the
+Run `opencode mcp list` for the V2 CLI. See the
 [OpenCode V2 MCP documentation](https://opencode.ai/v2/docs/mcp-servers).
 
 ## Start an HTTP server first
@@ -398,5 +404,8 @@ After saving the client configuration:
 
 If the server does not appear, inspect the client's MCP log first. For STDIO,
 the most common causes are a missing executable, a Docker TTY/detached flag, or
-an absent `SEARXNG_URL`. For HTTP, verify the full `/mcp` URL, TLS, and that the
-client token matches `MCP_HTTP_AUTH_TOKEN`.
+an absent `SEARXNG_URL`. For HTTP, verify the full `/mcp` URL and TLS. In static mode, the client token
+must match `MCP_HTTP_AUTH_TOKEN`; in OAuth mode, check discovery and your
+authorization provider instead. Tool discovery does not contact SearXNG. A
+capability response can be cached and does not prove that search works; use the
+search call to check the search path.

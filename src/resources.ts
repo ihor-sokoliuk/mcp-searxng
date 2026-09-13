@@ -140,7 +140,7 @@ Performs web searches using the configured SearXNG instance or replica list, wit
 
 With \`SEARXNG_LITE_TOOLS=true\`, the Lite schema stays query-only, but explicitly supplied optional overrides such as \`response_format\` and \`result_detail\` are still validated and honored. Compact suppresses warnings, provenance, and every other search signal. The full text optional lines appear only for valid values in fixed order: score, engines, category, published date, thumbnail, image source; text fields are normalized to single lines. \`SEARXNG_MAX_RESULT_CHARS\` applies only to result content in all four text/JSON and compact/full combinations, including full JSON. Compact text normalizes line separators before the cap, while JSON caps the original string value.
 
-Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`, and may include a \`warnings\` array for non-fatal issues. Use \`searxng_instance_info\` and prefer \`common\` categories/engines for consistent multi-instance results; \`available\`-only filters are best-effort. Unknown categories or engines are forwarded trimmed so SearXNG can ignore or honor them; if \`/config\` is unavailable, the search proceeds with the supplied values and emits a warning.
+Text output can include metadata sections for direct answers, spelling corrections, suggestions, and infoboxes before the result list. JSON output preserves the SearXNG response shape with filtered and sliced \`results\`, and may include a \`warnings\` array for non-fatal issues. Use \`searxng_instance_info\` and prefer \`common\` categories/engines for consistent multi-instance results; \`available\`-only filters are best-effort. Unknown categories or engines are forwarded trimmed so SearXNG can ignore or honor them; if \`/config\` is unavailable, the search normally proceeds with a warning. Explicit \`engines\` combined with \`time_range\` instead require verified time-range support on every configured instance and fail before search when that cannot be established.
 
 ### 2. searxng_search_suggestions
 Returns autocomplete suggestions from the configured SearXNG instance.
@@ -234,9 +234,9 @@ Args: {"includeEngines": true}
 1. **"SEARXNG_URL not set"**: Configure the SEARXNG_URL environment variable
 2. **Network errors**: Check if SearXNG is running and accessible
 3. **Empty results**: Try different search terms or check SearXNG instance
-4. **Timeout errors**: Search and URL fetches time out after 10 seconds by default; tune with \`SEARXNG_TIMEOUT_MS\` and \`FETCH_TIMEOUT_MS\`
+4. **Timeout errors**: The default per-attempt search and network-fetch budgets are 10 seconds. Replica attempts, HTML fallback, browser solvers and PDF parsing can add time; the client may also have its own timeout. See [timeout settings](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md#timeouts).
 
-Use logging level "debug" for detailed request information.
+Inspect the client's MCP events and process diagnostics. Per-call logs depend on client and protocol support; stderr or container logs may not include them all. There is no server LOG_LEVEL environment setting. Compact search output omits cache and fallback markers; use full output when investigating those signals.
 
 ## Current Configuration
 See the "Current Configuration" resource for live settings.
