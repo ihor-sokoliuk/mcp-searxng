@@ -62,6 +62,12 @@ that name exists on every Linux deployment. The HTTP server binds to loopback
 by default; a container receiving network traffic needs `MCP_HTTP_HOST=0.0.0.0`
 inside it, with appropriate host-side publishing and access controls.
 
+On native Linux Docker, add `--add-host=host.docker.internal:host-gateway`
+to `docker run` before the image name when SearXNG runs on the host. In a client
+JSON recipe, add that flag as another `args` entry. The host service must listen
+on an address reachable from the container; this mapping does not expose a
+loopback-only listener. See Docker's [host-gateway guidance](https://docs.docker.com/reference/cli/docker/container/run#add-host).
+
 ## HTTP connection
 
 First identify who returned the error: the MCP endpoint, a reverse proxy, the

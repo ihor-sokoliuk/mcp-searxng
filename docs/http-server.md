@@ -97,8 +97,9 @@ Use a versioned package/image when repeatable deployments are required.
    On Windows PowerShell, use `curl.exe` for these curl flags. Expect JSON with
    `status`, `server`, `version`, and `transport`. This endpoint is intentionally
    unauthenticated and does not contact SearXNG. It has its own rate limit.
-2. Configure the client's full MCP URL, for example
-   `https://mcp.example.com/mcp`, using the appropriate
+2. Configure the client's full MCP URL: `http://127.0.0.1:3000/mcp` for the
+   local check, or `https://mcp.example.com/mcp` for the proxied service.
+   Use the appropriate
    [client recipe](client-configurations.md). Match static token versus OAuth.
 3. Reload the client connection and inspect its tool inventory. Expect the
    four [documented tools](tools.md); the client may prefix/group their names.

@@ -48,7 +48,7 @@ function markdownAnchors(document: string): string[] {
   let fence: { marker: string; length: number } | undefined;
   const visibleLines: string[] = [];
   for (const line of document.split(/\r?\n/u)) {
-    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    const delimiter = /^ {0,3}(\x60{3,}|~{3,})(.*)$/u.exec(line);
     if (fence) {
       if (delimiter && delimiter[1][0] === fence.marker &&
           delimiter[1].length >= fence.length && delimiter[2].trim() === '') fence = undefined;
