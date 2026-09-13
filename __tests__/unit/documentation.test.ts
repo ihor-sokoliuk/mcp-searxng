@@ -476,7 +476,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('README, client guide, and CI state the declared Node support policy', () => {
-    const readme = readUsageDocumentation();
+    const readme = readText(new URL('../../README.md', import.meta.url));
     const minimumNode = minimumNodeMajor();
     const ci = readText(workflowUrls.ci);
     assertReadmeNodePolicy(readme, minimumNode);
@@ -500,7 +500,7 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('cookbook exists and README links to it', () => {
     const guide = readText(guideUrl);
-    const readme = readUsageDocumentation();
+    const readme = readText(new URL('../../README.md', import.meta.url));
     assert.ok(guide.startsWith('# MCP Client Configuration Cookbook'));
     assert.ok(readme.includes('/docs/client-configurations.md)'));
   }, results);
@@ -583,7 +583,7 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('research workflow exists and README links to it', () => {
     const guide = readText(researchGuideUrl);
-    const readme = readUsageDocumentation();
+    const readme = readText(new URL('../../README.md', import.meta.url));
     assert.ok(guide.startsWith('# Evidence-Focused Research Workflow'));
     assert.ok(readme.includes('/docs/research-workflow.md)'));
   }, results);
@@ -660,7 +660,7 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('deployment profiles exist and public navigation links to them', () => {
     const guide = readText(deploymentGuideUrl);
-    const readme = readUsageDocumentation();
+    const readme = readText(new URL('../../README.md', import.meta.url));
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const compose = readText(new URL('../../docker-compose.yml', import.meta.url));
     assert.ok(guide.startsWith('# Measured MCP Deployment Profiles'));
@@ -821,7 +821,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('public documentation states current security, privacy, and configuration contracts', () => {
-    const readme = readUsageDocumentation();
+    const readme = readText(new URL('../../README.md', import.meta.url));
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const security = readText(new URL('../../SECURITY.md', import.meta.url));
     const normalizedSecurity = security.replace(/\s+/gu, ' ');

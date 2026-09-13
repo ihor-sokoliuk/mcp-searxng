@@ -26,6 +26,11 @@ See [OAuth requirements and discovery routing](../CONFIGURATION.md#optional-oaut
 SearXNG Basic Auth is a different connection: it authenticates the MCP server's
 outbound requests to SearXNG. It does not authenticate MCP clients.
 
+Every present MCP Origin is validated, including in non-hardened mode. Browser
+deployments using a non-loopback Origin must set `MCP_HTTP_ALLOWED_ORIGINS`;
+otherwise requests receive `403`. See the canonical
+[Origin defaults and upgrade notice](../CONFIGURATION.md#origin-validation-and-upgrade-notice).
+
 ## Start the service
 
 For a local check, set `SEARXNG_URL` in the shell first. Run either command in

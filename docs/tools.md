@@ -26,8 +26,9 @@ This example uses a placeholder; replace it with the source you selected:
 ```
 
 For a long page, request `readHeadings=true` first, then use `section` or
-`startChar`/`maxLength` on a separate call. Headings-only mode cannot be
-combined with the other extraction controls. PDF reading extracts text, not OCR.
+`startChar`/`maxLength` on a separate call. Use headings-only mode on its own:
+it returns headings without applying the other extraction controls.
+PDF reading extracts text, not OCR.
 
 Start without engine/time filters, then refine only when needed. Use full
 output while troubleshooting; compact output intentionally omits metadata.

@@ -135,7 +135,9 @@ Use `result_detail="full"` for diagnostic metadata. Compact output deliberately
 omits warnings, provenance, cache markers and HTML-fallback markers. Even full
 output is not a complete engine-health assessment.
 
-Search and URL caches live in each MCP process and default to a 24-hour TTL.
+Search and URL caches live in each MCP process; see the
+[search TTL](../CONFIGURATION.md#search-result-controls) and
+[URL TTL](../CONFIGURATION.md#url-reader-controls) settings for defaults and overrides.
 Repeated calls can therefore reflect earlier data. Full search output marks
 cache hits; compact output does not. `searxng_instance_info` with `refresh=true`
 refreshes capabilities, not search results. There is no per-call search-cache
