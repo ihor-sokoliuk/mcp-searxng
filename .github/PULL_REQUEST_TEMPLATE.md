@@ -2,13 +2,17 @@
 
 <!-- What does this PR do and why? One paragraph is enough. -->
 
-## Changes
+## Included
 
 <!-- List the files / areas changed and what each change does. -->
 
+## Intentionally out of scope
+
+<!-- State related work this PR deliberately does not change. Scope does not exclude correctness findings in included changes. -->
+
 ## Testing
 
-<!-- Show that you ran the full test suite and that it passes. -->
+<!-- Record checks, versions, results and untested surfaces. Use focused validation for documentation-only changes; explain the scope of the evidence. -->
 
 ```
 npm run build
@@ -16,7 +20,7 @@ npm run lint
 npm test
 ```
 
-<!-- Paste the relevant output, or confirm all three pass. -->
+<!-- Run the checks appropriate to this change. Do not claim client interoperability from syntax checks alone. -->
 
 ## Checklist
 

@@ -22,7 +22,21 @@ An [MCP server](https://modelcontextprotocol.io/introduction) that integrates th
 
 ## Quick Start
 
-Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
+You need an existing **SearXNG instance with JSON search enabled**. This project
+connects an MCP client to SearXNG; it does not install SearXNG. Use an instance
+you operate or trust. Start with the [self-hosted](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/self-hosted-searxng.md)
+or [public-instance](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/public-searxng-instances.md) guide if needed.
+
+Choose how to connect:
+
+| Your setup | Start here |
+|---|---|
+| Client starts the server locally | Install Node.js 22 or later, then use the NPX example below or your client recipe. |
+| Client starts a Docker container | Use the Docker/STDIO recipe in [Installation](#installation). |
+| You have an independently running HTTP service | Use your client's HTTP recipe with the full `/mcp` URL. |
+| You need to operate an HTTP service | Follow the [HTTP server guide](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/http-server.md). |
+
+For clients using `mcpServers` JSON (such as Claude Desktop), add:
 
 ```json
 {
@@ -30,52 +44,40 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
     "searxng": {
       "command": "npx",
       "args": ["-y", "mcp-searxng"],
-      "env": {
-        "SEARXNG_URL": "YOUR_SEARXNG_INSTANCE_URL"
-      }
+      "env": { "SEARXNG_URL": "https://search.example.com" }
     }
   }
 }
 ```
 
-Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`). You can also provide interchangeable replicas as a semicolon-separated list, e.g. `https://one.example.com;https://two.example.com`.
+Replace the example URL with your SearXNG base URL. Other clients use different
+configuration shapes: choose [your client recipe](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/client-configurations.md).
+Leave `MCP_HTTP_PORT` unset for local STDIO. Docker also needs environment
+forwarding into the container.
 
-For documented Claude Desktop, Claude Code, Codex CLI, Cursor, VS Code, Windsurf,
-Cline, and OpenCode recipes, see the
-[MCP client configuration cookbook](docs/client-configurations.md).
-
-For a bounded, client-neutral method to search, inspect sources, cross-check
-claims, and cite evidence, see the
-[evidence-focused research workflow](docs/research-workflow.md).
-
-For measured MCP-process CPU and memory starting points, see
-[measured deployment profiles](docs/deployment-profiles.md).
+Reload the client, inspect its MCP tool inventory, then ask it to search for
+SearXNG documentation. A simple tool call is
+`searxng_web_search` with `{"query":"SearXNG"}`. Discovery alone does not
+test SearXNG connectivity. If the call fails, start with
+[troubleshooting](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md).
 
 ## Features
 
-- **Web Search**: General, news, and article queries with pagination, time-range/language/safe-search filters, relevance filtering (`min_score`), and formatted-text or raw-JSON output selected per call (`response_format`) or with the operator default (`SEARXNG_DEFAULT_RESPONSE_FORMAT`).
-- **Instance Failover & Fan-out**: Configure interchangeable SearXNG replicas in `SEARXNG_URL`; searches fail over in order by default, or query all healthy replicas in parallel and merge results with `SEARXNG_FANOUT`.
-- **Direct Answers & Metadata**: Text results surface SearXNG answers, corrections, suggestions, and infoboxes before the result list.
-- **Search Suggestions**: Query autocomplete via SearXNG's `/autocompleter` endpoint.
-- **Instance Capability Discovery**: Inspect configured categories, engines, defaults, locales, and plugins from `/config`.
-- **URL Content Reading**: Content-type-aware Markdown conversion, including bounded PDF text extraction, with pagination, section filtering, paragraph ranges, and heading extraction.
-- **Browser Solver Support**: For each uncached URL that passes static URL validation and the HEAD size preflight, optionally acquire a browser session from FlareSolverr, Byparr, or both, then replay the returned user-agent and scoped cookies through the bounded URL reader. In dual-provider mode FlareSolverr is always primary and Byparr is attempted only after a busy or transient-unavailable primary. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30.
-- **Intelligent Caching**: Both search results and URL content are cached in memory with configurable TTL and least-frequently-used (LFU) eviction, reducing redundant requests.
-- **SSRF Protection**: `web_url_read` blocks private/internal URLs and redirects by default in all transport modes.
-- **HTTP Transport**: Optional MCP SDK v2 Streamable HTTP mode with opt-in hardening, rate limiting, and bounded stateless compatibility for serverless or horizontally scaled deployments. Modern 2026-07-28 requests and retained legacy clients share the same tool and resource surface.
-- **HTML Fallback**: Optionally parse results from the HTML page for public instances that reject `format=json`.
-- **Lite Tools Mode**: Minimal tool schemas for local models with small context windows.
-- **Proxy Support**: Global or per-tool HTTP/HTTPS proxies for search and URL-reader traffic.
+- Search with pagination, filters, direct answers and full or compact text/JSON output.
+- Read HTML, structured text and bounded PDF text; inspect headings or selected sections.
+- Discover instance capabilities and get query suggestions.
+- Optional replica failover/fan-out, HTML fallback, caching, proxies and browser solvers.
+- Local STDIO or Streamable HTTP, with static bearer and optional OAuth protection.
 
-The verified `linux/amd64` images came from multi-architecture manifests
-`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
-and
-`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
-Client cancellation stops local work promptly, but a remote browser may
-continue until its configured provider timeout after the HTTP client
-disconnects. See [browser solver verification](docs/browser-solver-verification.md).
+See the [tool guide](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/tools.md) for capabilities and limits,
+[configuration reference](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md) for settings, and
+[historical deployment measurements](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/deployment-profiles.md) for
+bounded resource-planning evidence.
 
 ## Why mcp-searxng?
+
+<details>
+<summary>Capability comparison recorded on 2026-07-29</summary>
 
 As of 2026-07-29, the capability comparison below reflects the official
 [Brave MCP](https://github.com/brave/brave-search-mcp-server),
@@ -94,95 +96,41 @@ select the underlying SearXNG instance.
 | Self-hosted | ✗ | ✗ | Partial | ✓ |
 | Free / No API key | ✗ | ✗ | ✗ | ✓ |
 
+</details>
+
 Privacy depends on the SearXNG deployment. An operator-controlled instance can
 avoid trusting a third-party search operator, while a public instance receives
 the query and may log it. SearXNG and this MCP integration do not by themselves
 provide anonymity.
 
+
 ## How It Works
 
-`mcp-searxng` is a standalone MCP server — a separate Node.js process that your AI assistant connects to for web search. It queries one SearXNG instance, or a semicolon-separated list of interchangeable SearXNG replicas, via the HTTP JSON API.
+`MCP client → mcp-searxng → SearXNG → search engines`
 
-> **Not a SearXNG plugin:** This project cannot be installed as a native SearXNG plugin. Point it at any existing SearXNG instance, or interchangeable replica list, by setting `SEARXNG_URL`.
-
-```
-AI Assistant (e.g. Claude)
-        │  MCP protocol
-        ▼
-  mcp-searxng  (this project — Node.js process)
-        │  HTTP JSON API  (SEARXNG_URL)
-        ▼
-  SearXNG instance(s)
-```
-
-For SearXNG deployment, configuration, and troubleshooting, see
-[Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
+The client either starts its own STDIO process or connects to an HTTP service.
+`SEARXNG_URL` identifies the SearXNG service, not the MCP endpoint. URL reading
+fetches the selected website directly. A semicolon-separated replica list is
+supported for interchangeable SearXNG deployments; see
+[replica configuration](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md#core).
 
 ## Tools
 
-- **searxng_web_search**
-  - Execute web searches with pagination
-  - Inputs:
-    - `query` (string): The search query. This string is passed to external search services.
-    - `pageno` (number, optional): Search page number, starts at 1 (default 1)
-    - `time_range` (string, optional): Filter results by time range - one of: "day", "week", "month", "year" (default: none)
-    - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
-    - `safesearch` (string enum, optional): Safe search filter level, one of `"0"` (None), `"1"` (Moderate), or `"2"` (Strict). Legacy numeric values `0`, `1`, and `2` are still accepted for backward compatibility. (default: instance setting)
-    - `min_score` (number, optional): Minimum relevance score from 0.0 to 1.0. Results below this score are filtered out.
-    - `num_results` (number, optional): Maximum number of results to return, from 1 to 20. `SEARXNG_MAX_RESULTS` applies as an operator ceiling.
-    - `categories` (string, optional): Comma-separated SearXNG categories (e.g. `"news"`, `"it,science"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `categories.common` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.
-    - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`, `"semantic scholar"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `engines.common.enabled` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively, including engines disabled by default; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning, except when combined with `time_range`.
-    - When `engines` and `time_range` are both provided, every configured SearXNG instance must return `/config` successfully and every selected engine must explicitly report `time_range_support=true`. If any instance is unreachable or any engine is unsupported or unknown, the request fails before `/search` to avoid a misleading empty result. Omit `time_range` or use an engine-specific query filter instead.
-    - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence.
-    - `result_detail` (string, optional): `"full"` (the default) preserves SearXNG metadata, warnings, provenance, answers, infoboxes, corrections, and suggestions. `"compact"` returns only title, URL, and the description/content snippet for every result; compact JSON uses exactly the `title`, `url`, and `content` keys. Use full when those research signals matter.
-    - Clients that explicitly send or auto-inject `response_format=text` continue to override the operator default. If omitted calls still return text after configuring JSON, inspect the arguments emitted by the MCP client.
+| Tool | Use it to |
+|---|---|
+| `searxng_web_search` | Find sources and refine results |
+| `searxng_search_suggestions` | Complete or refine a query |
+| `searxng_instance_info` | Inspect categories, engines and defaults |
+| `web_url_read` | Read a known URL as text/Markdown |
 
-  Migration: compact text has exactly three lines per result and no cache annotation or preamble. Update line parsers that expect relevance scores or search metadata to request `result_detail="full"` (or accept compact's three-line records).
-
-  Compact deliberately suppresses warnings, provenance, and every other search signal. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
-
-  With `SEARXNG_LITE_TOOLS=true`, the Lite schema stays query-only, but explicitly supplied optional overrides such as `response_format` and `result_detail` are still validated and honored.
-
-- **searxng_search_suggestions**
-  - Get autocomplete suggestions for refining search queries
-  - Inputs:
-    - `query` (string): Partial or complete query to autocomplete.
-    - `language` (string, optional): Language code for suggestions (e.g., "en", "fr", "de") or "all" (default: "all")
-
-- **searxng_instance_info**
-  - Discover categories aggregated from reachable configured SearXNG instances, optionally include engine names, and inspect defaults, locales, and plugins from the primary reachable instance. Categories—and engines when requested—report `common` values present on every reachable instance and `available` values present on at least one reachable instance.
-  - Inputs:
-    - `includeEngines` (boolean, optional): Include enabled engine names in the response. (default: false)
-    - `includeDisabled` (boolean, optional): Include disabled engine names when `includeEngines` is true. (default: false)
-    - `category` (string, optional): Filter categories and engines to a single category name.
-    - `refresh` (boolean, optional): Bypass the process cache and fetch fresh `/config` data. (default: false)
-
-- **web_url_read**
-  - Read URL content as markdown with content-type-aware handling and advanced extraction options
-  - Supported readable content:
-    - HTML (`text/html`, `application/xhtml+xml`) is converted to markdown
-    - JSON (`application/json`, `*+json`) is pretty-printed in a fenced block
-    - Plain text, YAML, TOML, XML, and other safe explicit `text/*` responses are returned as readable fenced text
-    - PDF (`application/pdf`) text is extracted in a resource-bounded worker for documents up to 500 pages
-    - Missing or generic content types are read under the existing size cap; non-binary bodies continue through the HTML-to-markdown path for compatibility
-  - PDF input and extracted text are each capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB. OCR is not supported, and scanned/image-only or password-protected PDFs return a short explanation.
-  - A response declared as PDF must begin with the `%PDF-` signature; a mismatch usually indicates an interstitial or error page served with the wrong content type.
-  - PDF parsing has a separate 30-second worker budget after the response body is downloaded. On the direct path, the network fetch and parse take at most the configured fetch budget plus 30 seconds; configured browser-solver preflight and acquisition time is additional.
-  - At most two PDF extractions run concurrently per MCP process. There is no queue; additional concurrent reads return a busy message and may be retried.
-  - Other binary, media, archive, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
-  - When `FLARESOLVERR_URL` or `BYPARR_URL` is configured, an uncached URL is validated and checked by the HEAD size preflight before `mcp-searxng` attempts browser-session acquisition. With both set, FlareSolverr is attempted first and Byparr is attempted only after a busy slot, network/timeout failure, HTTP 408/429/5xx, or malformed/oversized response. Persistent provider 4xx, cancellation, solution-host validation failure, and solved non-2xx target status stop the chain. If every configured provider is busy or unavailable, one uncached direct fetch runs. Each attempted provider receives the original target URL; challenge success is not guaranteed.
-  - At default limits, dual-provider stage budgets total 143 seconds before PDF parsing: a 3-second initial HEAD preflight, two 65-second solver attempts (including response grace), and a 10-second final fetch. PDF parsing can add 30 seconds. These are cancellation budgets, not a precise wall-clock guarantee; see [URL Reader Controls](CONFIGURATION.md#url-reader-controls).
-  - Inputs:
-    - `url` (string): The URL to fetch and process
-    - `startChar` (number, optional): Starting character position for content extraction (default: 0)
-    - `maxLength` (number, optional): Maximum number of characters to return
-    - `section` (string, optional): Extract content under a specific heading (searches for heading text)
-    - `paragraphRange` (string, optional): Return specific paragraph ranges (e.g., '1-5', '3', '10-')
-    - `readHeadings` (boolean, optional): Return only a list of headings instead of full content
+The [tool guide](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/tools.md) contains examples and the full parameter
+reference. The optional [research workflow](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/research-workflow.md)
+explains how to inspect sources and cite evidence.
 
 ## Installation
 
-Node.js 22 or later is required.
+For NPX and npm installs, Node.js 22 or later is required. The Docker image
+includes its Node.js runtime.
 
 <details>
 <summary>NPM (global install)</summary>
@@ -215,7 +163,7 @@ npm install -g mcp-searxng
 docker pull isokoliuk/mcp-searxng:latest
 ```
 
-Image signatures can be verified with Cosign — see [SECURITY.md](SECURITY.md) for instructions.
+Image signatures can be verified with Cosign — see [SECURITY.md](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/SECURITY.md) for instructions.
 
 ```json
 {
@@ -239,7 +187,7 @@ To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `en
 For browser-solver integration, pass `FLARESOLVERR_URL`, `BYPARR_URL`, or both
 and make the configured services reachable from this container. Dual mode has
 a fixed FlareSolverr-first order and no automatic reverse failover. See
-[URL Reader Controls](CONFIGURATION.md#url-reader-controls) for the complete
+[URL Reader Controls](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md#url-reader-controls) for the complete
 behavior and Docker Compose example.
 
 **Build locally:**
@@ -301,138 +249,64 @@ services:
       - MCP_HTTP_HOST=0.0.0.0
 ```
 
-Here `0.0.0.0` is the container-side bind address; the host-side port remains loopback-only. This override has no authentication and is only a temporary single-host migration path. Before adding co-located containers or exposing the service beyond the local machine, follow the hardened [deployment guidance](SECURITY.md#deployment-recommendations).
+Here `0.0.0.0` is the container-side bind address; the host-side port remains loopback-only. This override has no authentication and is only a temporary single-host migration path. Before adding co-located containers or exposing the service beyond the local machine, follow the hardened [deployment guidance](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/SECURITY.md#deployment-recommendations).
 
 </details>
 
-<details>
-<summary>HTTP Transport</summary>
+### HTTP Transport
 
-By default the server uses STDIO, launched by your MCP client. To use HTTP instead, run `mcp-searxng` as a **standalone process** with `MCP_HTTP_PORT` set. In this mode it serves the MCP protocol over HTTP and does not speak STDIO, so your client connects to it by URL rather than spawning it.
+Run HTTP independently, then connect the client. See the
+[HTTP server guide](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/http-server.md) for local checks, static bearer
+authentication, OAuth requirements and deployment verification.
 
-**Start the server:**
-
-```bash
-MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
-```
-
-Or with Docker (bind to all interfaces so the port is reachable from the host):
-
-```bash
-docker run --rm -p 3000:3000 \
-  --add-host=host.docker.internal:host-gateway \
-  -e MCP_HTTP_PORT=3000 -e MCP_HTTP_HOST=0.0.0.0 \
-  -e SEARXNG_URL=http://host.docker.internal:8080 \
-  isokoliuk/mcp-searxng:latest
-```
-
-The `--add-host` mapping lets the container reach a SearXNG instance on the host via `host.docker.internal`; it resolves automatically on Docker Desktop but needs this flag on native Linux. Point `SEARXNG_URL` at your actual instance if it runs elsewhere.
-
-**Connect an HTTP-capable MCP client** to the `/mcp` endpoint by URL:
-
-```json
-{
-  "mcpServers": {
-    "searxng-http": {
-      "type": "streamable-http",
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
-**Protocol support:** HTTP and STDIO serve modern MCP `2026-07-28` and the retained legacy revisions `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`. Modern HTTP is sessionless `POST /mcp`; legacy HTTP remains stateful by default (`POST/GET/DELETE /mcp`) or uses the existing POST-only stateless mode.
-
-**Endpoints:** modern `POST /mcp`; legacy `POST/GET/DELETE /mcp` in the stateful default, or legacy `POST /mcp` only with stateless mode; `GET /health`.
-
-For legacy HTTP clients, stateful sessions remain the default. Set `MCP_HTTP_STATELESS=true` when a deployment cannot preserve in-memory legacy sessions between requests. Modern HTTP remains sessionless regardless of that setting. Every stateless POST creates a fresh MCP server and transport, ignores any incoming session ID, and returns negotiated JSON or an SSE stream within that same POST. Stateless mode is POST-only: `GET /mcp` and `DELETE /mcp` return HTTP 405 with `Allow: POST`, and no cross-request subscriptions, resumability, or server-to-client notifications are preserved.
-
-Stateless requests are bounded by global and per-client-IP in-flight limits plus a request lifetime. See [CONFIGURATION.md](CONFIGURATION.md#http-transport) for defaults, overload and timeout responses, proxy-aware fairness, and the complete compatibility contract.
-
-**Origin validation and upgrade notice:** Every present `Origin` on `/mcp` is validated in all modes; an absent `Origin` remains valid for non-browser clients. In non-hardened mode, an unset `MCP_HTTP_ALLOWED_ORIGINS` defaults to the exact HTTP/HTTPS loopback origins `http://127.0.0.1`, `https://127.0.0.1`, `http://localhost`, `https://localhost`, `http://[::1]`, and `https://[::1]`, both portless and with the configured `MCP_HTTP_PORT`. A non-empty `MCP_HTTP_ALLOWED_ORIGINS` replaces those defaults. Entries are trimmed but otherwise literal; matching is exact, case-sensitive literal matching, including scheme and port. Malformed, scheme-less, path-bearing, trailing slash, or differently-cased values silently do not match and must be corrected. Hardened mode still requires an explicit allowlist and adds authentication plus Host enforcement. An invalid present `Origin` on `/mcp` receives a fixed, non-reflecting 403 before parser, authentication, rate limiting, or transport construction. `/health` is outside the MCP 403 boundary but uses the narrowed global CORS allowlist. Before upgrading, existing non-hardened browser deployments using non-loopback Origins must set `MCP_HTTP_ALLOWED_ORIGINS` or receive a fixed 403.
-
-**Test it:**
-
-```bash
-curl http://localhost:3000/health
-```
-
-`/health` checks HTTP reachability only; it does not contact SearXNG or run a tool. Verify discovery and a search with the [client checklist](docs/client-configurations.md#verify-the-connection).
-
-The server binds to `127.0.0.1` by default; set `MCP_HTTP_HOST=0.0.0.0` for remote or containerized deployments. Before exposing it on a network, enable hardened mode (`MCP_HTTP_HARDEN`) and see [CONFIGURATION.md](CONFIGURATION.md) for `MCP_HTTP_TRUST_PROXY` so rate limiting and logs use the correct client IP.
-
-</details>
-
-### Optional MCP OAuth
-
-HTTP deployments can opt into an OAuth protected resource backed by an external
-authorization server. It provides discovery and validates signed access tokens,
-audience, expiry and scopes for modern and retained legacy HTTP requests.
-See [OAuth configuration](CONFIGURATION.md#optional-oauth-protected-resource)
-for the provider requirements. The existing static bearer gate remains available
-as a non-OAuth deployment control; default and STDIO behavior are unchanged.
 
 ## Configuration
 
-`SEARXNG_URL` is the only required variable — set it to your SearXNG instance URL (or a semicolon-separated list of interchangeable replicas). Everything else is optional.
+For the default local setup, `SEARXNG_URL` is the required setting. Optional
+modes such as hardened HTTP and OAuth have companion requirements. Use the
+[configuration reference](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md) for environment variables,
+defaults, caching, timeouts, proxies, TLS, and limits.
 
-Use `SEARXNG_DEFAULT_RESPONSE_FORMAT` to select `text` or `json` when search calls omit `response_format`; explicit per-call values still win.
+### Optional MCP OAuth
 
-See **[CONFIGURATION.md](CONFIGURATION.md)** for the full environment variable reference, including authentication, failover/fan-out, caching, timeouts, proxies, TLS, HTTP transport, and hardening.
+An HTTP deployment can use OAuth with an external authorization provider.
+See [authentication choices](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/http-server.md#choose-authentication).
+Static bearer authentication and SearXNG Basic Auth protect different connections.
 
 ## Troubleshooting
 
-For self-hosted SearXNG configuration, direct verification, and troubleshooting,
-see [Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
-If you do not control the instance, use the separate
-[public SearXNG instance guide](docs/public-searxng-instances.md) instead.
-
-If HTTPS requests fail behind a TLS-inspecting corporate proxy with certificate errors, see [TLS / Corporate CA](CONFIGURATION.md#tls--corporate-ca).
+| Symptom | Next check |
+|---|---|
+| Server absent or disconnected | [Client/process startup](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md#client-and-process) |
+| HTTP auth, session or proxy error | [HTTP connection](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md#http-connection) |
+| Tools appear but search fails | [SearXNG connection](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md#search-and-searxng) |
+| Empty, poor or stale results | [Filters, upstream metadata and cache](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md#result-quality-and-cache) |
+| URL/PDF failure or timeout | [URL reading](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md#url-reading) |
 
 ### 403 Forbidden from SearXNG
 
-Your SearXNG instance likely has JSON format disabled. Edit `settings.yml` (usually `/etc/searxng/settings.yml`):
-
-```yaml
-search:
-  formats:
-    - html
-    - json
-```
-
-Restart SearXNG (`docker restart searxng`) then verify:
-
-```bash
-curl 'http://localhost:8080/search?q=test&format=json'
-```
-
-You should receive a JSON response. If not, confirm the file is correctly mounted and YAML indentation is valid.
-
-See also: [SearXNG settings docs](https://docs.searxng.org/admin/settings/settings.html) · [discussion](https://github.com/searxng/searxng/discussions/1789)
+JSON output may be disabled, or an access-control layer may have denied the
+request. Follow the [direct checks](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/self-hosted-searxng.md#verify-searxng-directly)
+before changing settings. A working browser page does not prove the JSON API works.
 
 ### Can't enable JSON? (HTML fallback)
 
-If you must use a public instance you don't control and it rejects `format=json` (the 403 above), set the opt-in flag instead of editing the server:
+`SEARXNG_HTML_FALLBACK=true` can retry 403/404/non-JSON search responses as HTML.
+Parsing is best-effort and metadata is limited; compact output omits fallback
+markers. Read the [public-instance guidance](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/public-searxng-instances.md#json-rejection-and-html-fallback)
+before enabling it on a service you do not control.
 
-Before enabling it, review the public operator's policy and the
-[public-instance usage guide](docs/public-searxng-instances.md).
+For a bug report, [collect a minimal reproduction and relevant errors](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md#collect-useful-evidence).
 
-```json
-{
-  "SEARXNG_HTML_FALLBACK": "true"
-}
-```
+## Documentation
 
-A search that gets a `403`/`404` or a non-JSON response is then retried automatically **without** `format=json` and parsed from the regular HTML results page.
-
-- **On success:** you get normal results (title, URL, snippet). With `result_detail="full"`, JSON includes `sourceFormat: "html"` and text adds the line *"Note: Results parsed from SearXNG HTML fallback; metadata is limited."* Compact output omits these fallback markers. Relevance scores and engine names are not available from HTML.
-- **On failure:** parsing is best-effort and varies by the instance's theme/version, so some results may be missed or sparse. If the HTML page itself also fails — still blocked, rate-limited (`429`), auth (`401`), or `5xx` — the **fallback attempt's error is surfaced**, rather than converting that HTTP failure into an empty result. A successful response can still contain no parsed results; compare the upstream response when diagnosing empty output. The fallback only triggers on `403`/`404`/non-JSON, never on auth or network errors.
-
-Enabling JSON on an instance you control (above) remains the recommended setup — the fallback is a compatibility aid, not a replacement.
+[Find a guide by task](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/index.md). These links open current main-branch
+documentation. Unreleased behavior is labeled; consult the matching Git tag
+when investigating an older version.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md)
+See [CONTRIBUTING.md](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONTRIBUTING.md).
 
 ## License
 

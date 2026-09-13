@@ -502,40 +502,12 @@ This client starts the server. Keep optional settings limited to what you need.
 
 ### Independent HTTP service
 
-Run this in the operator's POSIX shell, separately from the MCP client. Set
-`SEARXNG_URL` and `MCP_HTTP_AUTH_TOKEN` in that environment first. In static
-mode, `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN` and an explicit
-`MCP_HTTP_ALLOWED_ORIGINS` must be configured together.
-
-```bash
-docker run --rm -p 127.0.0.1:3000:3000 \
-  -e SEARXNG_URL \
-  -e MCP_HTTP_PORT=3000 \
-  -e MCP_HTTP_HOST=0.0.0.0 \
-  -e MCP_HTTP_HARDEN=true \
-  -e MCP_HTTP_AUTH_TOKEN \
-  -e MCP_HTTP_ALLOWED_ORIGINS=https://client.example.com \
-  -e MCP_HTTP_ALLOWED_HOSTS=mcp.example.com \
-  isokoliuk/mcp-searxng:latest
-```
-
-This publishes the port on host loopback for a reverse proxy on that host.
-Provide HTTPS at that proxy and forward the configured Host. Replace origins
-and hosts with your deployment's values. A containerized proxy needs a shared
-container network instead of assuming its localhost is the Docker host.
-Configure `MCP_HTTP_TRUST_PROXY` only for the actual trusted proxy boundary;
-otherwise clients can spoof `X-Forwarded-For` and influence IP-based limits.
-Leaving proxy trust unset behind a proxy means requests can share the proxy's
-per-IP quota and capacity, and forwarded-header validation can emit warnings.
-For exactly one trusted proxy hop with no alternate ingress path, set
-`MCP_HTTP_TRUST_PROXY=1`; for other topologies, configure trusted proxy subnets
-or the actual hop count before connecting multiple clients.
-Connect the client to the proxy's full `/mcp` URL using a
-[remote client recipe](docs/client-configurations.md).
-
-For OAuth, use the provider settings below instead of the static token. The
-SearXNG Basic Auth settings in [Authentication](#authentication) authenticate
-outbound search requests; they do not authenticate MCP clients.
+Start the service separately and connect the client to its full `/mcp` URL.
+Use the [HTTP server guide](docs/http-server.md) for a complete static bearer
+example, network assumptions and verification. In static mode,
+`MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN` and an explicit
+`MCP_HTTP_ALLOWED_ORIGINS` must be configured together. Configure trusted proxy
+hops deliberately; otherwise clients can spoof `X-Forwarded-For`.
 
 ## Optional OAuth protected resource
 
