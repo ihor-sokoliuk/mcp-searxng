@@ -41,6 +41,17 @@ resource. Claude Desktop and Cursor remote recipes remain untested here.
 Cursor also documents custom bearer headers; the absence of a recipe is not a
 claim that those clients cannot connect remotely.
 
+## Choose your client
+
+[Claude Desktop](#claude-desktop) · [Claude Code](#claude-code) ·
+[Codex CLI](#codex-cli) · [Cursor](#cursor) · [VS Code](#vs-code) ·
+[Windsurf](#windsurf) · [Cline](#cline) · [OpenCode](#opencode)
+
+Each recipe gives a configuration location and example. After configuring it,
+use the [client-specific check](#find-client-errors), then
+[verify a useful call](#verify-the-connection). For an existing setup that is
+failing, start with [troubleshooting](troubleshooting.md).
+
 ## Values used below
 
 Replace these placeholders:
@@ -362,44 +373,31 @@ Run `opencode mcp list` for the V2 CLI. See the
 
 ## Start an HTTP server first
 
-HTTP client entries do not start `mcp-searxng`. Deploy it separately and use
-TLS before connecting across a network. A Docker example is:
+HTTP client entries do not start the service. The operator should follow
+[HTTP server setup](http-server.md), including TLS and the chosen auth mode,
+before sharing the full endpoint URL. In static mode, the client's
+`MCP_SEARXNG_TOKEN` must match the server's `MCP_HTTP_AUTH_TOKEN`.
+The server's `MCP_HTTP_ALLOWED_ORIGINS`, `MCP_HTTP_ALLOWED_HOSTS` and
+trusted proxy settings depend on its deployment, not this client's environment.
 
-```bash
-docker run --rm -p 3000:3000 \
-  -e MCP_HTTP_PORT=3000 \
-  -e MCP_HTTP_HOST=0.0.0.0 \
-  -e MCP_HTTP_HARDEN=true \
-  -e MCP_HTTP_AUTH_TOKEN \
-  -e MCP_HTTP_ALLOWED_ORIGINS=https://client.example.com \
-  -e MCP_HTTP_ALLOWED_HOSTS=mcp.example.com \
-  -e SEARXNG_URL \
-  isokoliuk/mcp-searxng:latest
-```
-
-Set `MCP_HTTP_AUTH_TOKEN` and `SEARXNG_URL` in the operator environment before
-starting the container. In each client environment, set `MCP_SEARXNG_TOKEN` to
-the same value as `MCP_HTTP_AUTH_TOKEN`. Replace
-`https://client.example.com` with any browser client origin you intentionally
-allow and `mcp.example.com` with the exact `Host` header forwarded by the
-reverse proxy. Native clients that omit `Origin` are not granted browser CORS
-access by this list. For reverse proxies, allowed hosts, origins, and rate-limit
-behavior, follow
-[Hardened HTTP Mode](../CONFIGURATION.md#hardened-http-mode) and the
-[security deployment recommendations](../SECURITY.md#deployment-recommendations).
+For OAuth, follow the client/provider login flow instead of copying a static
+token. See [OAuth requirements](../CONFIGURATION.md#optional-oauth-protected-resource).
+The static-header recipes above are intentionally separate from OAuth login.
 
 ## Verify the connection
 
 After saving the client configuration:
 
 1. Restart or reload the MCP server in the client.
-2. Confirm exactly these four tools are visible:
+2. Inspect the server inventory for these four tools; clients may prefix, group,
+   defer or hide them from the model:
    - `searxng_web_search`
    - `searxng_search_suggestions`
    - `searxng_instance_info`
    - `web_url_read`
-3. Call `searxng_instance_info` to confirm the selected SearXNG endpoint is
-   reachable.
+3. If capabilities matter, call `searxng_instance_info`. Use `refresh=true`
+   when you need a fresh capability check. An unavailable `/config` does not
+   necessarily mean search is unavailable.
 4. Call `searxng_web_search` with `{"query":"SearXNG"}`.
 
 If the server does not appear, inspect the client's MCP log first. For STDIO,
@@ -409,3 +407,34 @@ must match `MCP_HTTP_AUTH_TOKEN`; in OAuth mode, check discovery and your
 authorization provider instead. Tool discovery does not contact SearXNG. A
 capability response can be cached and does not prove that search works; use the
 search call to check the search path.
+
+## Find client errors
+
+These entry points were checked against the linked primary documentation on
+2026-09-13. They identify where to begin; they are not claims that every
+version exposes all MCP log levels. After reconnecting, expect a connected
+server/inventory, then verify an actual search.
+
+| Client | Reload/check and inspect errors |
+|---|---|
+| Claude Desktop | Restart after changing the local configuration. Use Settings → Developer and the server's status/log controls; see [local MCP troubleshooting](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop). |
+| Claude Code | Use `claude mcp get searxng`, then `/mcp` and the server menu to inspect status or reconnect. A cached discovery entry may connect only on first use; see [server status](https://code.claude.com/docs/en/mcp#server-status-detail). |
+| Codex CLI | Run `codex mcp list` and `codex mcp get searxng`; inspect the client's startup/tool failure output. Configuration listing alone does not prove connectivity. See the [Codex MCP reference](https://developers.openai.com/codex/mcp). |
+| Cursor | Reload/toggle the server in Customize; open Output and select MCP Logs. See [Cursor debugging](https://cursor.com/docs/mcp#faq). |
+| VS Code | Run MCP: List Servers, select the server, and use restart or show output. See the [command reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration). |
+| Windsurf | Reload the server in Cascade's MCP settings and inspect its displayed connection/tool errors; see [MCP configuration](https://docs.devin.ai/desktop/cascade/mcp). This guide does not assume a stable per-call log-file path. |
+| Cline | Inspect the server in MCP Servers; the CLI's `cline mcp` wizard manages entries and `cline config mcp --json` shows configuration. See [Cline MCP](https://docs.cline.bot/mcp/mcp-overview). |
+| OpenCode | Use `opencode mcp list` and `/mcps` to inspect, reconnect or authenticate. Check the tool failure in the session; see [OpenCode management](https://opencode.ai/v2/docs/mcp-servers#management). |
+
+Replace `searxng` with the configured entry name. Use the
+[evidence checklist](troubleshooting.md#collect-useful-evidence) before reporting
+a problem. It distinguishes process diagnostics from MCP call events.
+
+### Hermes diagnostic note
+
+For an existing Hermes entry, run `hermes mcp test searxng` and inspect
+`~/.hermes/logs/mcp-stderr.log` and `~/.hermes/logs/errors.log`.
+These checks were used in [issue #74](https://github.com/ihor-sokoliuk/mcp-searxng/issues/74);
+this is diagnostic guidance from that report, not an additional end-to-end
+compatibility claim. For HTTP failures, check the full `/mcp` endpoint,
+server bind address and [container networking](troubleshooting.md#container-networking).

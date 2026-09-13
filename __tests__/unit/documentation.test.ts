@@ -7,7 +7,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   MAX_CONCURRENT_PDF_WORKERS,
@@ -37,6 +37,13 @@ import { createTestResults, printTestSummary, TestResult, testFunction } from '.
 
 const results = createTestResults();
 const guideUrl = new URL('../../docs/client-configurations.md', import.meta.url);
+
+// User contracts remain discoverable after moving detail out of the README.
+function readUsageDocumentation(): string {
+  return ['README.md', 'docs/tools.md', 'docs/http-server.md'].map(file =>
+    readText(new URL('../../' + file, import.meta.url))).join('\n');
+}
+
 const researchGuideUrl = new URL('../../docs/research-workflow.md', import.meta.url);
 const deploymentGuideUrl = new URL('../../docs/deployment-profiles.md', import.meta.url);
 const baseComposeUrl = new URL('../../docker-compose.yml', import.meta.url);
@@ -378,7 +385,7 @@ export async function runTests(): Promise<TestResult> {
   console.log('Testing: public documentation guides\n');
 
   await testFunction('README documents bounded PDF text extraction and its limits', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const maxPdfMiB = MAX_PDF_BYTES / (1024 * 1024);
     const parseTimeoutSeconds = PDF_PARSE_TIMEOUT_MS / 1000;
     assert.equal(MAX_CONCURRENT_PDF_WORKERS, 2);
@@ -396,11 +403,11 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('public solver documentation states the verified provider boundary', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const security = readText(new URL('../../SECURITY.md', import.meta.url));
 
-    for (const document of [readme, configuration, security]) {
+    for (const document of [configuration, security]) {
       assert.ok(document.includes('FlareSolverr 3.5.0'));
       assert.ok(document.includes('Byparr 2.1.0'));
       assert.ok(document.includes('2026-07-30'));
@@ -415,7 +422,7 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(document.includes('HTTP client'));
       assert.ok(document.includes('disconnects'));
     }
-    for (const document of [readme, configuration]) {
+    for (const document of [configuration]) {
       const normalized = document.replace(/\s+/gu, ' ');
       assert.ok(normalized.includes('FlareSolverr is always primary'));
       assert.ok(normalized.includes('143 seconds'));
@@ -425,7 +432,7 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(normalizedSecurity.includes('FlareSolverr as the fixed primary'));
     assert.ok(normalizedSecurity.includes('143 seconds'));
     assert.ok(normalizedSecurity.includes('unavailable'));
-    assert.ok(readme.includes('no automatic reverse failover'));
+    assert.ok(readme.includes('browser-solver-verification.md'));
     assert.ok(configuration.includes('automatic reverse failover is not performed'));
     assert.ok(security.includes('does not retain a health score'));
     for (const contract of [
@@ -469,7 +476,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('README, client guide, and CI state the declared Node support policy', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const minimumNode = minimumNodeMajor();
     const ci = readText(workflowUrls.ci);
     assertReadmeNodePolicy(readme, minimumNode);
@@ -493,13 +500,13 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('cookbook exists and README links to it', () => {
     const guide = readText(guideUrl);
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     assert.ok(guide.startsWith('# MCP Client Configuration Cookbook'));
-    assert.ok(readme.includes('(docs/client-configurations.md)'));
+    assert.ok(readme.includes('/docs/client-configurations.md)'));
   }, results);
 
   await testFunction('recipe coverage identifies included and omitted client combinations', () => {
-    const guide = readText(guideUrl);
+    const guide = readText(guideUrl).split('## Recipe coverage')[1].split('## Choose your client')[0];
     for (const row of expectedMatrixRows) {
       assert.ok(guide.includes(row), `missing matrix row: ${row}`);
     }
@@ -576,9 +583,9 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('research workflow exists and README links to it', () => {
     const guide = readText(researchGuideUrl);
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     assert.ok(guide.startsWith('# Evidence-Focused Research Workflow'));
-    assert.ok(readme.includes('(docs/research-workflow.md)'));
+    assert.ok(readme.includes('/docs/research-workflow.md)'));
   }, results);
 
   await testFunction('research workflow uses current full schemas and describes Lite Tools limits', () => {
@@ -606,7 +613,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('documentation explains compact result detail and the full-mode migration boundary', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const changelog = readText(new URL('../../CHANGELOG.md', import.meta.url));
     const guide = readText(researchGuideUrl);
@@ -653,11 +660,11 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('deployment profiles exist and public navigation links to them', () => {
     const guide = readText(deploymentGuideUrl);
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const compose = readText(new URL('../../docker-compose.yml', import.meta.url));
     assert.ok(guide.startsWith('# Measured MCP Deployment Profiles'));
-    assert.ok(readme.includes('(docs/deployment-profiles.md)'));
+    assert.ok(readme.includes('/docs/deployment-profiles.md)'));
     assert.ok(configuration.includes('(docs/deployment-profiles.md)'));
     assert.ok(compose.includes('docs/deployment-profiles.md'));
   }, results);
@@ -754,7 +761,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('public docs define the configurable search response default and precedence', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const precedence = 'If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence.';
 
@@ -776,7 +783,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('public docs define the optional stateless HTTP contract and fixed defaults', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const security = readText(new URL('../../SECURITY.md', import.meta.url));
 
@@ -789,7 +796,7 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(document.includes('`MCP_HTTP_STATELESS=true`'));
     }
     assert.ok(readme.includes('Stateless mode is POST-only'));
-    assert.ok(readme.includes('Every stateless POST creates a fresh MCP server and transport'));
+    assert.ok(readme.replace(/\s+/gu, ' ').includes('Every stateless POST creates a fresh MCP server and transport'));
 
     for (const variable of [
       'MCP_HTTP_STATELESS',
@@ -814,7 +821,7 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('public documentation states current security, privacy, and configuration contracts', () => {
-    const readme = readText(new URL('../../README.md', import.meta.url));
+    const readme = readUsageDocumentation();
     const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
     const security = readText(new URL('../../SECURITY.md', import.meta.url));
     const normalizedSecurity = security.replace(/\s+/gu, ' ');
@@ -863,6 +870,37 @@ export async function runTests(): Promise<TestResult> {
       'deployment-profiles.md',
     ]) {
       assert.ok(index.includes(guide), `documentation index must link ${guide}`);
+    }
+  }, results);
+
+  await testFunction('documentation navigation resolves files and section anchors', () => {
+    const files = ['README.md', 'CONFIGURATION.md', 'CONTRIBUTING.md', 'SECURITY.md',
+      'docs/index.md', 'docs/tools.md', 'docs/http-server.md', 'docs/troubleshooting.md',
+      'docs/client-configurations.md', 'docs/public-searxng-instances.md',
+      'docs/self-hosted-searxng.md', 'docs/research-workflow.md', 'docs/deployment-profiles.md',
+      'docs/browser-solver-verification.md'];
+    const publicPrefix = 'https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/';
+    for (const file of files) {
+      const source = new URL('../../' + file, import.meta.url);
+      const document = readText(source);
+      for (const match of document.matchAll(/\]\(([^\s)]+)\)/gu)) {
+        const link = match[1];
+        if (/^[a-z]+:/iu.test(link) && !link.startsWith(publicPrefix)) continue;
+        const target = link.startsWith(publicPrefix)
+          ? new URL('../../' + link.slice(publicPrefix.length), import.meta.url)
+          : new URL(link, source);
+        const fragment = decodeURIComponent(target.hash.slice(1));
+        target.hash = '';
+        // Repository-owned documentation links; no user-supplied filesystem paths.
+        // eslint-disable-next-line security/detect-non-literal-fs-filename
+        assert.ok(existsSync(target), file + ': missing target ' + link);
+        if (!fragment || !target.pathname.endsWith('.md')) continue;
+        const body = readText(target);
+        const headings = [...body.matchAll(/^#{1,6}\s+(.+)$/gmu)].map(heading =>
+          heading[1].trim().toLowerCase().replace(/[^\p{L}\p{N}_\-\s]/gu, '').replace(/\s/gu, '-'));
+        const explicitIds = [...body.matchAll(/<a id="([^"]+)"/gu)].map(anchor => anchor[1]);
+        assert.ok([...headings, ...explicitIds].includes(fragment), file + ': missing anchor ' + link);
+      }
     }
   }, results);
 

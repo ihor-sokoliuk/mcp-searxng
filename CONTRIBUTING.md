@@ -50,3 +50,22 @@ git commit -m "feat: description"
 git push origin feature/your-feature-name
 # Open a PR on GitHub
 ```
+
+## Documentation changes
+
+Write for a reader completing a task. Keep configuration defaults in
+[CONFIGURATION.md](CONFIGURATION.md), tool arguments in [the tool guide](docs/tools.md),
+client setup in [the cookbook](docs/client-configurations.md), and failure
+diagnosis in [troubleshooting](docs/troubleshooting.md). Update affected
+built-in help when behavior changes; link to detail instead of copying it.
+
+Check examples, local links and existing anchors when moving content. Record
+whether client guidance was checked against its official schema or actually
+exercised, with the date and known versions. Do not describe unreleased
+behavior as available to installed-package users. Preserve dated historical
+verification results with their limitations.
+
+In each PR, state what is included and intentionally out of scope. Record
+validation as example/area, check, environment/version and result or limitation.
+Use focused documentation tests for prose changes; include build/resource or
+handler checks when embedded help or a behavior claim needs verification.

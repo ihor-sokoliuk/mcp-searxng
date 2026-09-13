@@ -1,26 +1,35 @@
-# mcp-searxng Documentation
+# mcp-searxng documentation
 
-## User Guides
+Choose the task you want to complete. Start with the [README](../README.md) if
+you are connecting mcp-searxng for the first time.
 
-- **[README](../README.md)** — Quick start, features, installation, tool reference, and troubleshooting
-- **[CONFIGURATION](../CONFIGURATION.md)** — Every environment variable with defaults and examples
-- **[Operating Self-Hosted SearXNG](self-hosted-searxng.md)** — SearXNG operation and MCP integration
-- **[Using a Public SearXNG Instance](public-searxng-instances.md)** — Trust, evaluation, and conservative-use guidance
-- **[MCP Client Configuration Cookbook](client-configurations.md)** — Documented local and remote recipes for eight MCP clients
-- **[Evidence-Focused Research Workflow](research-workflow.md)** — Bounded search, source inspection, cross-checking, and citation guidance
-- **[Measured MCP Deployment Profiles](deployment-profiles.md)** — Point-in-time MCP-process measurements and resource starting ranges
-- **[SECURITY](../SECURITY.md)** — Threat model, SSRF protection, HTTP hardening, and vulnerability reporting
+| I want to… | Guide |
+|---|---|
+| Connect my MCP client | [Client recipes](client-configurations.md) |
+| Search and read a source | [Tools and examples](tools.md) |
+| Diagnose a failure | [Troubleshooting](troubleshooting.md) |
+| Run a shared HTTP service | [HTTP server setup](http-server.md) |
+| Configure my SearXNG service | [Self-hosted SearXNG](self-hosted-searxng.md) |
+| Use someone else's SearXNG instance | [Public-instance guidance](public-searxng-instances.md) |
+| Look up a setting or default | [Configuration reference](../CONFIGURATION.md) |
+| Understand security boundaries | [Security](../SECURITY.md) |
+| Research and cite evidence | [Research workflow](research-workflow.md) |
+| Assess resource needs | [Historical deployment measurements](deployment-profiles.md) |
+| Check previously exercised solver versions | [Browser solver verification](browser-solver-verification.md) |
 
-## Topics
+## Installation
 
-### Installation
-See [README § Installation](../README.md#installation) for NPM, Docker, Docker Compose, and HTTP transport setup.
+Choose [local installation](../README.md#installation) or [HTTP setup](http-server.md).
 
-### Configuration
-See [CONFIGURATION.md](../CONFIGURATION.md) for the full list of supported environment variables — the single source of truth for defaults and behavior.
+## Configuration
 
-### Tools
-See [README § Tools](../README.md#tools) for the full reference on `searxng_web_search`, `searxng_search_suggestions`, `searxng_instance_info`, and `web_url_read`.
+[CONFIGURATION.md](../CONFIGURATION.md) owns environment-variable defaults and
+limits. Guides link to that reference instead of defining competing defaults.
 
-### Security
-See [SECURITY.md](../SECURITY.md) for the threat model, SSRF/hardening guidance, and the vulnerability reporting policy.
+## Tools
+
+[Tool reference](tools.md) and [troubleshooting](troubleshooting.md).
+
+## Security
+
+[Security policy and deployment guidance](../SECURITY.md).

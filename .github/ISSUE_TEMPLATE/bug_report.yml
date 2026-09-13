@@ -5,7 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please provide enough detail to reproduce the issue. The more context you share, the faster it can be addressed.
+        Start with the [troubleshooting guide](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md).
+        Its evidence checklist explains how to collect a minimal reproduction and relevant errors. Remove secrets and sensitive search content before posting.
 
   - type: textarea
     id: description

@@ -238,6 +238,8 @@ Args: {"includeEngines": true}
 
 Inspect the client's MCP events and process diagnostics. Per-call logs depend on client and protocol support; stderr or container logs may not include them all. There is no server LOG_LEVEL environment setting. Compact search output omits cache and fallback markers; use full output when investigating those signals.
 
+See the [tool reference](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/tools.md) and [troubleshooting guide](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/troubleshooting.md). These links open current documentation; use the matching Git tag for an older package.
+
 ## Current Configuration
 See the "Current Configuration" resource for live settings.
 `;
