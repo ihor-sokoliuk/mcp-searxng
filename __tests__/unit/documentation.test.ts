@@ -44,7 +44,7 @@ function readUsageDocumentation(): string {
     readText(new URL('../../' + file, import.meta.url))).join('\n');
 }
 
-function markdownAnchors(document: string): string[] {
+function markdownOutsideFences(document: string): string {
   let fence: { marker: string; length: number } | undefined;
   const visibleLines: string[] = [];
   for (const line of document.split(/\r?\n/u)) {
@@ -60,17 +60,25 @@ function markdownAnchors(document: string): string[] {
     }
     visibleLines.push(line);
   }
-  const visible = visibleLines.join('\n');
+  return visibleLines.join('\n');
+}
+
+function markdownAnchors(document: string): string[] {
+  const visible = markdownOutsideFences(document);
   const headings = new Set<string>();
-  for (const heading of visible.matchAll(/^#{1,6}\s+(.+)$/gmu)) {
-    const base = heading[1].replace(/\s+#+\s*$/u, '').trim().toLowerCase()
+  // Constructors keep special regex characters unambiguous to the metrics parser.
+  const headingPattern = new RegExp('^#{1,6}[ \t]+(.+)$', 'gmu');
+  const closingHeadingPattern = new RegExp('[ \t]+#+[ \t]*$', 'u');
+  const anchorPattern = new RegExp('<a id="([^"]+)"', 'gu');
+  for (const heading of visible.matchAll(headingPattern)) {
+    const base = heading[1].replace(closingHeadingPattern, '').trim().toLowerCase()
       .replace(/[^\p{L}\p{N}_\-\s]/gu, '').replace(/\s/gu, '-');
     let slug = base;
     let suffix = 0;
     while (headings.has(slug)) slug = base + '-' + ++suffix;
     headings.add(slug);
   }
-  const explicitIds = [...visible.matchAll(/<a id="([^"]+)"/gu)].map(anchor => anchor[1]);
+  const explicitIds = [...visible.matchAll(anchorPattern)].map(anchor => anchor[1]);
   return [...headings, ...explicitIds];
 }
 
