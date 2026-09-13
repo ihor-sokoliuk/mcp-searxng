@@ -44,6 +44,36 @@ function readUsageDocumentation(): string {
     readText(new URL('../../' + file, import.meta.url))).join('\n');
 }
 
+function markdownAnchors(document: string): string[] {
+  let fence: { marker: string; length: number } | undefined;
+  const visibleLines: string[] = [];
+  for (const line of document.split(/\r?\n/u)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (fence) {
+      if (delimiter && delimiter[1][0] === fence.marker &&
+          delimiter[1].length >= fence.length && delimiter[2].trim() === '') fence = undefined;
+      continue;
+    }
+    if (delimiter) {
+      fence = { marker: delimiter[1][0], length: delimiter[1].length };
+      continue;
+    }
+    visibleLines.push(line);
+  }
+  const visible = visibleLines.join('\n');
+  const headings = new Set<string>();
+  for (const heading of visible.matchAll(/^#{1,6}\s+(.+)$/gmu)) {
+    const base = heading[1].replace(/\s+#+\s*$/u, '').trim().toLowerCase()
+      .replace(/[^\p{L}\p{N}_\-\s]/gu, '').replace(/\s/gu, '-');
+    let slug = base;
+    let suffix = 0;
+    while (headings.has(slug)) slug = base + '-' + ++suffix;
+    headings.add(slug);
+  }
+  const explicitIds = [...visible.matchAll(/<a id="([^"]+)"/gu)].map(anchor => anchor[1]);
+  return [...headings, ...explicitIds];
+}
+
 const researchGuideUrl = new URL('../../docs/research-workflow.md', import.meta.url);
 const deploymentGuideUrl = new URL('../../docs/deployment-profiles.md', import.meta.url);
 const baseComposeUrl = new URL('../../docker-compose.yml', import.meta.url);
@@ -873,6 +903,13 @@ export async function runTests(): Promise<TestResult> {
     }
   }, results);
 
+  await testFunction('navigation anchors ignore code fences and distinguish repeated headings', () => {
+    const fixture = ['# Setup', '```bash', '# Not a heading', '```',
+      '# Setup', '~~~', '# Also code', '~~~', '# Setup-1', '# Setup',
+      '<a id="old-setup"></a>'].join('\n');
+    assert.deepEqual(markdownAnchors(fixture), ['setup', 'setup-1', 'setup-1-1', 'setup-2', 'old-setup']);
+  }, results);
+
   await testFunction('documentation navigation resolves files and section anchors', () => {
     const files = ['README.md', 'CONFIGURATION.md', 'CONTRIBUTING.md', 'SECURITY.md',
       'docs/index.md', 'docs/tools.md', 'docs/http-server.md', 'docs/troubleshooting.md',
@@ -896,10 +933,7 @@ export async function runTests(): Promise<TestResult> {
         assert.ok(existsSync(target), file + ': missing target ' + link);
         if (!fragment || !target.pathname.endsWith('.md')) continue;
         const body = readText(target);
-        const headings = [...body.matchAll(/^#{1,6}\s+(.+)$/gmu)].map(heading =>
-          heading[1].trim().toLowerCase().replace(/[^\p{L}\p{N}_\-\s]/gu, '').replace(/\s/gu, '-'));
-        const explicitIds = [...body.matchAll(/<a id="([^"]+)"/gu)].map(anchor => anchor[1]);
-        assert.ok([...headings, ...explicitIds].includes(fragment), file + ': missing anchor ' + link);
+        assert.ok(markdownAnchors(body).includes(fragment), file + ': missing anchor ' + link);
       }
     }
   }, results);
