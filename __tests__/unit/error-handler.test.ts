@@ -16,6 +16,7 @@ import {
   createJSONError,
   createDataError,
   createNoResultsMessage,
+  createEngineFailureError,
   createURLFormatError,
   createContentError,
   createConversionError,
@@ -123,6 +124,66 @@ async function runTests() {
     const warning = createEmptyContentWarning('https://example.com');
     assert.ok(typeof warning === 'string');
     assert.ok(warning.includes('Content Warning'));
+  }, results);
+
+  await testFunction('createEngineFailureError names every failed engine and its reason', () => {
+    const error = createEngineFailureError('ada lovelace', [
+      ['startpage', 'Suspended: CAPTCHA'],
+      ['brave', 'too many requests'],
+    ]);
+
+    assert.ok(error instanceof MCPSearXNGError);
+    assert.ok(error.message.includes('SearXNG Engine Error'), error.message);
+    assert.ok(error.message.includes('"ada lovelace"'), error.message);
+    assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+    assert.ok(error.message.includes('brave (too many requests)'), error.message);
+    assert.ok(!error.message.includes('No results found'), error.message);
+  }, results);
+
+  await testFunction('createEngineFailureError normalizes malformed engine entries', () => {
+    const error = createEngineFailureError('malformed', [
+      ['yahoo', 'HTTP protocol\nerror'],
+      ['duckduckgo', ''],
+      [undefined as any, undefined as any],
+    ]);
+
+    assert.ok(
+      error.message.includes('yahoo (HTTP protocol error), duckduckgo, unknown engine'),
+      error.message,
+    );
+    assert.ok(!error.message.includes('\n'), error.message);
+  }, results);
+
+  await testFunction('createEngineFailureError survives entries that are not tuples', () => {
+    // unresponsive_engines is external data that is only cast to SearXNGWeb, so
+    // an entry may be anything. None of these may throw a raw TypeError.
+    const error = createEngineFailureError('untrusted', [
+      null,
+      ['yahoo'],
+      [],
+      42,
+      ['startpage', 'Suspended: CAPTCHA'],
+    ] as any);
+
+    assert.ok(error instanceof MCPSearXNGError);
+    assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+    assert.ok(error.message.includes('yahoo'), error.message);
+    assert.ok(error.message.includes('unknown engine'), error.message);
+  }, results);
+
+  await testFunction('createEngineFailureError reads a bare string entry as the engine name', () => {
+    // Indexing a string entry positionally would render "b (r)" instead.
+    const error = createEngineFailureError('bare string', ['brave'] as any);
+
+    assert.ok(error.message.includes('these engines failed: brave.'), error.message);
+    assert.ok(!error.message.includes('b (r)'), error.message);
+  }, results);
+
+  await testFunction('createEngineFailureError bounds an oversized failure reason', () => {
+    const error = createEngineFailureError('bounded', [['brave', 'x'.repeat(500)]]);
+
+    assert.ok(error.message.includes(`brave (${'x'.repeat(120)})`), 'reason should survive up to the cap');
+    assert.ok(!error.message.includes('x'.repeat(121)), 'reason should be truncated at the cap');
   }, results);
 
   await testFunction('createEmptyContentWarning includes the URL', () => {

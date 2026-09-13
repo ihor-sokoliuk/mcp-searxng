@@ -2387,6 +2387,579 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('zero results with failing engines raises instead of reporting no results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'captcha query',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [
+          ['startpage', 'Suspended: CAPTCHA'],
+          ['brave', 'too many requests'],
+        ],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'captcha query'),
+        (error: Error) => {
+          assert.ok(error.message.includes('SearXNG Engine Error'), error.message);
+          assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+          assert.ok(error.message.includes('brave (too many requests)'), error.message);
+          assert.ok(!error.message.includes('No results found'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('zero results with failing engines raises for the json response format too', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'json captcha query',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [['startpage', 'Suspended: CAPTCHA']],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'json captcha query', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json'),
+        /SearXNG Engine Error/,
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('zero results with no failing engines keeps the existing no-results message', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'genuinely empty',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'genuinely empty');
+    assert.ok(result.includes('No results found for "genuinely empty"'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('failing engines alongside returned rows still produce results', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'partial outage',
+        results: [
+          {
+            title: 'Partial Result',
+            content: 'One engine answered',
+            url: 'https://example.com/partial',
+            score: 0.9,
+          },
+        ],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'partial outage');
+    assert.ok(result.includes('Title: Partial Result'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('rows filtered away by min_score keep the no-results message even when engines failed', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'filtered query',
+        results: [
+          {
+            title: 'Low Score Result',
+            content: 'Below the requested threshold',
+            url: 'https://example.com/low',
+            score: 0.2,
+          },
+        ],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'filtered query', 1, undefined, undefined, undefined, 0.9);
+    assert.ok(result.includes('No results found for "filtered query"'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('malformed unresponsive_engines entries raise the bounded error, not a TypeError', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'untrusted entries',
+        results: [],
+        // Only cast to SearXNGWeb upstream, so any of these shapes can arrive.
+        unresponsive_engines: [null, 'brave', ['yahoo'], ['startpage', 'Suspended: CAPTCHA']],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'untrusted entries'),
+        (error: Error) => {
+          assert.equal(error.name, 'MCPSearXNGError', `raw ${error.name} escaped: ${error.message}`);
+          assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+          assert.ok(error.message.includes('brave'), error.message);
+          assert.ok(error.message.includes('yahoo'), error.message);
+          assert.ok(error.message.includes('unknown engine'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('a replica whose failures are all malformed still counts as failed', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'all malformed',
+        results: [],
+        unresponsive_engines: [null, [], 42],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'all malformed'),
+        (error: Error) => {
+          assert.equal(error.name, 'MCPSearXNGError', `raw ${error.name} escaped: ${error.message}`);
+          // The replica reported failures, so it is not a clean empty even
+          // though none of them could be identified; they collapse to one key.
+          assert.equal(
+            error.message.split('unknown engine').length - 1,
+            1,
+            `unidentifiable failures must collapse to one entry: ${error.message}`,
+          );
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('failover: a clean empty replica outranks an earlier replica whose engines failed', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.delete('SEARXNG_FANOUT');
+    envManager.set('SEARXNG_URL', 'https://failing.example.com;https://clean.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'failing.example.com') {
+        return createMockFetch({
+          json: { query: 'mixed empties', results: [], unresponsive_engines: [['startpage', 'Suspended: CAPTCHA']] },
+        })(url);
+      }
+      return createMockFetch({ json: { query: 'mixed empties', results: [], unresponsive_engines: [] } })(url);
+    });
+
+    // The failing replica is queried first and its payload is the one retained,
+    // but the clean replica proves the query genuinely matched nothing.
+    const result = await performWebSearch(mockServer as any, 'mixed empties');
+    assert.ok(result.includes('No results found for "mixed empties"'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+    clearSearxngInstanceStateForTests();
+  }, results);
+
+  await testFunction('failover: every empty replica failing raises and names the union of engines', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.delete('SEARXNG_FANOUT');
+    envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'first.example.com') {
+        return createMockFetch({
+          json: { query: 'all failing', results: [], unresponsive_engines: [['startpage', 'Suspended: CAPTCHA']] },
+        })(url);
+      }
+      return createMockFetch({
+        json: { query: 'all failing', results: [], unresponsive_engines: [['yahoo', 'HTTP protocol error']] },
+      })(url);
+    });
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'all failing'),
+        (error: Error) => {
+          assert.ok(error.message.includes('SearXNG Engine Error'), error.message);
+          assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+          assert.ok(error.message.includes('yahoo (HTTP protocol error)'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
+  await testFunction('fanout: a clean empty replica outranks a replica whose engines failed', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_FANOUT', 'true');
+    envManager.set('SEARXNG_URL', 'https://failing.example.com;https://clean.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'failing.example.com') {
+        return createMockFetch({
+          json: { query: 'fanout mixed', results: [], unresponsive_engines: [['brave', 'too many requests']] },
+        })(url);
+      }
+      return createMockFetch({ json: { query: 'fanout mixed', results: [] } })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'fanout mixed');
+    assert.ok(result.includes('No results found for "fanout mixed"'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+    clearSearxngInstanceStateForTests();
+  }, results);
+
+  await testFunction('fanout: every empty replica failing raises and names the union of engines', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_FANOUT', 'true');
+    envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'first.example.com') {
+        return createMockFetch({
+          json: { query: 'fanout failing', results: [], unresponsive_engines: [['brave', 'too many requests']] },
+        })(url);
+      }
+      return createMockFetch({
+        json: { query: 'fanout failing', results: [], unresponsive_engines: [['yahoo', 'HTTP protocol error']] },
+      })(url);
+    });
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'fanout failing'),
+        (error: Error) => {
+          assert.ok(error.message.includes('brave (too many requests)'), error.message);
+          assert.ok(error.message.includes('yahoo (HTTP protocol error)'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
+  await testFunction('the engine union names an engine failing on several replicas exactly once', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.delete('SEARXNG_FANOUT');
+    envManager.set('SEARXNG_URL', 'https://first.example.com;https://second.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'first.example.com') {
+        return createMockFetch({
+          json: {
+            query: 'shared failure',
+            results: [],
+            unresponsive_engines: [['brave', 'timeout'], ['startpage', 'Suspended: CAPTCHA']],
+          },
+        })(url);
+      }
+      return createMockFetch({
+        json: { query: 'shared failure', results: [], unresponsive_engines: [['brave', 'too many requests']] },
+      })(url);
+    });
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'shared failure'),
+        (error: Error) => {
+          assert.equal(
+            error.message.split('brave').length - 1,
+            1,
+            `brave must be named once: ${error.message}`,
+          );
+          // First-seen reason wins, so the message stays stable across runs.
+          assert.ok(error.message.includes('brave (timeout)'), error.message);
+          assert.ok(!error.message.includes('too many requests'), error.message);
+          assert.ok(error.message.includes('startpage (Suspended: CAPTCHA)'), error.message);
+          return true;
+        },
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
+  await testFunction('a direct answer with failing engines is returned instead of raising, in both formats', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const answerResponse = {
+      query: 'what is 6 times 7',
+      number_of_results: 0,
+      results: [],
+      answers: ['42'],
+      unresponsive_engines: [['brave', 'timeout']],
+    };
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: answerResponse }));
+
+    // An answerer plugin produced usable output even though a web engine timed
+    // out, so the search demonstrably ran and the content must reach the caller.
+    const textResult = await performWebSearch(mockServer as any, 'what is 6 times 7');
+    assert.ok(textResult.includes('Direct answer: 42'), textResult);
+    assert.ok(!textResult.includes('SearXNG Engine Error'), textResult);
+
+    fetchMocker.restore();
+    searchCache.clear();
+    fetchMocker.mock(createMockFetch({ json: answerResponse }));
+
+    const jsonResult = await performWebSearch(
+      mockServer as any, 'what is 6 times 7', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json',
+    );
+    assert.deepEqual(JSON.parse(jsonResult).answers, ['42'], jsonResult);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('an infobox with failing engines is returned instead of raising, in both formats', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const infoboxResponse = {
+      query: 'ada lovelace',
+      number_of_results: 0,
+      results: [],
+      infoboxes: [{ infobox: 'Ada Lovelace', content: 'English mathematician and writer' }],
+      unresponsive_engines: [['brave', 'timeout']],
+    };
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({ json: infoboxResponse }));
+
+    const textResult = await performWebSearch(mockServer as any, 'ada lovelace');
+    assert.ok(textResult.includes('Infobox: Ada Lovelace'), textResult);
+    assert.ok(textResult.includes('English mathematician and writer'), textResult);
+    assert.ok(!textResult.includes('SearXNG Engine Error'), textResult);
+
+    fetchMocker.restore();
+    searchCache.clear();
+    fetchMocker.mock(createMockFetch({ json: infoboxResponse }));
+
+    const jsonResult = await performWebSearch(
+      mockServer as any, 'ada lovelace', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json',
+    );
+    assert.equal(JSON.parse(jsonResult).infoboxes[0].infobox, 'Ada Lovelace', jsonResult);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('blank answers and empty infoboxes do not exempt a failed search', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'blank metadata',
+        number_of_results: 0,
+        results: [],
+        // Renders as a bare "Direct answer:" and a bare "Infobox:", which carry
+        // nothing a caller could act on, so the failure must still surface.
+        answers: ['', '   ', null],
+        infoboxes: [{ infobox: '' }, { infobox: '', content: '', urls: [] }, { infobox: '', urls: [null, 42] }, null],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    try {
+      await assert.rejects(
+        () => performWebSearch(mockServer as any, 'blank metadata'),
+        /SearXNG Engine Error/,
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('an infobox carrying only links counts as usable content', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'links only infobox',
+        number_of_results: 0,
+        results: [],
+        // No title or content, but the links are still rendered and usable.
+        infoboxes: [{ infobox: '', urls: [{ title: 'Biography', url: 'https://example.com/ada' }] }],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    const result = await performWebSearch(mockServer as any, 'links only infobox');
+    assert.ok(result.split('\n').some((line) => line === 'Biography: https://example.com/ada'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('result_detail compact still raises, because it drops the direct answer', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'compact answer',
+        number_of_results: 0,
+        results: [],
+        answers: ['42'],
+        unresponsive_engines: [['brave', 'timeout']],
+      },
+    }));
+
+    try {
+      // compact omits metadata from both formats, so the reply would be the bare
+      // no-results message the guard exists to distinguish from a real failure.
+      await assert.rejects(
+        () => performWebSearch(
+          mockServer as any, 'compact answer', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact',
+        ),
+        /SearXNG Engine Error/,
+      );
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('failover: a later replica\'s direct answer is returned rather than raising', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.delete('SEARXNG_FANOUT');
+    envManager.set('SEARXNG_URL', 'https://failing.example.com;https://answering.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'failing.example.com') {
+        return createMockFetch({
+          json: { query: 'failover answer', results: [], unresponsive_engines: [['brave', 'timeout']] },
+        })(url);
+      }
+      return createMockFetch({
+        json: {
+          query: 'failover answer',
+          results: [],
+          answers: ['42'],
+          unresponsive_engines: [['startpage', 'Suspended: CAPTCHA']],
+        },
+      })(url);
+    });
+
+    // The failing replica is queried first, but the answering replica's payload
+    // is the one worth returning, so the content is preserved rather than lost.
+    const result = await performWebSearch(mockServer as any, 'failover answer');
+    assert.ok(result.includes('Direct answer: 42'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+    clearSearxngInstanceStateForTests();
+  }, results);
+
+  await testFunction('fanout: a replica\'s infobox is returned rather than raising', async () => {
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_FANOUT', 'true');
+    envManager.set('SEARXNG_URL', 'https://failing.example.com;https://infobox.example.com');
+
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const parsedUrl = new URL(url.toString());
+      if (parsedUrl.hostname === 'failing.example.com') {
+        return createMockFetch({
+          json: { query: 'fanout infobox', results: [], unresponsive_engines: [['brave', 'too many requests']] },
+        })(url);
+      }
+      return createMockFetch({
+        json: {
+          query: 'fanout infobox',
+          results: [],
+          infoboxes: [{ infobox: 'Ada Lovelace', content: 'English mathematician and writer' }],
+          unresponsive_engines: [['yahoo', 'HTTP protocol error']],
+        },
+      })(url);
+    });
+
+    const result = await performWebSearch(mockServer as any, 'fanout infobox');
+    assert.ok(result.includes('Infobox: Ada Lovelace'), result);
+    assert.ok(!result.includes('SearXNG Engine Error'), result);
+
+    fetchMocker.restore();
+    envManager.restore();
+    clearSearxngInstanceStateForTests();
+  }, results);
+
   await testFunction('text output preserves metadata when filters remove all results', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
