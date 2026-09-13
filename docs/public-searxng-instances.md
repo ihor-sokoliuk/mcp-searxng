@@ -121,7 +121,8 @@ When `SEARXNG_HTML_FALLBACK=true`, mcp-searxng can retry a search without
 - a successful response that is not valid JSON.
 
 The retry parses the ordinary HTML results page. On success it provides title,
-URL, and snippet data, marks JSON output with `sourceFormat: "html"`, and omits
+URL, and snippet data. Full JSON output includes `sourceFormat: "html"`;
+compact output omits that marker. The fallback omits
 metadata that the page does not expose reliably, such as relevance scores and
 engine names.
 

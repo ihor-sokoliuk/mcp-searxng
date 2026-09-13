@@ -53,10 +53,10 @@ const workflowUrls = {
 };
 
 const expectedMatrixRows = [
-  '| Claude Desktop | Yes | Yes | No |',
+  '| Claude Desktop | Yes | Yes | Not provided |',
   '| Claude Code | Yes | Yes | Yes |',
   '| Codex CLI | Yes | Yes | Yes |',
-  '| Cursor | Yes | Yes | No |',
+  '| Cursor | Yes | Yes | Not provided |',
   '| VS Code | Yes | Yes | Yes |',
   '| Windsurf | Yes | Yes | Yes |',
   '| Cline | Yes | Yes | Yes |',
@@ -418,12 +418,12 @@ export async function runTests(): Promise<TestResult> {
     for (const document of [readme, configuration]) {
       const normalized = document.replace(/\s+/gu, ' ');
       assert.ok(normalized.includes('FlareSolverr is always primary'));
-      assert.ok(normalized.includes('150 seconds'));
+      assert.ok(normalized.includes('143 seconds'));
       assert.ok(normalized.includes('unavailable'));
     }
     const normalizedSecurity = security.replace(/\s+/gu, ' ');
     assert.ok(normalizedSecurity.includes('FlareSolverr as the fixed primary'));
-    assert.ok(normalizedSecurity.includes('150 seconds'));
+    assert.ok(normalizedSecurity.includes('143 seconds'));
     assert.ok(normalizedSecurity.includes('unavailable'));
     assert.ok(readme.includes('no automatic reverse failover'));
     assert.ok(configuration.includes('automatic reverse failover is not performed'));
@@ -498,7 +498,7 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(readme.includes('(docs/client-configurations.md)'));
   }, results);
 
-  await testFunction('support matrix contains only verified client and transport combinations', () => {
+  await testFunction('recipe coverage identifies included and omitted client combinations', () => {
     const guide = readText(guideUrl);
     for (const row of expectedMatrixRows) {
       assert.ok(guide.includes(row), `missing matrix row: ${row}`);
@@ -601,9 +601,8 @@ export async function runTests(): Promise<TestResult> {
       assert.ok(types.includes(`${parameter}: {`), `full schemas must still expose ${parameter}`);
     }
     assert.ok(guide.includes('`SEARXNG_LITE_TOOLS=true`'));
-    assert.ok(normalizedGuide.includes('search and suggestions accept only `query`'));
-    assert.ok(normalizedGuide.includes('instance information accepts no optional controls'));
-    assert.ok(normalizedGuide.includes('URL reading accepts only `url`'));
+    assert.ok(normalizedGuide.includes('advertised schemas'));
+    assert.ok(!normalizedGuide.includes('selective page extraction require full mode'));
   }, results);
 
   await testFunction('documentation explains compact result detail and the full-mode migration boundary', () => {
@@ -774,7 +773,6 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(searchDefaults.includes('auto-inject `response_format=text`'));
     assert.ok(configuration.includes('also applies when `SEARXNG_LITE_TOOLS=true`'));
     assert.ok(configuration.includes('callers that send `response_format` explicitly still override'));
-    assert.ok(configuration.includes('"SEARXNG_DEFAULT_RESPONSE_FORMAT": "text"'));
   }, results);
 
   await testFunction('public docs define the optional stateless HTTP contract and fixed defaults', () => {
@@ -800,7 +798,6 @@ export async function runTests(): Promise<TestResult> {
       'MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS',
     ]) {
       assert.ok(configuration.includes(`\`${variable}\``), `configuration must define ${variable}`);
-      assert.ok(configuration.includes(`"${variable}"`), `combined example must include ${variable}`);
     }
     assert.ok(configuration.includes('`16` (range `1`-`256`)'));
     assert.ok(configuration.includes('`8` (range `1`-global cap)'));
@@ -830,15 +827,13 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(!readme.includes('| Privacy |'));
 
     assert.ok(configuration.includes('all SearXNG-bound traffic'));
-    assert.ok(configuration.includes('## Combined Example (Representative Options)'));
-    for (const variable of [
-      '"AUTH_USERNAME"',
-      '"AUTH_PASSWORD"',
-      '"MCP_RATE_WINDOW_MS"',
-      '"MCP_RATE_INIT_MAX"',
-      '"MCP_RATE_SESSION_MAX"',
-    ]) {
-      assert.ok(configuration.includes(variable), `representative example must include ${variable}`);
+    for (const block of extractFences(configuration, 'json')) {
+      const servers = collectJsonServers(JSON.parse(block) as Record<string, unknown>);
+      for (const server of servers) {
+        if (typeof server.command !== 'string') continue;
+        const env = server.env as Record<string, unknown> | undefined;
+        assert.ok(!env?.MCP_HTTP_PORT, 'STDIO client examples must not start HTTP');
+      }
     }
     assert.ok(configuration.includes('must be configured together'));
     assert.ok(configuration.includes('may be looser or stricter'));

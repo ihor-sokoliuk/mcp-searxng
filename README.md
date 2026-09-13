@@ -40,7 +40,7 @@ Add to your MCP client configuration (e.g. `claude_desktop_config.json`):
 
 Replace `YOUR_SEARXNG_INSTANCE_URL` with the URL of your SearXNG instance (e.g. `https://searxng.example.com`). You can also provide interchangeable replicas as a semicolon-separated list, e.g. `https://one.example.com;https://two.example.com`.
 
-For verified Claude Desktop, Claude Code, Codex CLI, Cursor, VS Code, Windsurf,
+For documented Claude Desktop, Claude Code, Codex CLI, Cursor, VS Code, Windsurf,
 Cline, and OpenCode recipes, see the
 [MCP client configuration cookbook](docs/client-configurations.md).
 
@@ -171,7 +171,7 @@ For SearXNG deployment, configuration, and troubleshooting, see
   - At most two PDF extractions run concurrently per MCP process. There is no queue; additional concurrent reads return a busy message and may be retried.
   - Other binary, media, archive, and octet-stream downloads are intentionally rejected with a short hint instead of returning raw bytes
   - When `FLARESOLVERR_URL` or `BYPARR_URL` is configured, an uncached URL is validated and checked by the HEAD size preflight before `mcp-searxng` attempts browser-session acquisition. With both set, FlareSolverr is attempted first and Byparr is attempted only after a busy slot, network/timeout failure, HTTP 408/429/5xx, or malformed/oversized response. Persistent provider 4xx, cancellation, solution-host validation failure, and solved non-2xx target status stop the chain. If every configured provider is busy or unavailable, one uncached direct fetch runs. Each attempted provider receives the original target URL; challenge success is not guaranteed.
-  - At default limits, dual-provider mode has an additive maximum of 150 seconds across the initial HEAD preflight, both solver attempts (including response grace), and the final direct fetch.
+  - At default limits, dual-provider stage budgets total 143 seconds before PDF parsing: a 3-second initial HEAD preflight, two 65-second solver attempts (including response grace), and a 10-second final fetch. PDF parsing can add 30 seconds. These are cancellation budgets, not a precise wall-clock guarantee; see [URL Reader Controls](CONFIGURATION.md#url-reader-controls).
   - Inputs:
     - `url` (string): The URL to fetch and process
     - `startChar` (number, optional): Starting character position for content extraction (default: 0)
@@ -357,9 +357,20 @@ Stateless requests are bounded by global and per-client-IP in-flight limits plus
 curl http://localhost:3000/health
 ```
 
+`/health` checks HTTP reachability only; it does not contact SearXNG or run a tool. Verify discovery and a search with the [client checklist](docs/client-configurations.md#verify-the-connection).
+
 The server binds to `127.0.0.1` by default; set `MCP_HTTP_HOST=0.0.0.0` for remote or containerized deployments. Before exposing it on a network, enable hardened mode (`MCP_HTTP_HARDEN`) and see [CONFIGURATION.md](CONFIGURATION.md) for `MCP_HTTP_TRUST_PROXY` so rate limiting and logs use the correct client IP.
 
 </details>
+
+### Optional MCP OAuth
+
+HTTP deployments can opt into an OAuth protected resource backed by an external
+authorization server. It provides discovery and validates signed access tokens,
+audience, expiry and scopes for modern and retained legacy HTTP requests.
+See [OAuth configuration](CONFIGURATION.md#optional-oauth-protected-resource)
+for the provider requirements. The existing static bearer gate remains available
+as a non-OAuth deployment control; default and STDIO behavior are unchanged.
 
 ## Configuration
 
@@ -414,8 +425,8 @@ Before enabling it, review the public operator's policy and the
 
 A search that gets a `403`/`404` or a non-JSON response is then retried automatically **without** `format=json` and parsed from the regular HTML results page.
 
-- **On success:** you get normal results (title, URL, snippet). They are marked `sourceFormat: "html"` in JSON mode, and text mode adds the line *"Note: Results parsed from SearXNG HTML fallback; metadata is limited."* Relevance scores and engine names are not available from HTML.
-- **On failure:** parsing is best-effort and varies by the instance's theme/version, so some results may be missed or sparse. If the HTML page itself also fails — still blocked, rate-limited (`429`), auth (`401`), or `5xx` — the **fallback attempt's error is surfaced**, so the search never silently returns empty results. The fallback only triggers on `403`/`404`/non-JSON, never on auth or network errors.
+- **On success:** you get normal results (title, URL, snippet). With `result_detail="full"`, JSON includes `sourceFormat: "html"` and text adds the line *"Note: Results parsed from SearXNG HTML fallback; metadata is limited."* Compact output omits these fallback markers. Relevance scores and engine names are not available from HTML.
+- **On failure:** parsing is best-effort and varies by the instance's theme/version, so some results may be missed or sparse. If the HTML page itself also fails — still blocked, rate-limited (`429`), auth (`401`), or `5xx` — the **fallback attempt's error is surfaced**, rather than converting that HTTP failure into an empty result. A successful response can still contain no parsed results; compare the upstream response when diagnosing empty output. The fallback only triggers on `403`/`404`/non-JSON, never on auth or network errors.
 
 Enabling JSON on an instance you control (above) remains the recommended setup — the fallback is a compatibility aid, not a replacement.
 
@@ -426,12 +437,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
-
-### Optional MCP OAuth
-
-HTTP deployments can opt into an OAuth protected resource backed by an external
-authorization server. It provides discovery and validates signed access tokens,
-audience, expiry and scopes for modern and retained legacy HTTP requests.
-See [OAuth configuration](CONFIGURATION.md#optional-oauth-protected-resource)
-for the provider requirements. The existing static bearer gate remains available
-as a non-OAuth deployment control; default and STDIO behavior are unchanged.

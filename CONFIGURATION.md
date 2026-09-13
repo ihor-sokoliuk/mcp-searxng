@@ -80,7 +80,7 @@ The response-format default also applies when `SEARXNG_LITE_TOOLS=true`. Lite sc
 | `SEARCH_CACHE_TTL_MS` | No | `86400000` | Search result cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `SEARCH_CACHE_MAX_ENTRIES` | No | `200` | Maximum number of cached search queries. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
-Search results are cached in memory per process only; cache contents are not persisted across restarts. Cached text responses are marked with `_Cached result_`. Cached JSON responses remain parseable and include a top-level `"cached": true` field.
+Search results are cached in memory per process only; cache contents are not persisted across restarts. With `result_detail="full"`, cached text responses are marked with `_Cached result_` and cached JSON includes a top-level `"cached": true` field. Compact responses omit both markers and are returned unchanged on cache hits; absence of a marker does not prove a fresh upstream request.
 
 ## Search Compatibility
 
@@ -94,7 +94,7 @@ for trust, evaluation, and conservative-use guidance.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SEARXNG_HTML_FALLBACK` | No | `false` | Set to `true` to retry 403/404 or non-JSON search responses as an HTML search page and parse title, URL, and snippet only. HTML fallback results are marked with `sourceFormat: "html"` in JSON output. |
+| `SEARXNG_HTML_FALLBACK` | No | `false` | Set to `true` to retry 403/404 or non-JSON search responses as an HTML search page and parse title, URL, and snippet only. Full JSON fallback results include `sourceFormat: "html"`; compact output omits fallback metadata. |
 
 ## URL Reader Controls
 
@@ -164,9 +164,12 @@ entries. Cancellation never falls back or writes a cache entry. When the
 replay response is `application/pdf`, the URL reader applies its bounded PDF
 text-extraction path.
 
-There is no shared solver timeout. At defaults, the additive maximum is 150
-seconds: up to 10 seconds for the initial HEAD preflight, 65 seconds for each
-provider including response grace, and 10 seconds for the final direct GET.
+There is no shared solver timeout. At defaults, the stage budgets total 143
+seconds before PDF parsing: up to 3 seconds for the initial HEAD preflight,
+65 seconds for each provider including response grace, and 10 seconds for the
+final replay or direct fetch. The HEAD budget is the lower of `FETCH_TIMEOUT_MS`
+and 3000 milliseconds. PDF parsing can add up to 30 seconds after download.
+These are cancellation budgets, not a precise wall-clock completion guarantee.
 MCP cancellation stops the chain immediately when the client propagates it.
 Repeated value-free `unavailable` warnings for one provider should be monitored
 as persistent degradation.
@@ -333,7 +336,7 @@ The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-
 - Modern: `POST /mcp` — sessionless MCP protocol
 - Legacy stateful default: `POST/GET/DELETE /mcp` — session-based MCP protocol
 - With `MCP_HTTP_STATELESS=true`: `POST /mcp` only; GET and DELETE return HTTP 405 with `Allow: POST`
-- `GET /health` — health check
+- `GET /health` — HTTP reachability check; returns fixed status, server, version and transport metadata without contacting SearXNG. A successful response does not verify tool calls or search readiness.
 
 HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-id` on a non-initialize `POST /mcp` receives HTTP 404 with JSON-RPC error code `-32001` and message `"Session not found"`. Clients should recover by running `initialize` again; initialize requests are accepted even when they still carry a stale session header.
 
@@ -357,7 +360,10 @@ Requests exceeding a limit receive HTTP 429 with a JSON-RPC error body (`code: -
 
 After a stateless request consumes its rate-limit token and passes authorization plus hardened Host/Origin checks, it must also acquire the per-IP and global in-flight capacity slots. Per-IP capacity is checked first. Saturation returns HTTP 503, `Retry-After: 1`, and JSON-RPC code `-32000` with message `Server busy`; these attempts still consume their selected rate-limit token. A request that exceeds its lifetime before response headers receives HTTP 504 and JSON-RPC code `-32000` with message `Stateless request timed out`. If an SSE response has already started, the connection is closed instead because its status can no longer be changed. Resource cleanup is bounded and capacity is reclaimed after completion, disconnect, failure, or timeout.
 
-The in-memory store is per-process; for horizontally scaled deployments replace it with a shared Redis store via `express-rate-limit`'s `store` option.
+The in-memory rate-limit store is per process, so replicas do not share a quota.
+The published package has no Redis-store configuration option. Adding a shared
+store would require a source integration; account for independent limits when
+scaling the current server.
 
 ## Tool Invocation Admission (all transports)
 
@@ -468,9 +474,16 @@ and parser budgets.
 Set `MCP_HTTP_ALLOW_PRIVATE_URLS=true` only when internal URL reads are intentional for your deployment. This also allows hostnames that DNS-resolve to private/internal addresses, including the site-local and multicast IPv6 ranges above.
 
 
-## Combined Example (Representative Options)
+<a id="combined-example-representative-options"></a>
 
-This combined MCP client configuration shows the supported option groups in one place. Remove settings you do not need. In static mode, `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN`, and `MCP_HTTP_ALLOWED_ORIGINS` must be configured together; OAuth mode replaces the static token with the configuration below. `MCP_HTTP_ALLOWED_HOSTS` and `MCP_HTTP_TRUST_PROXY` depend on the exact network and proxy topology. The representative `MCP_HTTP_TRUST_PROXY=1` value assumes exactly one trusted proxy hop. Without that trusted proxy boundary, clients can spoof `X-Forwarded-For` and influence IP-based rate limiting and logs.
+## Configuration examples
+
+Choose the example matching your transport. Setting `MCP_HTTP_PORT` selects
+HTTP instead of STDIO; do not put it in a local STDIO client launcher.
+
+### Local STDIO client
+
+This client starts the server. Keep optional settings limited to what you need.
 
 ```json
 {
@@ -479,60 +492,45 @@ This combined MCP client configuration shows the supported option groups in one 
       "command": "npx",
       "args": ["-y", "mcp-searxng"],
       "env": {
-        "SEARXNG_URL": "https://searxng.example.com",
-        "AUTH_USERNAME": "legacy-fallback-user",
-        "AUTH_PASSWORD": "legacy-fallback-password",
-        "SEARXNG_FANOUT": "false",
-        "SEARXNG_TIMEOUT_MS": "10000",
-        "SEARXNG_MAX_RESPONSE_BYTES": "5242880",
-        "FETCH_TIMEOUT_MS": "10000",
-        "SEARXNG_LITE_TOOLS": "false",
-        "SEARXNG_DEFAULT_LANGUAGE": "en",
-        "SEARXNG_DEFAULT_SAFESEARCH": "0",
-        "SEARXNG_DEFAULT_RESPONSE_FORMAT": "text",
-        "SEARXNG_MAX_RESULTS": "10",
-        "SEARXNG_MAX_RESULT_CHARS": "500",
-        "SEARCH_CACHE_TTL_MS": "86400000",
-        "SEARCH_CACHE_MAX_ENTRIES": "200",
-        "SEARXNG_HTML_FALLBACK": "false",
-        "URL_READ_MAX_CHARS": "2000",
-        "URL_READ_MAX_CONTENT_LENGTH_BYTES": "5242880",
-        "FLARESOLVERR_URL": "http://flaresolverr:8191",
-        "FLARESOLVERR_TIMEOUT_MS": "60000",
-        "FLARESOLVERR_MAX_CONCURRENT_REQUESTS": "2",
-        "CACHE_TTL_MS": "86400000",
-        "CACHE_MAX_ENTRIES": "500",
-        "USER_AGENT": "MyBot/1.0",
-        "SEARCH_USER_AGENT": "MySearchBot/1.0",
-        "URL_READER_USER_AGENT": "Mozilla/5.0 (compatible; MyBot/1.0)",
-        "SEARCH_HTTP_PROXY": "http://search-proxy.company.com:8080",
-        "SEARCH_HTTPS_PROXY": "http://search-proxy.company.com:8080",
-        "URL_READER_HTTP_PROXY": "http://reader-proxy.company.com:8080",
-        "URL_READER_HTTPS_PROXY": "http://reader-proxy.company.com:8080",
-        "HTTP_PROXY": "http://global-proxy.company.com:8080",
-        "HTTPS_PROXY": "http://global-proxy.company.com:8080",
-        "NO_PROXY": "localhost,127.0.0.1,.local,.internal",
-        "MCP_HTTP_PORT": "3000",
-        "MCP_HTTP_HOST": "0.0.0.0",
-        "MCP_HTTP_TRUST_PROXY": "1",
-        "MCP_HTTP_STATELESS": "false",
-        "MCP_HTTP_STATELESS_MAX_IN_FLIGHT": "16",
-        "MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP": "8",
-        "MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS": "900000",
-        "MCP_RATE_WINDOW_MS": "60000",
-        "MCP_RATE_INIT_MAX": "20",
-        "MCP_RATE_SESSION_MAX": "300",
-        "MCP_HTTP_HARDEN": "true",
-        "MCP_HTTP_AUTH_TOKEN": "replace-me",
-        "MCP_HTTP_ALLOWED_ORIGINS": "https://app.example.com",
-        "MCP_HTTP_ALLOWED_HOSTS": "app.example.com",
-        "MCP_HTTP_ALLOW_PRIVATE_URLS": "false",
-        "MCP_HTTP_EXPOSE_FULL_CONFIG": "false"
+        "SEARXNG_URL": "https://search.example.com",
+        "SEARXNG_MAX_RESULTS": "10"
       }
     }
   }
 }
 ```
+
+### Independent HTTP service
+
+Run this in the operator's POSIX shell, separately from the MCP client. Set
+`SEARXNG_URL` and `MCP_HTTP_AUTH_TOKEN` in that environment first. In static
+mode, `MCP_HTTP_HARDEN=true`, `MCP_HTTP_AUTH_TOKEN` and an explicit
+`MCP_HTTP_ALLOWED_ORIGINS` must be configured together.
+
+```bash
+docker run --rm -p 127.0.0.1:3000:3000 \
+  -e SEARXNG_URL \
+  -e MCP_HTTP_PORT=3000 \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e MCP_HTTP_HARDEN=true \
+  -e MCP_HTTP_AUTH_TOKEN \
+  -e MCP_HTTP_ALLOWED_ORIGINS=https://client.example.com \
+  -e MCP_HTTP_ALLOWED_HOSTS=mcp.example.com \
+  isokoliuk/mcp-searxng:latest
+```
+
+This publishes the port on host loopback for a reverse proxy on that host.
+Provide HTTPS at that proxy and forward the configured Host. Replace origins
+and hosts with your deployment's values. A containerized proxy needs a shared
+container network instead of assuming its localhost is the Docker host.
+Configure `MCP_HTTP_TRUST_PROXY` only for the actual trusted proxy boundary;
+otherwise clients can spoof `X-Forwarded-For` and influence IP-based limits.
+Connect the client to the proxy's full `/mcp` URL using a
+[remote client recipe](docs/client-configurations.md).
+
+For OAuth, use the provider settings below instead of the static token. The
+SearXNG Basic Auth settings in [Authentication](#authentication) authenticate
+outbound search requests; they do not authenticate MCP clients.
 
 ## Optional OAuth protected resource
 
