@@ -827,12 +827,18 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(!readme.includes('| Privacy |'));
 
     assert.ok(configuration.includes('all SearXNG-bound traffic'));
-    for (const block of extractFences(configuration, 'json')) {
-      const servers = collectJsonServers(JSON.parse(block) as Record<string, unknown>);
-      for (const server of servers) {
-        if (typeof server.command !== 'string') continue;
-        const env = server.env as Record<string, unknown> | undefined;
-        assert.ok(!env?.MCP_HTTP_PORT, 'STDIO client examples must not start HTTP');
+    for (const document of [configuration, readme, readText(guideUrl)]) {
+      for (const block of extractFences(document, 'json')) {
+        const servers = collectJsonServers(JSON.parse(block) as Record<string, unknown>);
+        for (const server of servers) {
+          if (typeof server.command !== 'string' && !Array.isArray(server.command)) continue;
+          const env = (server.env ?? server.environment) as Record<string, unknown> | undefined;
+          assert.ok(!env?.MCP_HTTP_PORT, 'STDIO client examples must not start HTTP');
+        }
+      }
+      for (const block of extractFences(document, 'toml')) {
+        parseTomlSubset(block);
+        assert.doesNotMatch(block, /MCP_HTTP_PORT\s*=\s*["'][^"']/u, 'STDIO TOML must not start HTTP');
       }
     }
     assert.ok(configuration.includes('must be configured together'));

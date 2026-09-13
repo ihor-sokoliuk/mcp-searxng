@@ -525,6 +525,11 @@ and hosts with your deployment's values. A containerized proxy needs a shared
 container network instead of assuming its localhost is the Docker host.
 Configure `MCP_HTTP_TRUST_PROXY` only for the actual trusted proxy boundary;
 otherwise clients can spoof `X-Forwarded-For` and influence IP-based limits.
+Leaving proxy trust unset behind a proxy means requests can share the proxy's
+per-IP quota and capacity, and forwarded-header validation can emit warnings.
+For exactly one trusted proxy hop with no alternate ingress path, set
+`MCP_HTTP_TRUST_PROXY=1`; for other topologies, configure trusted proxy subnets
+or the actual hop count before connecting multiple clients.
 Connect the client to the proxy's full `/mcp` URL using a
 [remote client recipe](docs/client-configurations.md).
 
