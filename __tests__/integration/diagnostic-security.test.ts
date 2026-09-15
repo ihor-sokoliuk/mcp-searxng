@@ -59,21 +59,20 @@ async function runTests() {
   await testFunction("real CLI JSON-RPC errors remove invalid URL credentials", async () => {
     const markerUrl = "ftp://rpc-user:rpc-secret@search.example.com/path";
     const { client, getStderr } = await connectCli(markerUrl);
-    let caught: unknown;
+    let resultText = "";
     try {
-      await client.callTool({
+      const result = await client.callTool({
         name: "searxng_web_search",
         arguments: { query: "test" },
       });
-      assert.fail("Expected configuration error");
-    } catch (error) {
-      caught = error;
+      assert.equal(result.isError, true);
+      resultText = (result.content[0] as { type: string; text: string }).text;
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await client.close();
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await client.close();
 
-    const errorText = caught instanceof Error ? `${caught.message}\n${caught.stack}` : String(caught);
-    const output = `${errorText}\n${getStderr()}`;
+    const output = `${resultText}\n${getStderr()}`;
     assert.ok(!output.includes("rpc-user"), output);
     assert.ok(!output.includes("rpc-secret"), output);
     assert.ok(output.includes("ftp:"), output);
@@ -85,21 +84,20 @@ async function runTests() {
     const { client, getStderr } = await connectCli(markerUrl, {
       FETCH_TIMEOUT_MS: "250",
     });
-    let caught: unknown;
+    let resultText = "";
     try {
-      await client.callTool({
+      const result = await client.callTool({
         name: "searxng_web_search",
         arguments: { query: "test" },
       });
-      assert.fail("Expected network error");
-    } catch (error) {
-      caught = error;
+      assert.equal(result.isError, true);
+      resultText = (result.content[0] as { type: string; text: string }).text;
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await client.close();
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await client.close();
 
-    const errorText = caught instanceof Error ? `${caught.message}\n${caught.stack}` : String(caught);
-    const output = `${errorText}\n${getStderr()}`;
+    const output = `${resultText}\n${getStderr()}`;
     assert.ok(!output.includes("network-user"), output);
     assert.ok(!output.includes("network-secret"), output);
     assert.ok(
