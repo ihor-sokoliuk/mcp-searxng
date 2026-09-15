@@ -57,16 +57,16 @@
         "cors": "^2.8.6",
         "express": "^5.2.1",
         "express-rate-limit": "8.7.0",
-        "jose": "6.2.2",
+        "jose": "6.2.12",
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "9.0.4",
         "undici": "7.29.1",
         "unpdf": "1.8.1",
-        "zod": "4.5.4"
+        "zod": "4.6.5"
     },
     "devDependencies": {
         "@modelcontextprotocol/client": "2.0.0",
-        "@types/node": "22.20.1",
+        "@types/node": "22.20.2",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.70.0",
         "@typescript-eslint/parser": "8.70.0",
@@ -74,7 +74,7 @@
         "cross-env": "^10.1.0",
         "eslint": "10.10.0",
         "eslint-plugin-security": "^4.0.0",
-        "fast-check": "^4.8.0",
+        "fast-check": "4.10.0",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
         "tsx": "4.23.13",
