@@ -1516,6 +1516,14 @@ async function runTests() {
     assert.ok(res.body.error);
     assert.equal(res.body.error.code, -32000);
     assert.equal(res.body.error.message, 'Bad Request: No valid session ID provided');
+
+    const blank = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('mcp-session-id', ' ')
+      .send({ jsonrpc: '2.0', method: 'tools/list', id: 2 });
+    assert.equal(blank.status, 400);
+    assert.equal(blank.body.error.code, -32000);
   }, results);
 
   await testFunction('POST /mcp with unknown sessionId and non-initialize body returns 404 Session not found', async () => {
@@ -1893,6 +1901,38 @@ async function runTests() {
     const unsupported = await call(4).set('mcp-protocol-version', '2099-01-01');
     assert.equal(unsupported.status, 400);
     assert.equal(unsupported.body.error.code, -32602);
+  }, results);
+
+  await testFunction('unsupported protocol DELETE is rejected without terminating the session', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {},
+          clientInfo: { name: 'delete-version-client', version: '1.0.0' } },
+      });
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.ok(sessionId);
+
+    const rejectedDelete = await request(app)
+      .delete('/mcp')
+      .set('mcp-session-id', sessionId)
+      .set('mcp-protocol-version', '2099-01-01');
+    assert.equal(rejectedDelete.status, 400);
+    assert.equal(rejectedDelete.body.error.code, -32602);
+
+    const stillLive = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', sessionId)
+      .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    assert.equal(stillLive.status, 200);
+
+    assert.equal((await request(app).delete('/mcp').set('mcp-session-id', sessionId)).status, 204);
   }, results);
 
   await testFunction('session cleanup: DELETE removes session so subsequent requests fail', async () => {

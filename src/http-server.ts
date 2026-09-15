@@ -356,7 +356,7 @@ export async function createHttpServer(
       contentType: req.headers['content-type'],
       accept: req.headers['accept']
     });
-    const hasSessionId = Boolean(sessionId);
+    const hasSessionId = Boolean(sessionId?.trim());
     res.status(hasSessionId ? 404 : 400).json({
       jsonrpc: '2.0',
       error: {
@@ -405,21 +405,30 @@ export async function createHttpServer(
   ): Session | undefined {
     const header = req.headers['mcp-session-id'];
     const sessionId = typeof header === 'string' ? header : undefined;
-    const hasSessionId = Boolean(sessionId?.trim());
-    const session = hasSessionId ? sessions.get(sessionId!) : undefined;
-    if (session) return session;
+    if (!sessionId?.trim()) {
+      warnDiagnostic(`⚠️  ${method} request rejected - missing session ID:`, {
+        clientIP: req.ip || req.socket.remoteAddress,
+        sessionId: 'undefined',
+        userAgent: req.headers['user-agent'],
+      });
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+        id: null,
+      });
+      return undefined;
+    }
 
-    warnDiagnostic(`⚠️  ${method} request rejected - missing or invalid session ID:`, {
+    const session = sessions.get(sessionId);
+    if (session) return session;
+    warnDiagnostic(`⚠️  ${method} request rejected - unknown session ID:`, {
       clientIP: req.ip || req.socket.remoteAddress,
-      sessionId: hasSessionId ? sessionId : 'undefined',
+      sessionId,
       userAgent: req.headers['user-agent'],
     });
-    res.status(hasSessionId ? 404 : 400).json({
+    res.status(404).json({
       jsonrpc: '2.0',
-      error: {
-        code: hasSessionId ? -32001 : -32000,
-        message: hasSessionId ? 'Session not found' : 'Bad Request: No valid session ID provided',
-      },
+      error: { code: -32001, message: 'Session not found' },
       id: null,
     });
     return undefined;
