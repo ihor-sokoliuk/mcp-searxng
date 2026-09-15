@@ -2,7 +2,14 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
-import { createMcpHandler, isInitializeRequest, isLegacyRequest, type McpServer, type OAuthTokenVerifier } from "@modelcontextprotocol/server";
+import {
+  SUPPORTED_PROTOCOL_VERSIONS,
+  createMcpHandler,
+  isInitializeRequest,
+  isLegacyRequest,
+  type McpServer,
+  type OAuthTokenVerifier,
+} from "@modelcontextprotocol/server";
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import { logMessage } from "./logging.js";
 import { packageVersion } from "./version.js";
@@ -390,6 +397,50 @@ export async function createHttpServer(
 
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
+
+  function findStatefulSession(
+    method: "GET" | "DELETE",
+    req: express.Request,
+    res: express.Response,
+  ): Session | undefined {
+    const header = req.headers['mcp-session-id'];
+    const sessionId = typeof header === 'string' ? header : undefined;
+    const hasSessionId = Boolean(sessionId?.trim());
+    const session = hasSessionId ? sessions.get(sessionId!) : undefined;
+    if (session) return session;
+
+    warnDiagnostic(`⚠️  ${method} request rejected - missing or invalid session ID:`, {
+      clientIP: req.ip || req.socket.remoteAddress,
+      sessionId: hasSessionId ? sessionId : 'undefined',
+      userAgent: req.headers['user-agent'],
+    });
+    res.status(hasSessionId ? 404 : 400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: hasSessionId ? -32001 : -32000,
+        message: hasSessionId ? 'Session not found' : 'Bad Request: No valid session ID provided',
+      },
+      id: null,
+    });
+    return undefined;
+  }
+
+  function rejectUnsupportedProtocolVersion(req: express.Request, res: express.Response): boolean {
+    const header = req.headers['mcp-protocol-version'];
+    if (header === undefined || (typeof header === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(header))) {
+      return false;
+    }
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32602,
+        message: `Bad Request: Unsupported protocol version: ${String(header)} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`,
+      },
+      id: null,
+    });
+    return true;
+  }
+
   let statelessInFlight = 0;
   const statelessInFlightByIp = new Map<string, number>();
   let lastCapacityWarningAt = 0;
@@ -718,18 +769,9 @@ export async function createHttpServer(
       return;
     }
 
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !sessions.has(sessionId)) {
-      warnDiagnostic(`⚠️  GET request rejected - missing or invalid session ID:`, {
-        clientIP: req.ip || req.socket.remoteAddress,
-        sessionId: sessionId || 'undefined',
-        userAgent: req.headers['user-agent']
-      });
-      res.status(400).send('Invalid or missing session ID');
-      return;
-    }
-
-    const session = sessions.get(sessionId)!;
+    const session = findStatefulSession("GET", req, res);
+    if (!session) return;
+    const sessionId = req.headers['mcp-session-id'] as string;
     if (rejectSessionPrincipal(session, res)) return;
     try {
       await session.transport.handleRequest(req, res);
@@ -760,21 +802,14 @@ export async function createHttpServer(
       return;
     }
 
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !sessions.has(sessionId)) {
-      warnDiagnostic(`⚠️  DELETE request rejected - missing or invalid session ID:`, {
-        clientIP: req.ip || req.socket.remoteAddress,
-        sessionId: sessionId || 'undefined',
-        userAgent: req.headers['user-agent']
-      });
-      res.status(400).send('Invalid or missing session ID');
-      return;
-    }
-
-    const session = sessions.get(sessionId)!;
+    const session = findStatefulSession("DELETE", req, res);
+    if (!session) return;
+    const sessionId = req.headers['mcp-session-id'] as string;
     if (rejectSessionPrincipal(session, res)) return;
+    if (rejectUnsupportedProtocolVersion(req, res)) return;
     try {
-      await session.transport.handleRequest(req, res);
+      await session.transport.close();
+      if (!res.headersSent) res.status(204).end();
     } catch (error) {
       warnDiagnostic(`⚠️  DELETE request failed:`, {
         clientIP: req.ip || req.socket.remoteAddress,

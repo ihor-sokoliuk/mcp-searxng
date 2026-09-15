@@ -114,6 +114,12 @@ fetches the selected website directly. A semicolon-separated replica list is
 supported for interchangeable SearXNG deployments; see
 [replica configuration](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md#core).
 
+STDIO is the default. Legacy Streamable HTTP sessions are stateful by default:
+clients should send `DELETE /mcp` when finished, then reinitialize if a later
+request receives HTTP 404 for the terminated session. Modern HTTP requests and
+the `MCP_HTTP_STATELESS=true` legacy mode are sessionless; see
+[HTTP transport configuration](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md#http-transport).
+
 ## Tools
 
 | Tool | Use it to |
