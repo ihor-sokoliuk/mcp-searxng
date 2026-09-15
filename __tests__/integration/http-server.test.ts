@@ -13,6 +13,7 @@ import http from 'node:http';
 import { FetchMocker, createMockFetch } from '../helpers/mock-fetch.js';
 import request from 'supertest';
 import { LOG_LEVEL_META_KEY, McpServer, isLegacyRequest } from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import {
   DEFAULT_STATELESS_MAX_IN_FLIGHT,
   DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP,
@@ -1972,6 +1973,47 @@ async function runTests() {
     assert.equal(postRes.status, 404, 'request after DELETE should be rejected');
     assert.equal(postRes.body.error.code, -32001);
     assert.equal(postRes.body.error.message, 'Session not found');
+  }, results);
+
+  await testFunction('failed session close remains tracked and permits a later termination retry', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {},
+          clientInfo: { name: 'close-retry-client', version: '1.0.0' } },
+      });
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.ok(sessionId);
+
+    const originalClose = NodeStreamableHTTPServerTransport.prototype.close;
+    let failNextClose = true;
+    NodeStreamableHTTPServerTransport.prototype.close = async function () {
+      if (failNextClose) {
+        failNextClose = false;
+        throw new Error('controlled close failure');
+      }
+      return originalClose.call(this);
+    };
+
+    try {
+      const failedDelete = await request(app).delete('/mcp').set('mcp-session-id', sessionId);
+      assert.equal(failedDelete.status, 500);
+
+      const stillLive = await request(app)
+        .post('/mcp')
+        .set('Content-Type', 'application/json')
+        .set('Accept', 'application/json, text/event-stream')
+        .set('mcp-session-id', sessionId)
+        .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+      assert.equal(stillLive.status, 200);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', sessionId)).status, 204);
+    } finally {
+      NodeStreamableHTTPServerTransport.prototype.close = originalClose;
+    }
   }, results);
 
   // --- Rate Limiting ---
