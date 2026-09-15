@@ -338,7 +338,9 @@ The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-
 - With `MCP_HTTP_STATELESS=true`: `POST /mcp` only; GET and DELETE return HTTP 405 with `Allow: POST`
 - `GET /health` — HTTP reachability check; returns fixed status, server, version and transport metadata without contacting SearXNG. A successful response does not verify tool calls or search readiness.
 
-HTTP sessions are stored in memory per process. A stale or unknown `mcp-session-id` on a non-initialize `POST /mcp` receives HTTP 404 with JSON-RPC error code `-32001` and message `"Session not found"`. Clients should recover by running `initialize` again; initialize requests are accepted even when they still carry a stale session header.
+HTTP sessions are stored in memory per process. Missing or blank required session IDs on stateful POST/GET/DELETE receive JSON HTTP 400. Unknown or terminated IDs receive JSON HTTP 404 with error code `-32001` and message `"Session not found"`; initialize requests are accepted even when they still carry a stale session header and mint a new secure session ID. Clients should send `DELETE /mcp` when finished: the first valid DELETE closes the session and returns an empty HTTP 204, while a repeated DELETE returns 404. After any session 404, recover by running `initialize` again.
+
+For stateful requests after initialization, the `MCP-Protocol-Version` header may be omitted (the negotiated version is used) or set to a supported version. Unsupported values receive HTTP 400 from the pinned SDK. Modern HTTP requests remain sessionless POSTs, and STDIO remains the default transport.
 
 In stateless mode, every POST creates a fresh MCP server and transport, ignores incoming `mcp-session-id` headers, and never emits a response session ID. A POST can return negotiated JSON or an SSE stream within that same POST. Cross-request sessions, resumable streams, standalone GET notification streams, and DELETE-based session termination are unavailable. Modern requests use the SDK v2 request handler; retained legacy requests use the Node transport.
 

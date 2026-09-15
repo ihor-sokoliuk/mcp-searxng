@@ -1540,18 +1540,24 @@ async function runTests() {
     const res = await request(app).get('/mcp');
 
     assert.equal(res.status, 400);
-    assert.ok(res.text.includes('Invalid or missing session ID'));
+    assert.equal(res.body.error.code, -32000);
+    assert.equal(res.body.error.message, 'Bad Request: No valid session ID provided');
+
+    const blank = await request(app).get('/mcp').set('mcp-session-id', ' ');
+    assert.equal(blank.status, 400);
+    assert.equal(blank.body.error.code, -32000);
   }, results);
 
-  await testFunction('GET /mcp with unknown sessionId returns 400', async () => {
+  await testFunction('GET /mcp with unknown sessionId returns 404', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .get('/mcp')
       .set('mcp-session-id', 'nonexistent-session-xyz');
 
-    assert.equal(res.status, 400);
-    assert.ok(res.text.includes('Invalid or missing session ID'));
+    assert.equal(res.status, 404);
+    assert.equal(res.body.error.code, -32001);
+    assert.equal(res.body.error.message, 'Session not found');
   }, results);
 
   await testFunction('DELETE /mcp without sessionId returns 400', async () => {
@@ -1560,18 +1566,24 @@ async function runTests() {
     const res = await request(app).delete('/mcp');
 
     assert.equal(res.status, 400);
-    assert.ok(res.text.includes('Invalid or missing session ID'));
+    assert.equal(res.body.error.code, -32000);
+    assert.equal(res.body.error.message, 'Bad Request: No valid session ID provided');
+
+    const blank = await request(app).delete('/mcp').set('mcp-session-id', ' ');
+    assert.equal(blank.status, 400);
+    assert.equal(blank.body.error.code, -32000);
   }, results);
 
-  await testFunction('DELETE /mcp with unknown sessionId returns 400', async () => {
+  await testFunction('DELETE /mcp with unknown sessionId returns 404', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
 
     const res = await request(app)
       .delete('/mcp')
       .set('mcp-session-id', 'nonexistent-session-xyz');
 
-    assert.equal(res.status, 400);
-    assert.ok(res.text.includes('Invalid or missing session ID'));
+    assert.equal(res.status, 404);
+    assert.equal(res.body.error.code, -32001);
+    assert.equal(res.body.error.message, 'Session not found');
   }, results);
 
   await testFunction('POST /mcp with initialize request creates session', async () => {
@@ -1594,7 +1606,9 @@ async function runTests() {
 
     // Should succeed (200) and return a session ID
     assert.equal(res.status, 200);
-    assert.ok(res.headers['mcp-session-id'], 'Expected mcp-session-id header in response');
+    const sessionId = res.headers['mcp-session-id'];
+    assert.ok(sessionId, 'Expected mcp-session-id header in response');
+    assert.match(sessionId, /^[\x21-\x7e]+$/);
   }, results);
 
   await testFunction('HTTP initialization failures redact response and stderr diagnostics', async () => {
@@ -1853,6 +1867,34 @@ async function runTests() {
     assert.equal(listRes.status, 200, 'follow-up request should succeed on existing session');
   }, results);
 
+  await testFunction('stateful requests accept absent and supported protocol headers and reject unsupported versions', async () => {
+    const app = await createHttpServer(() => createTestMcpServer());
+    const initRes = await request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {},
+          clientInfo: { name: 'version-client', version: '1.0.0' } },
+      });
+    const sessionId = initRes.headers['mcp-session-id'];
+    assert.ok(sessionId);
+
+    const call = (id: number) => request(app)
+      .post('/mcp')
+      .set('Content-Type', 'application/json')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('mcp-session-id', sessionId)
+      .send({ jsonrpc: '2.0', id, method: 'tools/list', params: {} });
+
+    assert.equal((await call(2)).status, 200, 'absent version header must use the negotiated version');
+    assert.equal((await call(3).set('mcp-protocol-version', '2025-11-25')).status, 200);
+    const unsupported = await call(4).set('mcp-protocol-version', '2099-01-01');
+    assert.equal(unsupported.status, 400);
+    assert.equal(unsupported.body.error.code, -32602);
+  }, results);
+
   await testFunction('session cleanup: DELETE removes session so subsequent requests fail', async () => {
     const app = await createHttpServer(() => createTestMcpServer());
 
@@ -1872,7 +1914,14 @@ async function runTests() {
     const deleteRes = await request(app)
       .delete('/mcp')
       .set('mcp-session-id', sessionId);
-    assert.equal(deleteRes.status, 200, 'DELETE should succeed for existing session');
+    assert.equal(deleteRes.status, 204, 'DELETE should succeed once with an empty response');
+    assert.equal(deleteRes.text, '');
+
+    const repeatedDelete = await request(app)
+      .delete('/mcp')
+      .set('mcp-session-id', sessionId);
+    assert.equal(repeatedDelete.status, 404, 'repeated DELETE should observe the terminated session');
+    assert.equal(repeatedDelete.body.error.code, -32001);
 
     const postRes = await request(app)
       .post('/mcp')

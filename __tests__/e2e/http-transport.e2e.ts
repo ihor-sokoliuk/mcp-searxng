@@ -61,6 +61,42 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('stateful HTTP client terminates, observes stale 404, and initializes a fresh session', async () => {
+    let server: SpawnedHttpCli | undefined;
+    let firstClient: Client | undefined;
+    let secondClient: Client | undefined;
+    try {
+      server = await spawnHttpCli();
+      const firstTransport = new StreamableHTTPClientTransport(server.url);
+      firstClient = new Client({ name: 'http-termination-e2e', version: '1.0.0' });
+      await firstClient.connect(firstTransport);
+      const terminatedSessionId = firstTransport.sessionId;
+      assert.ok(terminatedSessionId);
+
+      await firstTransport.terminateSession();
+      const stale = await fetch(server.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-session-id': terminatedSessionId,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+      });
+      assert.equal(stale.status, 404);
+
+      const secondTransport = new StreamableHTTPClientTransport(server.url);
+      secondClient = new Client({ name: 'http-recovery-e2e', version: '1.0.0' });
+      await secondClient.connect(secondTransport);
+      assert.ok(secondTransport.sessionId);
+      assert.notEqual(secondTransport.sessionId, terminatedSessionId);
+    } finally {
+      await firstClient?.close();
+      await secondClient?.close();
+      await server?.close();
+    }
+  }, results);
+
   await testFunction('stateless HTTP CLI lists tools without a session ID', async () => {
     let server: SpawnedHttpCli | undefined;
     let client: Client | undefined;
