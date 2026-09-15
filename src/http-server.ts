@@ -818,6 +818,7 @@ export async function createHttpServer(
     if (rejectUnsupportedProtocolVersion(req, res)) return;
     try {
       await session.transport.close();
+      sessions.delete(sessionId);
       if (!res.headersSent) res.status(204).end();
     } catch (error) {
       warnDiagnostic(`⚠️  DELETE request failed:`, {
@@ -826,8 +827,6 @@ export async function createHttpServer(
         error: error instanceof Error ? error.message : String(error)
       });
       throw sanitizeErrorForTransport(error);
-    } finally {
-      sessions.delete(sessionId);
     }
   });
 
