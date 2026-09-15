@@ -159,6 +159,19 @@ async function connectWithLogs(controller = createTestAdmissionController()) {
   return { client, logs };
 }
 
+async function waitForResponse(
+  responses: Array<Record<string, any>>,
+  id: number,
+): Promise<Record<string, any>> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    const response = responses.find((candidate) => candidate.id === id);
+    if (response) return response;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`Timed out waiting for JSON-RPC response ${id}`);
+}
+
 /** Minimal valid SearXNG JSON response */
 const SEARXNG_RESPONSE = JSON.stringify({
   results: [
@@ -425,6 +438,24 @@ async function runTests() {
       fetchMocker.restore();
       if (originalUrl === undefined) delete process.env.SEARXNG_URL;
       else process.env.SEARXNG_URL = originalUrl;
+      await client.close();
+    }
+  }, results);
+
+  await testFunction('an unexpected admission failure is a sanitized internal protocol error', async () => {
+    const controller = createTestAdmissionController();
+    controller.admit = () => { throw new Error('synthetic-internal-secret'); };
+    const { client } = await connect(controller);
+
+    try {
+      await client.callTool({ name: 'searxng_web_search', arguments: { query: 'test' } });
+      assert.fail('Expected an internal protocol error');
+    } catch (error) {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: number }).code, -32603);
+      assert.equal(error.message, 'Internal server error');
+      assert.ok(!`${error.message}\n${error.stack}`.includes('synthetic-internal-secret'));
+    } finally {
       await client.close();
     }
   }, results);
@@ -797,6 +828,42 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('tools/call preserves legacy numeric safesearch arguments', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    const { mockFetch, getCapturedUrl } = createCapturingMockFetch();
+    fetchMocker.mock(mockFetch);
+    const { client } = await connect();
+
+    try {
+      const result = await client.callTool({
+        name: 'searxng_web_search',
+        arguments: { query: 'test', safesearch: 1 },
+      });
+      assert.equal(result.isError, undefined);
+      assert.equal(new URL(getCapturedUrl()).searchParams.get('safesearch'), '1');
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
+  await testFunction('tools/call returns expected upstream failures as tool errors', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({ status: 503, statusText: 'Unavailable', ok: false, body: 'offline' }));
+    const { client } = await connect();
+
+    try {
+      const result = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'test' } });
+      assert.equal(result.isError, true);
+      assert.match((result.content[0] as { type: string; text: string }).text, /Error \(503\)/);
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
   await testFunction('tools/call searxng_web_search honors num_results', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: MANY_SEARXNG_RESULTS_RESPONSE }));
@@ -1001,38 +1068,28 @@ async function runTests() {
     await client.close();
   }, results);
 
-  await testFunction('legacy tools/call preserves protocol errors for invalid web-search arguments', async () => {
+  await testFunction('tools/call returns tool errors for invalid web-search arguments without upstream work', async () => {
     process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = 'json';
     const { client } = await connect();
+    let fetchCount = 0;
+    fetchMocker.mock(async () => {
+      fetchCount++;
+      throw new Error('invalid arguments must not fetch');
+    });
 
     try {
-      await assert.rejects(
-        () => client.callTool({ name: 'searxng_web_search', arguments: { notQuery: 'oops' } }),
-        /Invalid arguments for web search/,
-      );
-
-      let fetchCount = 0;
-      fetchMocker.mock(async () => {
-        fetchCount++;
-        throw new Error('invalid result_detail must not fetch');
-      });
-
-      await assert.rejects(
-        () => client.callTool({
-          name: 'searxng_web_search',
-          arguments: { query: 'invalid detail', result_detail: 'Compact' },
-        }),
-      );
-      assert.equal(fetchCount, 0, 'invalid result_detail must fail before fetch');
-      fetchMocker.restore();
-
-      await assert.rejects(
-        () => client.callTool({
-          name: 'searxng_web_search',
-          arguments: { query: 'invalid format', response_format: 'xml' },
-        }),
-      );
+      for (const arguments_ of [
+        { notQuery: 'oops' },
+        { query: 'invalid detail', result_detail: 'Compact' },
+        { query: 'invalid format', response_format: 'xml' },
+      ]) {
+        const result = await client.callTool({ name: 'searxng_web_search', arguments: arguments_ });
+        assert.equal(result.isError, true);
+        assert.match((result.content[0] as { type: string; text: string }).text, /Invalid arguments for web search/);
+      }
+      assert.equal(fetchCount, 0, 'invalid arguments must fail before fetch');
     } finally {
+      fetchMocker.restore();
       delete process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT;
       await client.close();
     }
@@ -1048,13 +1105,12 @@ async function runTests() {
     resetDiagnosticSanitizerForTests();
     initializeDiagnosticSanitizer();
     const { client, logs } = await connectWithLogs();
-    let errorText = '';
+    let resultText = '';
 
     try {
-      await client.callTool({ name: 'searxng_web_search', arguments: { query: 'test' } });
-      assert.fail('Expected configuration error');
-    } catch (error) {
-      errorText = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
+      const result = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'test' } });
+      assert.equal(result.isError, true);
+      resultText = (result.content[0] as { type: string; text: string }).text;
     } finally {
       await new Promise(resolve => setTimeout(resolve, 10));
       await client.close();
@@ -1067,7 +1123,7 @@ async function runTests() {
       resetDiagnosticSanitizerForTests();
     }
 
-    const output = `${errorText}\n${JSON.stringify(logs)}`;
+    const output = `${resultText}\n${JSON.stringify(logs)}`;
     assert.ok(!output.includes('protocol-user'), output);
     assert.ok(!output.includes('protocol-secret'), output);
     assert.ok(output.includes('ftp:'), output);
@@ -1251,21 +1307,11 @@ async function runTests() {
     const hangUrl = `http://127.0.0.1:${addr.port}`;
 
     const start = Date.now();
-    try {
-      await client.callTool({ name: 'web_url_read', arguments: { url: hangUrl } });
-      assert.fail('Expected timeout error to be thrown');
-    } catch (error: any) {
-      const elapsed = Date.now() - start;
-      // Must abort well before the default 10 s (100 ms timeout + margin)
-      assert.ok(elapsed < 3000, `Expected timeout within 3 s, took ${elapsed} ms`);
-      assert.ok(
-        error.message.toLowerCase().includes('network') ||
-        error.message.toLowerCase().includes('abort') ||
-        error.message.toLowerCase().includes('timeout') ||
-        error.message.toLowerCase().includes('error'),
-        `Expected network/timeout error, got: ${error.message}`
-      );
-    }
+    const result = await client.callTool({ name: 'web_url_read', arguments: { url: hangUrl } });
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 3000, `Expected timeout within 3 s, took ${elapsed} ms`);
+    assert.equal(result.isError, true);
+    assert.match((result.content[0] as { type: string; text: string }).text, /network|abort|timeout/i);
 
     await new Promise<void>((resolve) => { hangingServer.closeAllConnections(); hangingServer.close(() => resolve()); });
     delete process.env.FETCH_TIMEOUT_MS;
@@ -1306,13 +1352,12 @@ async function runTests() {
     await client.close();
   }, results);
 
-  await testFunction('legacy tools/call preserves protocol errors for invalid URL-reader arguments', async () => {
+  await testFunction('tools/call returns a tool error for invalid URL-reader arguments', async () => {
     const { client } = await connect();
 
-    await assert.rejects(
-      () => client.callTool({ name: 'web_url_read', arguments: { notUrl: 'oops' } }),
-      /Invalid arguments for URL reading/,
-    );
+    const result = await client.callTool({ name: 'web_url_read', arguments: { notUrl: 'oops' } });
+    assert.equal(result.isError, true);
+    assert.match((result.content[0] as { type: string; text: string }).text, /Invalid arguments for URL reading/);
 
     await client.close();
   }, results);
@@ -1327,6 +1372,7 @@ async function runTests() {
       assert.fail('Expected error was not thrown');
     } catch (error) {
       assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: number }).code, -32602);
       assert.ok(
         error.message.toLowerCase().includes('unknown') ||
         error.message.toLowerCase().includes('tool'),
@@ -1335,6 +1381,39 @@ async function runTests() {
     }
 
     await client.close();
+  }, results);
+
+  await testFunction('malformed tools/call params are rejected as invalid protocol parameters', async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcpServer = createMcpServer(createTestAdmissionController());
+    const responses: Array<Record<string, any>> = [];
+    clientTransport.onmessage = (message) => { responses.push(message as Record<string, any>); };
+    await mcpServer.connect(serverTransport);
+    await clientTransport.start();
+
+    try {
+      await clientTransport.send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'raw-test-client', version: '1.0.0' },
+        },
+      } as any);
+      const initialized = await waitForResponse(responses, 1);
+      assert.ok(initialized.result, JSON.stringify(initialized));
+      await clientTransport.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as any);
+      await clientTransport.send({
+        jsonrpc: '2.0', id: 2, method: 'tools/call', params: {},
+      } as any);
+      const malformed = await waitForResponse(responses, 2);
+      assert.equal(malformed.error?.code, -32602, JSON.stringify(malformed));
+    } finally {
+      await clientTransport.close();
+      await mcpServer.close();
+    }
   }, results);
 
   // ── logging/setLevel ──────────────────────────────────────────────────────────
@@ -1463,6 +1542,7 @@ async function runTests() {
       assert.fail('Expected error was not thrown');
     } catch (error) {
       assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: number }).code, -32602);
       assert.ok(
         error.message.toLowerCase().includes('unknown') ||
         error.message.toLowerCase().includes('resource'),
@@ -1500,7 +1580,7 @@ async function runTests() {
     assert.ok(caughtError instanceof Error, 'Expected resource error');
     assert.equal(
       caughtError.message,
-      'Unknown resource: https://search.example.com/',
+      'Resource not found: https://search.example.com/',
       output,
     );
   }, results);

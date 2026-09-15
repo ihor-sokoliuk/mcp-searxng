@@ -1,4 +1,11 @@
-import { McpServer, fromJsonSchema, type ReadResourceCallback } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  ProtocolError,
+  ProtocolErrorCode,
+  ResourceNotFoundError,
+  fromJsonSchema,
+  type ReadResourceCallback,
+} from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 // Import modularized functionality
@@ -33,6 +40,7 @@ import {
 import { writeDiagnostic } from "./diagnostic-output.js";
 import { parseBoundedInteger, parseStrictInteger } from "./env-int.js";
 import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
+import { MCPSearXNGError } from "./error-handler.js";
 
 import { packageVersion } from "./version.js";
 
@@ -201,6 +209,26 @@ function textToolResult(text: string): ToolCallResult {
   return { content: [{ type: "text", text }] };
 }
 
+function errorToolResult(text: string): ToolCallResult {
+  return { content: [{ type: "text", text }], isError: true };
+}
+
+function invalidToolArguments(name: string, args: unknown): string | undefined {
+  if (name === "searxng_web_search") {
+    return isSearXNGWebSearchArgs(args) ? undefined : "Invalid arguments for web search";
+  }
+  if (name === "searxng_search_suggestions") {
+    return isSearXNGSearchSuggestionsArgs(args) ? undefined : "Invalid arguments for search suggestions";
+  }
+  if (name === "searxng_instance_info") {
+    return isSearXNGInstanceInfoArgs(args) ? undefined : "Invalid arguments for instance info";
+  }
+  if (name === "web_url_read") {
+    return isWebUrlReadArgs(args) ? undefined : "Invalid arguments for URL reading";
+  }
+  throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
+}
+
 async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
   if (!isSearXNGWebSearchArgs(args)) throw new Error("Invalid arguments for web search");
   return textToolResult(await performWebSearch(
@@ -296,13 +324,19 @@ function registerMcpTools(mcpServer: McpServer, modern: boolean, callTool: CallT
   registerTool(useLiteTools ? LITE_SUGGESTIONS_TOOL : SUGGESTIONS_TOOL);
   registerTool(useLiteTools ? LITE_INSTANCE_INFO_TOOL : INSTANCE_INFO_TOOL);
   registerTool(useLiteTools ? LITE_READ_URL_TOOL : READ_URL_TOOL);
-  if (!modern) {
-    // Preserve the legacy wire error and admission boundary while the modern
-    // era keeps SDK-owned schema validation and tool dispatch.
-    mcpServer.server.setRequestHandler("tools/call", async (request, context) => (
-      callTool(request.params.name, request.params.arguments, context.mcpReq.signal)
-    ));
-  }
+  // Keep one wire-level classification boundary for every protocol era. The
+  // SDK still validates the request envelope before invoking this handler;
+  // these guards preserve legacy-compatible argument forms such as numeric
+  // safesearch while returning validation failures as MCP tool results.
+  mcpServer.server.setRequestHandler("tools/call", async (request, context) => {
+    const callback = async () => {
+      const invalidArguments = invalidToolArguments(request.params.name, request.params.arguments);
+      if (invalidArguments) return errorToolResult(invalidArguments);
+      return callTool(request.params.name, request.params.arguments, context.mcpReq.signal);
+    };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- required compatibility log bridge
+    return modern ? runWithModernLog(context.mcpReq.log, callback) : callback();
+  });
 }
 
 function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
@@ -344,7 +378,16 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
     if (request.params.uri === "help://usage-guide") {
       return readHelpResource(new URL(request.params.uri), context);
     }
-    throw sanitizeErrorForTransport(new Error(`Unknown resource: ${request.params.uri}`));
+    let safeUri: string;
+    try {
+      const parsed = new URL(request.params.uri);
+      parsed.username = "";
+      parsed.password = "";
+      safeUri = parsed.href;
+    } catch {
+      throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid resource URI");
+    }
+    throw new ResourceNotFoundError(safeUri);
   });
   mcpServer.server.setRequestHandler("logging/setLevel", async (request, context) => {
     const callback = async () => {
@@ -382,28 +425,34 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
   if (modern) markModernServer(mcpServer);
 
   const callTool = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallResult> => {
-    const admission = admissionController.admit();
-    if (!admission.release) {
-      return {
-        content: [{ type: "text", text: TOOL_ADMISSION_REJECTION_MESSAGE }],
-        isError: true,
-      };
-    }
-
     try {
-      logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+      const admission = admissionController.admit();
+      if (!admission.release) return errorToolResult(TOOL_ADMISSION_REJECTION_MESSAGE);
 
-      return await executeTool(mcpServer, name, args, signal);
+      try {
+        logMessage(mcpServer, "debug", `Handling call_tool request: ${name}`);
+        return await executeTool(mcpServer, name, args, signal);
+      } finally {
+        admission.release();
+      }
     } catch (error) {
+      if (
+        signal?.aborted
+        && (error === signal.reason || (error instanceof Error && error.name === "AbortError"))
+      ) {
+        throw error;
+      }
+      if (error instanceof ProtocolError) throw error;
       const safeError = sanitizeErrorForTransport(error);
       logMessage(mcpServer, "error", `Tool execution error: ${safeError.message}`, {
         tool: name,
         args: args,
         error: safeError.stack,
       });
-      throw safeError;
-    } finally {
-      admission.release();
+      if (error instanceof MCPSearXNGError && error.expected) {
+        return errorToolResult(safeError.message);
+      }
+      throw new ProtocolError(ProtocolErrorCode.InternalError, "Internal server error");
     }
   };
 
