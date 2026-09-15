@@ -361,16 +361,16 @@ npm audit --omit=dev
 
 ## Container Image Security
 
-The published Docker image (`isokoliuk/mcp-searxng`) is built from a digest-pinned `node:lts-alpine` base. Base-image updates are automated:
+The published Docker image (`isokoliuk/mcp-searxng`) is built from a digest-pinned `node:lts-alpine` base. Base-image updates follow the dependency maintenance process:
 
-- **Dependabot** opens a weekly PR when the digest behind `node:lts-alpine` moves, so new releases always build on a current base.
-- **A weekly rebuild workflow** compares the published image's base digest (recorded in its `org.opencontainers.image.base.digest` OCI label) against upstream. On drift, it rebuilds from the latest release tag with the patched base, re-scans with Trivy, and republishes the same version tags.
+- **Dependabot** checks weekly for changes to the digest behind `node:lts-alpine`. Maintenance also checks upstream for a newer digest.
+- Compatible base updates are tested with other dependency updates, committed to the Dockerfile, and published with the next application release. A compatible base-only update can produce a patch release. Failed updates are deferred for maintainer review.
 
-As a result, version tags (e.g. `1.3.2`) are **mutable**: pulling the same tag after an upstream security fix returns the same application code on a patched base. Pin by image digest if you require immutability, and use the `org.opencontainers.image.base.digest` label to audit which base an image was built from.
+The independent weekly rebuild has been retired; base updates now ship through versioned releases. Historical version tags may have been republished by that workflow, and `latest` and minor-version tags continue to move with releases. Pin by image digest if you require immutability, and use the `org.opencontainers.image.base.digest` label to audit which base an image was built from.
 
 Every published image is scanned with Trivy (CRITICAL/HIGH severities, unfixed ignored) before release; results are uploaded to the repository's GitHub Security tab.
 
-Published images are signed with [Cosign](https://docs.sigstore.dev/cosign/) using GitHub Actions keyless OIDC identity. Verify an image signature before running it:
+Published images are signed with [Cosign](https://docs.sigstore.dev/cosign/) using GitHub Actions keyless OIDC identity. New releases use `docker-publish.yml`; the verification expression below also accepts the retired `docker-rebuild.yml` identity for historical images. Verify an image signature before running it:
 
 ```bash
 cosign verify \

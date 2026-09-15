@@ -92,7 +92,6 @@ const workflowUrls = {
   ci: new URL('../../.github/workflows/ci.yml', import.meta.url),
   codeql: new URL('../../.github/workflows/codeql.yml', import.meta.url),
   dockerPublish: new URL('../../.github/workflows/docker-publish.yml', import.meta.url),
-  dockerRebuild: new URL('../../.github/workflows/docker-rebuild.yml', import.meta.url),
   npmPublish: new URL('../../.github/workflows/npm-publish.yml', import.meta.url),
   scorecard: new URL('../../.github/workflows/scorecard.yml', import.meta.url),
 };
@@ -534,6 +533,19 @@ export async function runTests(): Promise<TestResult> {
   await testFunction('Dependabot may update unpdf', () => {
     const dependabot = readText(new URL('../../.github/dependabot.yml', import.meta.url));
     assertDependabotUnpdfPolicy(dependabot);
+  }, results);
+
+  await testFunction('Docker base updates ship with releases without an independent rebuild schedule', () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository workflow path
+    assert.ok(!existsSync(new URL('../../.github/workflows/docker-rebuild.yml', import.meta.url)));
+    const publish = readText(workflowUrls.dockerPublish);
+    assert.match(publish, /tags:\s*\n\s*- 'v\*'/u);
+    assert.ok(publish.includes('linux/amd64,linux/arm64'));
+    assert.ok(publish.includes('needs: scan_image'));
+    assert.ok(publish.includes('cosign sign'));
+    const security = readText(new URL('../../SECURITY.md', import.meta.url));
+    assert.ok(security.includes('committed to the Dockerfile'));
+    assert.ok(security.includes('independent weekly rebuild has been retired'));
   }, results);
 
   await testFunction('cookbook exists and README links to it', () => {
