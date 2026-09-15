@@ -1553,6 +1553,21 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('resources/read malformed URI throws invalid-parameters protocol error', async () => {
+    const { client } = await connect();
+
+    try {
+      await client.readResource({ uri: 'not a valid URI' });
+      assert.fail('Expected error was not thrown');
+    } catch (error) {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: number }).code, -32602);
+      assert.equal(error.message, 'Invalid resource URI');
+    } finally {
+      await client.close();
+    }
+  }, results);
+
   await testFunction('resources/read errors redact credential-bearing URIs', async () => {
     const originalUrl = process.env.SEARXNG_URL;
     const markerUrl = 'https://resource-user:resource-secret@search.example.com';
