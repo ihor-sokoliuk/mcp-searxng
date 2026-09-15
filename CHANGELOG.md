@@ -5,6 +5,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.3.0] - 2026-09-15
+
+### Added
+
+- Conform retained stateful HTTP sessions to the Streamable HTTP lifecycle: missing identifiers return JSON HTTP 400, unknown or terminated identifiers return JSON HTTP 404, successful DELETE termination returns an empty 204, protocol-version validation remains enforced, and clients can reconnect with a fresh session after termination. Failed transport closure remains retryable. ([#289](https://github.com/ihor-sokoliuk/mcp-searxng/pull/289))
+
+### Fixed and security
+
+- Align MCP error classification across STDIO and HTTP transports. Malformed protocol input uses `-32602`, expected tool failures return `isError: true`, unexpected internal failures use a sanitized `-32603`, cancellation stays distinct, and resource errors no longer expose credentials. ([#288](https://github.com/ihor-sokoliuk/mcp-searxng/pull/288))
+- Update Undici to its supported security release and strengthen packed-runtime verification. ([#279](https://github.com/ihor-sokoliuk/mcp-searxng/pull/279))
+- Update Zod with single-source dependency verification. ([#280](https://github.com/ihor-sokoliuk/mcp-searxng/pull/280))
+
+### Documentation
+
+- Correct transport and client examples, clarify proxy trust and Linux/container networking, and validate published setup commands. ([#281](https://github.com/ihor-sokoliuk/mcp-searxng/pull/281))
+- Reorganize client setup and troubleshooting around common tasks with validated navigation and anchors. ([#282](https://github.com/ihor-sokoliuk/mcp-searxng/pull/282))
+
+### Dependencies and CI
+
+- Refresh compatible runtime and development dependencies, including `jose` 6.2.12, Zod 4.6.5, `fast-check` 4.10.0 and Node.js type definitions 22.20.2; update CodeQL workflow pins to v4.38.0. ([#287](https://github.com/ihor-sokoliuk/mcp-searxng/pull/287))
+
+### Contributors
+
+- @ihor-sokoliuk — HTTP lifecycle conformance, error-contract repairs, dependency maintenance, documentation and release work.
+
 ## [2.2.0] - 2026-09-09
 
 ### Added
