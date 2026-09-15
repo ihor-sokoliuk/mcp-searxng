@@ -213,20 +213,20 @@ function errorToolResult(text: string): ToolCallResult {
   return { content: [{ type: "text", text }], isError: true };
 }
 
+type ToolDefinition = {
+  validate: (args: unknown) => boolean;
+  invalidArguments: string;
+  execute: (
+    mcpServer: McpServer,
+    args: unknown,
+    signal?: AbortSignal,
+  ) => Promise<ToolCallResult>;
+};
+
 function invalidToolArguments(name: string, args: unknown): string | undefined {
-  if (name === "searxng_web_search") {
-    return isSearXNGWebSearchArgs(args) ? undefined : "Invalid arguments for web search";
-  }
-  if (name === "searxng_search_suggestions") {
-    return isSearXNGSearchSuggestionsArgs(args) ? undefined : "Invalid arguments for search suggestions";
-  }
-  if (name === "searxng_instance_info") {
-    return isSearXNGInstanceInfoArgs(args) ? undefined : "Invalid arguments for instance info";
-  }
-  if (name === "web_url_read") {
-    return isWebUrlReadArgs(args) ? undefined : "Invalid arguments for URL reading";
-  }
-  throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
+  const definition = TOOL_DEFINITIONS[name];
+  if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
+  return definition.validate(args) ? undefined : definition.invalidArguments;
 }
 
 async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
@@ -286,17 +286,38 @@ async function executeUrlRead(
   ));
 }
 
+const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
+  searxng_web_search: {
+    validate: isSearXNGWebSearchArgs,
+    invalidArguments: "Invalid arguments for web search",
+    execute: executeWebSearch,
+  },
+  searxng_search_suggestions: {
+    validate: isSearXNGSearchSuggestionsArgs,
+    invalidArguments: "Invalid arguments for search suggestions",
+    execute: executeSuggestions,
+  },
+  searxng_instance_info: {
+    validate: isSearXNGInstanceInfoArgs,
+    invalidArguments: "Invalid arguments for instance info",
+    execute: executeInstanceInfo,
+  },
+  web_url_read: {
+    validate: isWebUrlReadArgs,
+    invalidArguments: "Invalid arguments for URL reading",
+    execute: executeUrlRead,
+  },
+};
+
 async function executeTool(
   mcpServer: McpServer,
   name: string,
   args: unknown,
   signal?: AbortSignal,
 ): Promise<ToolCallResult> {
-  if (name === "searxng_web_search") return executeWebSearch(mcpServer, args);
-  if (name === "searxng_search_suggestions") return executeSuggestions(mcpServer, args);
-  if (name === "searxng_instance_info") return executeInstanceInfo(mcpServer, args);
-  if (name === "web_url_read") return executeUrlRead(mcpServer, args, signal);
-  throw new Error(`Unknown tool: ${name}`);
+  const definition = TOOL_DEFINITIONS[name];
+  if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
+  return definition.execute(mcpServer, args, signal);
 }
 
 type CallTool = (name: string, args: unknown, signal?: AbortSignal) => Promise<ToolCallResult>;
