@@ -124,7 +124,14 @@ async function withIsolatedEnv(callback: () => Promise<void>): Promise<void> {
   }
 }
 
-async function verifyBypassAndGlobalProxy(fixture: Awaited<ReturnType<typeof authenticatedProxyFixture>>, configured: URL) {
+interface ProxyRoutingFixture {
+  targetUrl: string;
+  auth: string[];
+  content: string;
+  secret: string;
+}
+
+async function verifyBypassAndGlobalProxy(fixture: ProxyRoutingFixture, configured: URL) {
   const authBefore = fixture.auth.length;
   const bypass = await connectCli(fixture.targetUrl, { HTTP_PROXY: configured.href, NO_PROXY: "127.0.0.1" });
   try {
