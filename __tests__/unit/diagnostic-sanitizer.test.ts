@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 
 import { strict as assert } from "node:assert";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   initializeDiagnosticSanitizer,
@@ -100,7 +101,7 @@ async function runTests() {
   ]) {
     await testFunction(`redacts ${key} credentials and nested causes without mutation`, () => {
       const username = "proxy-user";
-      const password = "proxy p@ss/word?";
+      const password = `${randomUUID()} p@ss/word?`;
       const encodedPassword = encodeURIComponent(password);
       const url = `http://${username}:${encodedPassword}@proxy.example.com:8080`;
       const env = Object.freeze({ [key]: url });
@@ -135,6 +136,19 @@ async function runTests() {
       "proxyuser:proxy-secret@proxy.example:8080",
     ]) {
       withCredentials({ HTTP_PROXY: raw }, () => {
+        assert.equal(sanitizeDiagnosticText(`Failed: ${raw}`), "Failed: [redacted diagnostic]");
+      });
+    }
+  }, results);
+
+  await testFunction("redacts complete overlapping settings before their shorter prefixes", () => {
+    const raw = "http://proxy-user:proxy-secret/suffix@proxy.example:8080";
+    for (const env of [
+      { HTTP_PROXY: "http://", SEARCH_HTTP_PROXY: raw },
+      { HTTP_PROXY: raw, SEARCH_HTTP_PROXY: "http://" },
+      { SEARXNG_URL: "http://", HTTP_PROXY: raw },
+    ]) {
+      withCredentials(env, () => {
         assert.equal(sanitizeDiagnosticText(`Failed: ${raw}`), "Failed: [redacted diagnostic]");
       });
     }

@@ -115,7 +115,11 @@ function captureSnapshot(env: NodeJS.ProcessEnv): CredentialSnapshot {
     replacements: [...replacements]
       .filter((value) => value !== REDACTED && value !== REDACTED_DIAGNOSTIC)
       .sort((left, right) => right.length - left.length),
-    configuredUrls,
+    // A shorter malformed setting must not consume the prefix of a longer
+    // credential-bearing value before that complete value can be removed.
+    configuredUrls: new Map(
+      [...configuredUrls].sort(([left], [right]) => right.length - left.length),
+    ),
   };
 }
 
