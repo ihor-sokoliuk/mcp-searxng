@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 
 import { strict as assert } from "node:assert";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import http from "node:http";
 import net from "node:net";
@@ -9,6 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createHttpServer } from "../../src/http-server.js";
 import { createMcpServer, ToolAdmissionController } from "../../src/index.js";
 import { resetDiagnosticSanitizerForTests } from "../../src/diagnostic-sanitizer.js";
+import { snapshotProcessEnv, restoreProcessEnv } from "../helpers/env-utils.js";
 import {
   createTestResults,
   printTestSummary,
@@ -68,7 +70,8 @@ async function authenticatedProxyFixture() {
   const requests: Array<{ url: string; headers: http.IncomingHttpHeaders }> = [];
   const auth: string[] = [];
   const sockets = new Set<net.Socket>();
-  const content = "proxy-secret is legitimate fixture content";
+  const secret = randomUUID();
+  const content = `${secret} is legitimate fixture content`;
   const target = http.createServer((request, response) => {
     requests.push({ url: request.url ?? "", headers: request.headers });
     if (request.url?.startsWith("/redirect")) {
@@ -79,7 +82,7 @@ async function authenticatedProxyFixture() {
       response.end(JSON.stringify({ results: [{ title: "Fixture", url: "https://example.com/", content }] }));
     } else {
       response.setHeader("Content-Type", "text/html");
-      response.end(`<p>${content}</p>`);
+      response.end("<p>" + content + "</p>");
     }
   });
   const targetUrl = await listen(target);
@@ -103,12 +106,47 @@ async function authenticatedProxyFixture() {
   });
   const proxyUrl = await listen(proxy);
   return {
-    targetUrl, proxyUrl, requests, auth, content,
+    targetUrl, proxyUrl, requests, auth, content, secret,
     close: async () => {
       for (const socket of sockets) socket.destroy();
       await Promise.all([closeServer(proxy), closeServer(target)]);
     },
   };
+}
+
+async function withIsolatedEnv(callback: () => Promise<void>): Promise<void> {
+  const env = snapshotProcessEnv();
+  try {
+    await callback();
+  } finally {
+    restoreProcessEnv(env);
+    resetDiagnosticSanitizerForTests();
+  }
+}
+
+async function verifyBypassAndGlobalProxy(fixture: Awaited<ReturnType<typeof authenticatedProxyFixture>>, configured: URL) {
+  const authBefore = fixture.auth.length;
+  const bypass = await connectCli(fixture.targetUrl, { HTTP_PROXY: configured.href, NO_PROXY: "127.0.0.1" });
+  try {
+    const result = await bypass.client.callTool({ name: "searxng_web_search", arguments: { query: "bypass" } });
+    assert.notEqual(result.isError, true);
+    assert.equal(fixture.auth.length, authBefore);
+    assert.equal((result.content[0] as { text: string }).text,
+      `Title: Fixture\nDescription: ${fixture.content}\nURL: https://example.com/`);
+  } finally {
+    await bypass.client.close();
+  }
+  const encodedSecret = `${fixture.secret} p@ss/word?`;
+  configured.password = encodedSecret;
+  const global = await connectCli(fixture.targetUrl, { HTTP_PROXY: configured.href });
+  try {
+    const result = await global.client.callTool({ name: "searxng_web_search", arguments: { query: "global" } });
+    assert.notEqual(result.isError, true);
+    assert.equal(fixture.auth.length, authBefore + 1);
+    assert.equal(fixture.auth.at(-1), `Basic ${Buffer.from(`proxy-user:${encodedSecret}`).toString("base64")}`);
+  } finally {
+    await global.client.close();
+  }
 }
 
 async function runTests() {
@@ -153,8 +191,8 @@ async function runTests() {
     const fixture = await authenticatedProxyFixture();
     const configured = new URL(fixture.proxyUrl);
     configured.username = "proxy-user";
-    configured.password = "proxy-secret";
-    const expectedAuth = `Basic ${Buffer.from("proxy-user:proxy-secret").toString("base64")}`;
+    configured.password = fixture.secret;
+    const expectedAuth = `Basic ${Buffer.from(`proxy-user:${fixture.secret}`).toString("base64")}`;
     try {
       // A malformed global setting must not override the valid per-tool route.
       const connection = await connectCli(fixture.targetUrl, {
@@ -182,33 +220,13 @@ async function runTests() {
       } finally {
         await connection.client.close();
       }
-      const authBefore = fixture.auth.length;
-      const bypass = await connectCli(fixture.targetUrl, { HTTP_PROXY: configured.href, NO_PROXY: "127.0.0.1" });
-      try {
-        const result = await bypass.client.callTool({ name: "searxng_web_search", arguments: { query: "bypass" } });
-        assert.notEqual(result.isError, true);
-        assert.equal(fixture.auth.length, authBefore);
-        assert.equal((result.content[0] as { text: string }).text,
-          `Title: Fixture\nDescription: ${fixture.content}\nURL: https://example.com/`);
-      } finally {
-        await bypass.client.close();
-      }
-      configured.password = "proxy p@ss/word?";
-      const global = await connectCli(fixture.targetUrl, { HTTP_PROXY: configured.href });
-      try {
-        const result = await global.client.callTool({ name: "searxng_web_search", arguments: { query: "global" } });
-        assert.notEqual(result.isError, true);
-        assert.equal(fixture.auth.length, authBefore + 1);
-        assert.equal(fixture.auth.at(-1), `Basic ${Buffer.from("proxy-user:proxy p@ss/word?").toString("base64")}`);
-      } finally {
-        await global.client.close();
-      }
+      await verifyBypassAndGlobalProxy(fixture, configured);
     } finally {
       await fixture.close();
     }
   }, results);
 
-  await testFunction("loopback HTTP errors and MCP notifications redact malformed proxy credentials", async () => {
+  await testFunction("loopback HTTP errors and MCP notifications redact malformed proxy credentials", () => withIsolatedEnv(async () => {
     for (const key of Object.keys(process.env).filter(key =>
       /proxy|^MCP_HTTP_|^FLARESOLVERR_|^BYPARR_|^AUTH_|^SEARXNG_FANOUT$/i.test(key))) {
       delete process.env[key];
@@ -242,7 +260,7 @@ async function runTests() {
       await closeServer(server);
       resetDiagnosticSanitizerForTests();
     }
-  }, results);
+  }), results);
 
   await testFunction("real CLI startup logging removes URL Basic Auth userinfo", async () => {
     const markerUrl = "https://cli-user:cli-secret@search.example.com/path";
