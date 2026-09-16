@@ -134,6 +134,9 @@ async function runTests() {
       "http://proxy-user:proxy-secret suffix@proxy.example:bad",
       "proxy_user:proxy-secret@proxy.example:8080",
       "proxyuser:proxy-secret@proxy.example:8080",
+      "http://proxy-user/proxy-secret@proxy.example:8080",
+      "http://proxy-user?proxy-secret@proxy.example:8080",
+      "http://proxy-user#proxy-secret@proxy.example:8080",
     ]) {
       withCredentials({ HTTP_PROXY: raw }, () => {
         assert.equal(sanitizeDiagnosticText(`Failed: ${raw}`), "Failed: [redacted diagnostic]");
