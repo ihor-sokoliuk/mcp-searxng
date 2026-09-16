@@ -255,7 +255,7 @@ export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAge
     parsedProxyUrl = new URL(proxyUrl);
   } catch (error) {
     throw new Error(
-      `Invalid proxy URL: ${proxyUrl}. ` +
+      "Invalid proxy URL. " +
       "Please provide a valid URL (e.g., http://proxy:8080 or http://user:pass@proxy:8080)"
     );
   }
@@ -263,7 +263,7 @@ export function createProxyAgent(targetUrl?: string, type?: ProxyType): ProxyAge
   // Ensure proxy protocol is supported
   if (!['http:', 'https:'].includes(parsedProxyUrl.protocol)) {
     throw new Error(
-      `Unsupported proxy protocol: ${parsedProxyUrl.protocol}. ` +
+      "Unsupported proxy protocol. " +
       "Only HTTP and HTTPS proxies are supported."
     );
   }

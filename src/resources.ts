@@ -3,6 +3,7 @@ import { getCurrentLogLevel } from "./logging.js";
 import { packageVersion } from "./version.js";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { parseSearxngUrls, redactSearxngInstanceUrl } from "./searxng-instances.js";
+import { PROXY_ENVIRONMENT_KEYS } from "./proxy-environment.js";
 
 export const REQUIRED_CONFIGURATION_GUIDANCE =
   "SEARXNG_URL is the only required environment variable.";
@@ -58,21 +59,6 @@ function hasConfiguredAuth(): boolean {
     }
   });
 }
-
-const PROXY_ENVIRONMENT_KEYS = [
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "http_proxy",
-  "https_proxy",
-  "SEARCH_HTTP_PROXY",
-  "SEARCH_HTTPS_PROXY",
-  "search_http_proxy",
-  "search_https_proxy",
-  "URL_READER_HTTP_PROXY",
-  "URL_READER_HTTPS_PROXY",
-  "url_reader_http_proxy",
-  "url_reader_https_proxy",
-] as const;
 
 function hasConfiguredProxy(): boolean {
   return PROXY_ENVIRONMENT_KEYS.some((key) => Boolean(process.env[key]));

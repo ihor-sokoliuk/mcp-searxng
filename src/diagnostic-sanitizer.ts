@@ -1,3 +1,5 @@
+import { PROXY_ENVIRONMENT_KEYS } from "./proxy-environment.js";
+
 const REDACTED = "[redacted]";
 const REDACTED_DIAGNOSTIC = "[redacted diagnostic]";
 const UNAVAILABLE = "[unavailable]";
@@ -59,9 +61,14 @@ function addBasicForms(
   }
 }
 
-function redactUrl(raw: string): string {
+function redactUrl(raw: string, proxy: boolean): string {
   try {
     const url = new URL(raw);
+    // A bare user:password@host can parse as an opaque custom scheme; clearing
+    // URL.userinfo would leave the entire credential-bearing path untouched.
+    if (proxy && !["http:", "https:"].includes(url.protocol)) {
+      return REDACTED_DIAGNOSTIC;
+    }
     url.username = "";
     url.password = "";
     return url.toString();
@@ -76,13 +83,20 @@ function captureSnapshot(env: NodeJS.ProcessEnv): CredentialSnapshot {
   const rawUrls = env.SEARXNG_URL?.split(";")
     .map((entry) => entry.trim())
     .filter(Boolean) ?? [];
+  // Keep the exact proxy setting: even an unparseable value must be removed
+  // from diagnostics. This snapshot never changes the operational setting.
+  const proxyUrls = PROXY_ENVIRONMENT_KEYS
+    .map((key) => env[key])
+    .filter((value): value is string => Boolean(value));
 
-  for (const rawUrl of rawUrls) {
-    configuredUrls.set(rawUrl, redactUrl(rawUrl));
+  for (const rawUrl of [...rawUrls, ...proxyUrls]) {
+    configuredUrls.set(rawUrl, redactUrl(rawUrl, proxyUrls.includes(rawUrl)));
     try {
       const url = new URL(rawUrl);
       const username = safeDecode(url.username);
       const password = safeDecode(url.password);
+      addUriForms(replacements, url.password);
+      addBasicForms(replacements, url.username, url.password);
       addUriForms(replacements, password);
       addBasicForms(replacements, username, password);
     } catch {
