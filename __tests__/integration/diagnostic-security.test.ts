@@ -150,7 +150,7 @@ async function verifyBypassAndGlobalProxy(fixture: ProxyRoutingFixture, configur
     const result = await global.client.callTool({ name: "searxng_web_search", arguments: { query: "global" } });
     assert.notEqual(result.isError, true);
     assert.equal(fixture.auth.length, authBefore + 1);
-    assert.equal(fixture.auth.at(-1), `Basic ${Buffer.from(`proxy-user:${encodedSecret}`).toString("base64")}`);
+    assert.equal(fixture.auth.at(-1), `Basic ${Buffer.from("proxy-user:" + encodedSecret).toString("base64")}`);
   } finally {
     await global.client.close();
   }
@@ -199,7 +199,7 @@ async function runTests() {
     const configured = new URL(fixture.proxyUrl);
     configured.username = "proxy-user";
     configured.password = fixture.secret;
-    const expectedAuth = `Basic ${Buffer.from(`proxy-user:${fixture.secret}`).toString("base64")}`;
+    const expectedAuth = `Basic ${Buffer.from("proxy-user:" + fixture.secret).toString("base64")}`;
     try {
       // A malformed global setting must not override the valid per-tool route.
       const connection = await connectCli(fixture.targetUrl, {
