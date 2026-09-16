@@ -106,6 +106,33 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('Proxy configuration errors omit raw credentials before logging', () => {
+    for (const key of Object.keys(process.env).filter(key => /proxy$/i.test(key))) {
+      envManager.delete(key);
+    }
+    try {
+      for (const proxy of [
+        '//proxy-user:proxy-secret@proxy.example:8080',
+        'http://proxy-user:proxy-secret/suffix@proxy.example:8080',
+        'proxyuser:proxy-secret@proxy.example:8080',
+      ]) {
+        envManager.set('HTTP_PROXY', proxy);
+        assert.throws(() => createProxyAgent('http://example.com'), error => {
+          assert.ok(error instanceof Error);
+          assert.equal(error.constructor, Error);
+          assert.ok(!error.message.includes('proxy-user'), error.message);
+          assert.ok(!error.message.includes('proxyuser'), error.message);
+          assert.ok(!error.message.includes('proxy-secret'), error.message);
+          assert.match(error.message, /HTTP|http/);
+          return true;
+        });
+        assert.equal(process.env.HTTP_PROXY, proxy);
+      }
+    } finally {
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('Different URL schemes', () => {
     const testUrls = ['http://example.com', 'https://example.com'];
     

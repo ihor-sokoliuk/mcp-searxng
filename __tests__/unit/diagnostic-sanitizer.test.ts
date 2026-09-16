@@ -93,6 +93,62 @@ async function runTests() {
     resetDiagnosticSanitizerForTests();
   }, results);
 
+  for (const key of [
+    "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+    "SEARCH_HTTP_PROXY", "SEARCH_HTTPS_PROXY", "search_http_proxy", "search_https_proxy",
+    "URL_READER_HTTP_PROXY", "URL_READER_HTTPS_PROXY", "url_reader_http_proxy", "url_reader_https_proxy",
+  ]) {
+    await testFunction(`redacts ${key} credentials and nested causes without mutation`, () => {
+      const username = "proxy-user";
+      const password = "proxy p@ss/word?";
+      const encodedPassword = encodeURIComponent(password);
+      const url = `http://${username}:${encodedPassword}@proxy.example.com:8080`;
+      const env = Object.freeze({ [key]: url });
+      const basic = Buffer.from(`${username}:${password}`).toString("base64");
+      withCredentials(env, () => {
+        const cause = new Error(`Basic ${basic}`);
+        const error = new Error(`${url} ${password} ${encodedPassword}`, { cause });
+        const originalStack = error.stack;
+        const safe = sanitizeErrorForTransport(error);
+        const output = JSON.stringify({ message: safe.message, stack: safe.stack, cause: safe.cause });
+        for (const secret of [username + ":", password, encodedPassword, basic]) {
+          assert.ok(!output.includes(secret), output);
+        }
+        assert.equal(error.message, `${url} ${password} ${encodedPassword}`);
+        assert.equal(error.stack, originalStack);
+        assert.equal(error.cause, cause);
+        assert.equal(cause.message, `Basic ${basic}`);
+        assert.equal(env[key], url);
+        assert.equal(sanitizeDiagnosticText("Connection refused (ECONNREFUSED)"), "Connection refused (ECONNREFUSED)");
+      });
+    }, results);
+  }
+
+  await testFunction("replaces complete malformed proxy settings instead of guessing userinfo", () => {
+    for (const raw of [
+      "//proxy-user:proxy-secret@proxy.example:8080",
+      "http//proxy-user:proxy-secret@proxy.example:8080",
+      "http://proxy-user:proxy-secret/suffix@proxy.example:8080",
+      "http://proxy-user:proxy-secret?suffix@proxy.example:8080",
+      "http://proxy-user:proxy-secret suffix@proxy.example:bad",
+      "proxy_user:proxy-secret@proxy.example:8080",
+      "proxyuser:proxy-secret@proxy.example:8080",
+    ]) {
+      withCredentials({ HTTP_PROXY: raw }, () => {
+        assert.equal(sanitizeDiagnosticText(`Failed: ${raw}`), "Failed: [redacted diagnostic]");
+      });
+    }
+  }, results);
+
+  await testFunction("protects raw percent forms and short proxy passwords only in diagnostic copies", () => {
+    withCredentials({ HTTP_PROXY: "http://proxy-user:%70%61ss@proxy.example:8080" }, () => {
+      assert.equal(sanitizeDiagnosticText("pass %70%61ss"), "[redacted] [redacted]");
+    });
+    withCredentials({ HTTP_PROXY: "http://admin:x@proxy.example:8080" }, () => {
+      assert.equal(sanitizeDiagnosticText("admin password=x"), "admin password=[redacted]");
+    });
+  }, results);
+
   await testFunction("sanitizes errors, causes, arrays, and structured auth fields", () => {
     withCredentials(
       { AUTH_USERNAME: "structured-user", AUTH_PASSWORD: "structured-secret" },

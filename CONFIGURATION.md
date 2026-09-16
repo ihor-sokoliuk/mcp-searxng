@@ -279,6 +279,12 @@ settings first.
 
 ## TLS / Corporate CA
 
+Use absolute HTTP or HTTPS proxy URLs and percent-encode special characters in
+the username and password. Proxy credentials are captured at startup for
+redaction in diagnostic messages; malformed proxy settings are omitted from
+errors. Redaction does not rewrite proxy settings, authentication headers, or
+successful tool content. Restart after changing environment configuration.
+
 Proxy variables route traffic through a proxy. Corporate TLS inspection is a separate trust problem: the proxy re-signs upstream certificates, so Node.js must trust the proxy's root CA.
 
 On Linux and macOS, `mcp-searxng` auto-detects the first readable system CA bundle from these paths:
