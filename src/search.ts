@@ -1021,6 +1021,7 @@ export async function performWebSearch(
         ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
         ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
       }, null, 2);
+    assertSafeOutput(result);
     if (slicedResults.length > 0) {
       searchCache.set("searxng_web_search", cacheArgs, result);
     }
