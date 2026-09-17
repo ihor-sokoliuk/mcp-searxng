@@ -34,7 +34,7 @@ function lowerPercentHex(value: string): string {
 function secretTextForms(value: string): string[] {
   const forms = [value];
   for (let pass = 0; pass < 4; pass++) {
-    value = value.replace(/[\x5c](?:u[0-9a-fA-F]{4}|["\x5c/bfnrt])/g,
+    value = value.replace(/[\x5c](?:u[0-9a-fA-F]{4}|[\x22\x5cbfnrt\x2f])/g,
       (escape) => JSON.parse(`"${escape}"`) as string);
     forms.push(value);
     value = value.replace(/%[0-9a-fA-F]{2}/g,

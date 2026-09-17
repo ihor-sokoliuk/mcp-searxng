@@ -113,7 +113,7 @@ async function testCompactJsonFields() {
         title:'Fixture', url:'https://example.test/', content:'Ordinary content', [field]:password,
       }]}));
       await assert.rejects(() => performWebSearch(createMockServer() as any,
-        `compact-${field}-${password}`, undefined, undefined, undefined, undefined,
+        `compact-${field}-${randomUUID()}`, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, 'json', 'compact'),
       {message:WITHHELD_CONTENT_MESSAGE});
     }
@@ -123,7 +123,7 @@ async function testCompactJsonFields() {
 async function testToolMode(modern: boolean) {
   const saved = snapshotProcessEnv();
   const password = ['fixture','confidential','marker'].join('-');
-  const header = `Basic ${Buffer.from(`fixture-user:${password}`).toString('base64')}`;
+  const header = 'Basic ' + Buffer.from('fixture-user:' + password).toString('base64');
   const server = createMcpServer(createToolAdmissionController(), modern);
   const client = new Client({name:'output-test',version:'1'}, {capabilities:{}});
   try {
