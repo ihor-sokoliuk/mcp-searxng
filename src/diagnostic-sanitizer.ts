@@ -9,6 +9,7 @@ const MAX_STRING_LENGTH = 64 * 1024;
 
 type CredentialSnapshot = {
   replacements: readonly string[];
+  normalizedSecrets: readonly string[];
   configuredUrls: ReadonlyMap<string, string>;
 };
 
@@ -23,7 +24,23 @@ function safeDecode(value: string): string {
 }
 
 function lowerPercentHex(value: string): string {
-  return value.replace(/%[0-9A-F]{2}/g, (match) => match.toLowerCase());
+  return value.replace(/%[0-9a-f]{2}/gi, (match) => match.toLowerCase());
+}
+
+// Inspect original text and intermediate forms: decoding a neighboring escape
+// must never hide an originally present secret. Four bounded rounds also cover
+// two JSON layers combined with two URI layers, in either order. No operational
+// value is modified and no attempt is made to decode arbitrary obfuscation.
+function* secretTextForms(value: string): Generator<string> {
+  yield value;
+  for (let pass = 0; pass < 4; pass++) {
+    value = value.replace(/[\x5c](?:u[0-9a-fA-F]{4}|["\x5c/bfnrt])/g,
+      (escape) => JSON.parse(`"${escape}"`) as string);
+    yield value;
+    value = value.replace(/%[0-9a-fA-F]{2}/g,
+      (escape) => String.fromCharCode(Number.parseInt(escape.slice(1), 16)));
+    yield value;
+  }
 }
 
 function addUriForms(values: Set<string>, value: string): void {
@@ -67,14 +84,15 @@ function redactUrl(raw: string, proxy: boolean): string {
     // A bare user:password@host can parse as an opaque custom scheme; clearing
     // URL.userinfo would leave the entire credential-bearing path untouched.
     // Misplaced separators can also put credentials in a path/query/fragment.
-    if (proxy && (
-      !["http:", "https:"].includes(url.protocol)
-      || url.pathname !== "/" || url.search !== "" || url.hash !== ""
-    )) {
+    if (!["http:", "https:"].includes(url.protocol) || url.pathname.includes("@") || (proxy && (
+      url.pathname !== "/" || url.search !== "" || url.hash !== ""
+    ))) {
       return REDACTED_DIAGNOSTIC;
     }
     url.username = "";
     url.password = "";
+    url.search = "";
+    url.hash = "";
     return url.toString();
   } catch {
     return REDACTED_DIAGNOSTIC;
@@ -94,11 +112,17 @@ function captureSnapshot(env: NodeJS.ProcessEnv): CredentialSnapshot {
     .filter((value): value is string => Boolean(value));
 
   for (const rawUrl of [...rawUrls, ...proxyUrls]) {
-    configuredUrls.set(rawUrl, redactUrl(rawUrl, proxyUrls.includes(rawUrl)));
+    const display = redactUrl(rawUrl, proxyUrls.includes(rawUrl));
+    configuredUrls.set(rawUrl, display);
+    if (display === REDACTED_DIAGNOSTIC) addUriForms(replacements, rawUrl);
     try {
       const url = new URL(rawUrl);
       const username = safeDecode(url.username);
       const password = safeDecode(url.password);
+      if (password.length === 0) {
+        addUriForms(replacements, url.username);
+        addUriForms(replacements, username);
+      }
       addUriForms(replacements, url.password);
       addBasicForms(replacements, url.username, url.password);
       addUriForms(replacements, password);
@@ -110,12 +134,14 @@ function captureSnapshot(env: NodeJS.ProcessEnv): CredentialSnapshot {
 
   const username = env.AUTH_USERNAME ?? "";
   const password = env.AUTH_PASSWORD ?? "";
+  if (password.length === 0) addUriForms(replacements, username);
   addUriForms(replacements, password);
   if (username !== "" || password !== "") {
     addBasicForms(replacements, username, password);
   }
 
   return {
+    normalizedSecrets: [...new Set([...replacements].flatMap(value => [...secretTextForms(value)]))].filter(Boolean),
     replacements: [...replacements]
       .filter((value) => value !== REDACTED && value !== REDACTED_DIAGNOSTIC)
       .sort((left, right) => right.length - left.length),
@@ -163,7 +189,20 @@ function sanitizeText(value: string): string {
   for (const secret of credentials.replacements) {
     sanitized = sanitized.split(secret).join(REDACTED);
   }
+  // Escaped or mixed-case percent representations may not match literally.
+  // Withhold the diagnostic rather than attempting unsafe serialized surgery.
+  if (containsConfiguredCredential(sanitized)) return REDACTED_DIAGNOSTIC;
   return sanitized;
+}
+
+/** No diagnostic size/depth limits: callers already enforce content limits. */
+export function containsConfiguredCredential(value: string): boolean {
+  const secrets = getSnapshot().normalizedSecrets;
+  if (secrets.length === 0) return false;
+  for (const form of secretTextForms(value)) {
+    if (secrets.some((secret) => form.includes(secret))) return true;
+  }
+  return false;
 }
 
 export function sanitizeDiagnosticText(value: string): string {
@@ -230,6 +269,9 @@ function sanitizeValueInternal(
   }
 
   for (const key of keys.slice(0, MAX_COLLECTION_ITEMS)) {
+    // Dropping secret-bearing keys avoids renamed-key collisions and keeps
+    // user-controlled __proto__ assignments out of diagnostic copies.
+    if (typeof key !== "string" || containsConfiguredCredential(key) || key === "__proto__") continue;
     if (
       value instanceof Error
       && ["name", "message", "stack", "cause"].includes(String(key))

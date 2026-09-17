@@ -71,7 +71,7 @@ async function authenticatedProxyFixture() {
   const auth: string[] = [];
   const sockets = new Set<net.Socket>();
   const secret = randomUUID();
-  const content = `${secret} is legitimate fixture content`;
+  const content = 'Credential-free fixture content';
   const target = http.createServer((request, response) => {
     requests.push({ url: request.url ?? "", headers: request.headers });
     if (request.url?.startsWith("/redirect")) {
@@ -299,7 +299,7 @@ async function runTests() {
     const output = `${resultText}\n${getStderr()}`;
     assert.ok(!output.includes("rpc-user"), output);
     assert.ok(!output.includes("rpc-secret"), output);
-    assert.ok(output.includes("ftp:"), output);
+    assert.ok(output.includes("unsupported protocol"), output);
     assert.ok(output.includes("Configuration Issues"), output);
   }, results);
 

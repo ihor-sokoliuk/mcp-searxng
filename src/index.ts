@@ -35,12 +35,14 @@ import {
 } from "./searxng-instances.js";
 import {
   initializeDiagnosticSanitizer,
+  sanitizeDiagnosticText,
   sanitizeErrorForTransport,
 } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
 import { parseBoundedInteger, parseStrictInteger } from "./env-int.js";
 import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
 import { MCPSearXNGError } from "./error-handler.js";
+import { assertSafeOutput } from "./credential-output.js";
 
 import { packageVersion } from "./version.js";
 
@@ -206,6 +208,7 @@ type ToolCallResult = {
 };
 
 function textToolResult(text: string): ToolCallResult {
+  assertSafeOutput(text);
   return { content: [{ type: "text", text }] };
 }
 
@@ -225,7 +228,7 @@ type ToolDefinition = {
 
 function invalidToolArguments(name: string, args: unknown): string | undefined {
   const definition = TOOL_DEFINITIONS[name];
-  if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
+  if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, sanitizeDiagnosticText(`Unknown tool: ${name}`));
   return definition.validate(args) ? undefined : definition.invalidArguments;
 }
 
@@ -316,7 +319,7 @@ async function executeTool(
   signal?: AbortSignal,
 ): Promise<ToolCallResult> {
   const definition = TOOL_DEFINITIONS[name];
-  if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
+  if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, sanitizeDiagnosticText(`Unknown tool: ${name}`));
   return definition.execute(mcpServer, args, signal);
 }
 
@@ -404,7 +407,9 @@ function registerMcpResources(mcpServer: McpServer, modern: boolean): void {
       const parsed = new URL(request.params.uri);
       parsed.username = "";
       parsed.password = "";
-      safeUri = parsed.href;
+      parsed.search = "";
+      parsed.hash = "";
+      safeUri = sanitizeDiagnosticText(parsed.href);
     } catch {
       throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid resource URI");
     }

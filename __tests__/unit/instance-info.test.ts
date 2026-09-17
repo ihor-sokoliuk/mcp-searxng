@@ -255,7 +255,7 @@ async function runTests() {
     assert.ok(payload.message.includes('/config'));
     assert.deepEqual(payload.instancesUnreachable, [{
       sourceUrl: 'https://test-searx.example.com',
-      message: 'SearXNG /config is unavailable: HTTP 403 Forbidden',
+      message: 'SearXNG /config is unavailable: HTTP 403',
       status: 403,
     }]);
 
@@ -720,7 +720,7 @@ async function runTests() {
     assert.equal(cancelAttempts, 1);
     assert.deepEqual(payload.instancesUnreachable, [{
       sourceUrl: 'https://forbidden-config.example.com',
-      message: 'SearXNG /config is unavailable: HTTP 403 Forbidden',
+      message: 'SearXNG /config is unavailable: HTTP 403',
       status: 403,
     }]);
     assert.ok(!JSON.stringify(payload).includes('not disclosed'));

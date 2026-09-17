@@ -49,7 +49,7 @@ export function validateSearxngInstanceUrl(
   try {
     const url = new URL(value);
     if (!["http:", "https:"].includes(url.protocol)) {
-      return `SEARXNG_URL${entry} uses unsupported protocol ${url.protocol} for ${url.hostname}`;
+      return `SEARXNG_URL${entry} uses an unsupported protocol; expected HTTP or HTTPS`;
     }
   } catch {
     return `SEARXNG_URL${entry} has invalid format`;
@@ -61,12 +61,17 @@ export function validateSearxngInstanceUrl(
 export function redactSearxngInstanceUrl(raw: string): string {
   try {
     const url = new URL(raw);
-    if (!url.username && !url.password) {
+    if (!["http:", "https:"].includes(url.protocol)) return "[invalid SearXNG URL]";
+    // An unescaped separator before @ can move credentials into a URL path.
+    if (url.pathname.includes("@")) return "[invalid SearXNG URL]";
+    if (!url.username && !url.password && !url.search && !url.hash) {
       return raw;
     }
 
     url.username = "";
     url.password = "";
+    url.search = "";
+    url.hash = "";
     return url.toString();
   } catch {
     return "[invalid SearXNG URL]";

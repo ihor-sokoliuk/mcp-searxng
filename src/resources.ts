@@ -4,6 +4,7 @@ import { packageVersion } from "./version.js";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { parseSearxngUrls, redactSearxngInstanceUrl } from "./searxng-instances.js";
 import { PROXY_ENVIRONMENT_KEYS } from "./proxy-environment.js";
+import { assertSafeOutput } from "./credential-output.js";
 
 export const REQUIRED_CONFIGURATION_GUIDANCE =
   "SEARXNG_URL is the only required environment variable.";
@@ -97,7 +98,9 @@ export function createConfigResource(mcpServer?: McpServer) {
     }
   };
 
-  return JSON.stringify(config, null, 2);
+  const output = JSON.stringify(config, null, 2);
+  assertSafeOutput(output);
+  return output;
 }
 
 export function createHelpResource() {
