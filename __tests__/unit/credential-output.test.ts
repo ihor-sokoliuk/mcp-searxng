@@ -7,6 +7,8 @@ import { clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import { initializeDiagnosticSanitizer, resetDiagnosticSanitizerForTests, sanitizeDiagnosticText, sanitizeDiagnosticValue } from '../../src/diagnostic-sanitizer.js';
 import { createConfigResource } from '../../src/resources.js';
 import { assertSafeOutput, WITHHELD_CONTENT_MESSAGE } from '../../src/credential-output.js';
+import { performWebSearch } from '../../src/search.js';
+import { createMockServer } from '../helpers/mock-server.js';
 import { snapshotProcessEnv, restoreProcessEnv } from '../helpers/env-utils.js';
 import { createTestResults, testFunction, printTestSummary } from '../helpers/test-utils.js';
 
@@ -56,6 +58,28 @@ export async function runTests() {
       assert.ok(!sanitizeDiagnosticText('rejected audit-token').includes('audit-token'));
       assert.ok(!JSON.stringify(sanitizeDiagnosticValue({ [password]: 'data' })).includes(escaped));
     } finally { resetDiagnosticSanitizerForTests(); }
+  }, results);
+  await testFunction('HTML fallback preserves normalization and fanout decisions while withholding whitespace-bearing secrets', async () => {
+    const saved = snapshotProcessEnv();
+    try {
+      for (const key of Object.keys(process.env)) if (/proxy|^AUTH_|^SEARXNG_/i.test(key)) delete process.env[key];
+      const password = '  padded-marker  ';
+      process.env.SEARXNG_HTML_FALLBACK = 'true';
+      process.env.SEARXNG_FANOUT = 'true';
+      let requests = 0;
+      setSearxngFetchForTesting(async input => {
+        requests++;
+        if (new URL(String(input)).searchParams.get('format') === 'json') return new Response('',{status:403});
+        return new Response(`<article class="result"><h3><a href="https://example.test/">Title</a></h3><p class="content">${password}</p></article>`);
+      });
+      for (const hosts of [['one.example.test'],['one.example.test','two.example.test']]) {
+        requests=0;
+        process.env.SEARXNG_URL = hosts.map(host=>`https://pad-user:${encodeURIComponent(password)}@${host}`).join(';');
+        resetDiagnosticSanitizerForTests(); initializeDiagnosticSanitizer();
+        await assert.rejects(() => performWebSearch(createMockServer() as any, `padded-${hosts.length}`), {message:WITHHELD_CONTENT_MESSAGE});
+        assert.equal(requests,hosts.length*2);
+      }
+    } finally { setSearxngFetchForTesting(); restoreProcessEnv(saved); resetDiagnosticSanitizerForTests(); }
   }, results);
   for (const modern of [false, true]) {
     await testFunction(`tool outputs protect credentials before truncation (${modern ? 'modern' : 'legacy'})`, async () => {

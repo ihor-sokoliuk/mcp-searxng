@@ -135,6 +135,10 @@ function getSearchDiagnosticUrl(redactedUrl: string): string {
   }
 }
 
+// Keep original display inputs until output selection, without changing
+// normalized results, engine decisions or replica health/failover behavior.
+const htmlDisplayInputs = new WeakMap<object, string[]>();
+
 function parseHtmlSearchResults(html: string, query: string): SearXNGWeb {
   const root = parse(html);
   const articles = root.querySelectorAll("article.result");
@@ -162,11 +166,13 @@ function parseHtmlSearchResults(html: string, query: string): SearXNGWeb {
       const snippetNode = entry.querySelector("p.content") ?? entry.querySelector(".content");
       const content = snippetNode ? normalizeHtmlText(snippetNode.text) : "";
 
-      return {
+      const result = {
         title,
         url: href,
         content,
       };
+      htmlDisplayInputs.set(result, [link.getAttribute("href") ?? "", link.text, snippetNode?.text ?? ""]);
+      return result;
     })
     .filter((result): result is { title: string; url: string; content: string } => result !== undefined);
 
@@ -1000,6 +1006,10 @@ export async function performWebSearch(
   const slicedResults = effectiveMax !== undefined
     ? results.slice(0, effectiveMax)
     : results;
+  for (const result of slicedResults) {
+    const original = htmlDisplayInputs.get(result);
+    if (original) assertSafeOutput(JSON.stringify(original));
+  }
 
   if (effectiveResponseFormat === "json") {
     if (result_detail === "full") assertSafeOutput(JSON.stringify({ ...data, results: slicedResults }));
@@ -1053,6 +1063,7 @@ export async function performWebSearch(
       ];
 
       if (typeof r.score === "number" && Number.isFinite(r.score)) {
+        assertSafeOutput(String(r.score));
         lines.push(`Relevance Score: ${r.score.toFixed(3)}`);
       }
 
