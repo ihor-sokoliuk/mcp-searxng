@@ -31,16 +31,17 @@ function lowerPercentHex(value: string): string {
 // must never hide an originally present secret. Four bounded rounds also cover
 // two JSON layers combined with two URI layers, in either order. No operational
 // value is modified and no attempt is made to decode arbitrary obfuscation.
-function* secretTextForms(value: string): Generator<string> {
-  yield value;
+function secretTextForms(value: string): string[] {
+  const forms = [value];
   for (let pass = 0; pass < 4; pass++) {
     value = value.replace(/[\x5c](?:u[0-9a-fA-F]{4}|["\x5c/bfnrt])/g,
       (escape) => JSON.parse(`"${escape}"`) as string);
-    yield value;
+    forms.push(value);
     value = value.replace(/%[0-9a-fA-F]{2}/g,
       (escape) => String.fromCharCode(Number.parseInt(escape.slice(1), 16)));
-    yield value;
+    forms.push(value);
   }
+  return forms;
 }
 
 function addUriForms(values: Set<string>, value: string): void {
