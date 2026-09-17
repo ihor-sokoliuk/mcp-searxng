@@ -1126,7 +1126,7 @@ async function runTests() {
     const output = `${resultText}\n${JSON.stringify(logs)}`;
     assert.ok(!output.includes('protocol-user'), output);
     assert.ok(!output.includes('protocol-secret'), output);
-    assert.ok(output.includes('ftp:'), output);
+    assert.ok(output.includes('unsupported protocol'), output);
     assert.ok(output.includes('Configuration Issues'), output);
   }, results);
 

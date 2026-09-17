@@ -104,7 +104,8 @@ async function runTests() {
     
     const jsonError = createJSONError('invalid json');
     assert.ok(jsonError instanceof MCPSearXNGError);
-    assert.ok(jsonError.message.includes('invalid json'));
+    assert.ok(jsonError.message.includes('Invalid JSON format'));
+    assert.ok(!jsonError.message.includes('invalid json'));
     assert.ok(jsonError.message.includes('- json'));
     assert.ok(jsonError.message.includes('search.formats'));
     assert.ok(jsonError.message.includes('SEARXNG_HTML_FALLBACK=true'));

@@ -280,8 +280,27 @@ settings first.
 Use absolute HTTP or HTTPS proxy URLs and percent-encode special characters in
 the username and password. Proxy credentials are captured at startup for
 redaction in diagnostic messages; malformed proxy settings are omitted from
-errors. Redaction does not rewrite proxy settings, authentication headers, or
-successful tool content. Restart after changing environment configuration.
+errors. Redaction does not rewrite proxy settings or authentication headers.
+Restart after changing environment configuration.
+
+### Credential protection in responses
+
+SearXNG URL userinfo, the legacy `AUTH_*` credentials, and configured proxy
+credentials are captured once at startup. Passwords, username-only tokens,
+credential pairs, Basic tokens, common percent encodings and JSON escaping
+are protected in diagnostics and returned content. Ordinary usernames with a
+separate password are not globally suppressed. This does not detect arbitrary
+obfuscation or secrets unknown to the server.
+
+Tool content containing a configured credential is withheld with a fixed error,
+even when the match is coincidental or the password is short. Complete content
+is checked before truncation and pagination; cache hits receive the same
+protection. JSON is never rewritten into a malformed result, and credential-free
+content retains its existing size limits and format. Operational authentication,
+routing, filtering and cache identities are unchanged. URL display copies omit
+query/fragment and credentials, and conceal ambiguous settings. Invalid JSON
+errors omit upstream response previews; instance discovery errors retain the
+HTTP status code without reflecting upstream reason phrases.
 
 ## TLS / Corporate CA
 

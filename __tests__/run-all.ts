@@ -12,6 +12,7 @@ import { TestResult } from './helpers/test-utils.js';
 import { runTests as runLoggingTests } from './unit/logging.test.js';
 import { runTests as runTestUtilsTests } from './unit/test-utils.test.js';
 import { runTests as runDiagnosticSanitizerTests } from './unit/diagnostic-sanitizer.test.js';
+import { runTests as runCredentialOutputTests } from './unit/credential-output.test.js';
 import { runTests as runDiagnosticOutputTests } from './unit/diagnostic-output.test.js';
 import { runTests as runTypesTests } from './unit/types.test.js';
 import { runTests as runCacheTests } from './unit/cache.test.js';
@@ -43,6 +44,7 @@ import { runTests as runIndexTests } from './integration/index.test.js';
 import { runTests as runMcpHandlersTests } from './integration/mcp-handlers.test.js';
 import { runTests as runCliTests } from './integration/cli.test.js';
 import { runTests as runDiagnosticSecurityTests } from './integration/diagnostic-security.test.js';
+import { runTests as runCredentialOutputWireTests } from './integration/credential-output.test.js';
 
 interface TestSuite {
   name: string;
@@ -55,6 +57,7 @@ const testSuites: TestSuite[] = [
   { name: 'Logging', category: 'unit', run: runLoggingTests },
   { name: 'Test Utilities', category: 'unit', run: runTestUtilsTests },
   { name: 'Diagnostic Sanitizer', category: 'unit', run: runDiagnosticSanitizerTests },
+  { name: 'Credential Output', category: 'unit', run: runCredentialOutputTests },
   { name: 'Diagnostic Output', category: 'unit', run: runDiagnosticOutputTests },
   { name: 'Types', category: 'unit', run: runTypesTests },
   { name: 'Cache', category: 'unit', run: runCacheTests },
@@ -88,6 +91,7 @@ const testSuites: TestSuite[] = [
   { name: 'MCP Handlers', category: 'integration', run: runMcpHandlersTests },
   { name: 'CLI', category: 'integration', run: runCliTests },
   { name: 'Credential-Safe Diagnostics', category: 'integration', run: runDiagnosticSecurityTests },
+  { name: 'Credential Output Wire', category: 'integration', run: runCredentialOutputWireTests },
 ];
 
 async function runAllTests() {

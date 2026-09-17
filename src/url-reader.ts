@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/server";
+import { assertSafeOutput } from "./credential-output.js";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { fetch as undiciFetch, type Dispatcher } from "undici";
 import { createProxyAgent, createUrlReaderAgent, ProxyType } from "./proxy.js";
@@ -575,6 +576,7 @@ export async function fetchAndConvertToMarkdown(
   for (const configuredCacheKey of configuredCacheKeys) {
     const cachedEntry = urlCache.get(configuredCacheKey);
     if (cachedEntry) {
+      assertSafeOutput(cachedEntry.markdownContent);
       logMessage(mcpServer, "info", `Using cached content for URL: ${url}`);
       const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
       const duration = Date.now() - startTime;
@@ -834,6 +836,7 @@ export async function fetchAndConvertToMarkdown(
         throw createContentError("Website returned empty content.", url);
       }
 
+      assertSafeOutput(rawContent);
       if (contentType.kind === "json") {
         markdownContent = renderJsonMarkdown(rawContent);
       } else if (contentType.kind === "text") {
@@ -853,6 +856,7 @@ export async function fetchAndConvertToMarkdown(
       return createEmptyContentWarning(url);
     }
 
+    assertSafeOutput(markdownContent);
     // Only cache successful markdown conversion
     if (shouldCacheResult) {
       urlCache.set(cacheKey, markdownContent);

@@ -12,6 +12,7 @@ import {
   resolveSearxngResponseMaxBytes,
 } from "./searxng-response.js";
 import { sanitizeDiagnosticText } from "./diagnostic-sanitizer.js";
+import { assertSafeOutput } from "./credential-output.js";
 import {
   getHealthySearxngInstances,
   getSearxngInstances,
@@ -95,6 +96,7 @@ export function getSearchTimeoutMs(mcpServer: McpServer): number {
 }
 
 function truncateResultContent(content: string, maxResultChars?: number): string {
+  assertSafeOutput(content);
   if (maxResultChars === undefined || content.length <= maxResultChars) {
     return content;
   }
@@ -652,6 +654,7 @@ function asSafeString(value: unknown): string {
 }
 
 function asTextLineString(value: unknown): string {
+  if (typeof value === "string") assertSafeOutput(value);
   return asSafeString(value).replace(/[\r\n\u2028\u2029]+/gu, " ");
 }
 
@@ -999,6 +1002,7 @@ export async function performWebSearch(
     : results;
 
   if (effectiveResponseFormat === "json") {
+    if (result_detail === "full") assertSafeOutput(JSON.stringify({ ...data, results: slicedResults }));
     const result = result_detail === "compact"
       ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars) }, null, 2)
       : JSON.stringify({

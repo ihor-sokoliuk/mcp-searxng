@@ -290,7 +290,7 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResp
     const response = await fetchSearxng(requestUrl.toString(), requestOptions);
     if (!response.ok) {
       await cancelAuxiliaryResponseBody(response);
-      const message = `SearXNG /config is unavailable: HTTP ${response.status} ${response.statusText}`;
+      const message = `SearXNG /config is unavailable: HTTP ${response.status}`;
       return {
         available: false,
         message,

@@ -72,7 +72,7 @@ async function runTests() {
     assert.equal(malformed, 'SEARXNG_URL entry 2 has invalid format');
     assert.equal(
       unsupported,
-      'SEARXNG_URL entry 3 uses unsupported protocol ftp: for search.example.com',
+      'SEARXNG_URL entry 3 uses an unsupported protocol; expected HTTP or HTTPS',
     );
     assert.ok(!unsupported?.includes('user'));
     assert.ok(!unsupported?.includes('pass'));
@@ -81,7 +81,7 @@ async function runTests() {
   await testFunction('redactSearxngInstanceUrl removes username and password userinfo', () => {
     assert.equal(
       redactSearxngInstanceUrl('https://user:pass@search.example.com/path?q=1'),
-      'https://search.example.com/path?q=1',
+      'https://search.example.com/path',
     );
   }, results);
 
@@ -122,8 +122,8 @@ async function runTests() {
   await testFunction('redactSearxngInstanceUrl leaves credential-free URLs byte-identical', () => {
     const urls = [
       'https://search.example.com',
-      'https://SEARCH.example.com/%7Euser?q=a%20b',
-      'http://localhost:8080/searxng/?q=test#top',
+      'https://SEARCH.example.com/%7Euser',
+      'http://localhost:8080/searxng/',
     ];
 
     for (const url of urls) {
