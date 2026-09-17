@@ -1088,6 +1088,7 @@ export async function performWebSearch(
     .join("\n\n");
 
   const result = result_detail === "compact" ? formattedResults : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
+  assertSafeOutput(result);
   searchCache.set("searxng_web_search", cacheArgs, result);
   return result;
 }
