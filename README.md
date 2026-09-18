@@ -192,7 +192,9 @@ Image signatures can be verified with Cosign — see [SECURITY.md](https://githu
 To pass additional env vars, add `-e VAR_NAME` to `args` and the variable to `env`.
 For browser-solver integration, pass `FLARESOLVERR_URL`, `BYPARR_URL`, or both
 and make the configured services reachable from this container. Dual mode has
-a fixed FlareSolverr-first order and no automatic reverse failover. See
+a fixed FlareSolverr-first order and no automatic reverse failover. Safe rendered
+HTML and explicit Byparr PDF content are read directly; ambiguous content uses
+guarded replay, with bounded failover for eligible read failures. See
 [URL Reader Controls](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/CONFIGURATION.md#url-reader-controls) for the complete
 behavior and Docker Compose example.
 

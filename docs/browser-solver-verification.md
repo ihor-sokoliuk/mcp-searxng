@@ -1,5 +1,52 @@
 # Browser solver verification
 
+## Rendered-content verification — 2026-09-18 UTC
+
+Both providers were tested on `linux/amd64` using disposable, resource-limited
+containers with loopback-only diagnostic ports:
+
+| Provider | Immutable image reference |
+|---|---|
+| FlareSolverr 3.5.2 | `ghcr.io/flaresolverr/flaresolverr@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767` |
+| Byparr 3.0.4 | `ghcr.io/thephaseless/byparr@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6` |
+
+The built MCP STDIO server extracted the title and abstract from
+`https://eprint.iacr.org/2025/858.pdf` through each provider. FlareSolverr
+returned a Chrome PDF viewer stylesheet with an otherwise empty document;
+the reader correctly used guarded replay. Byparr returned explicit PDF content.
+Both providers also returned the OpenJDK ZGC page from issue #166. Those URLs
+returned HTTP 200 directly during this run, so they do not prove challenge
+handling on their own.
+
+For a freshly protected target, direct GETs to
+`https://www.scrapingcourse.com/cloudflare-challenge` returned HTTP 403 with
+`Cf-Mitigated: challenge` at `00:59:40Z` and `00:59:56Z`. Immediately after
+each observation, the built MCP server returned the page's successful
+`You bypassed` marker through FlareSolverr (15.3 seconds) and Byparr
+(10.3 seconds), respectively. No provider was skipped.
+
+At `01:02:10Z`, the same target again returned a direct 403 challenge. With
+the disposable FlareSolverr container stopped and both endpoints configured,
+the built MCP server failed over to Byparr and returned the success marker.
+Both disposable containers were removed after verification.
+
+Deterministic regressions cover rendered HTML and base64 PDF consumption with
+raw GETs blocked, cookie replay for viewer shells, retryable replay failure and
+body timeout, rate-limit and integrity stop conditions, bounded capacity waiting,
+cancellation, cache isolation, pagination, and credential withholding over MCP.
+
+The current adapter requests rendered content, limits each JSON envelope to
+32 MiB, and applies decoded HTML/PDF limits before conversion or extraction.
+See [URL Reader Controls](../CONFIGURATION.md#url-reader-controls) for current
+failover and timeout behavior. Browser-internal redirects remain within the
+trusted provider boundary. Persistent sessions and per-call provider selection
+were evaluated but are unnecessary for this correction and remain disabled.
+
+## Historical verification and behavior
+
+The following records describe the earlier cookie-replay implementation and
+its original provider versions, not the current rendered-content behavior.
+
 Verification date: 2026-07-30
 
 | Provider | Version | Pinned multi-architecture manifest | Tested architecture | Timeout wire unit | Result |
