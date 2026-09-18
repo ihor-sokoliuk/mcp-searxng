@@ -111,16 +111,16 @@ for trust, evaluation, and conservative-use guidance.
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
-FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30. Configure
+FlareSolverr 3.5.2 and Byparr 3.0.4 were verified on 2026-09-18. Configure
 either provider, both providers, or neither provider. With both endpoints,
 FlareSolverr is always primary and Byparr is the secondary; ordering is not
 configurable and automatic reverse failover is not performed. Canonically
 identical endpoints fail startup without echoing either configured value.
 
 The verified `linux/amd64` images came from multi-architecture manifests
-`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
+`ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767`
 and
-`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
+`ghcr.io/thephaseless/byparr:3.0.4@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6`.
 Client cancellation stops local work promptly, but a remote browser may
 continue until its configured provider timeout after the HTTP client
 disconnects. See [browser solver verification](docs/browser-solver-verification.md).
@@ -146,7 +146,9 @@ use guarded cookie/User-Agent replay from the original requested URL. Replay
 skips additional HEAD requests; GET redirects and streaming byte limits remain
 authoritative. The original HEAD preflight remains in place.
 
-Both provider envelopes have a fixed 32 MiB ceiling, including JSON overhead.
+Provider envelope limits derive from the configured decoded-content limit,
+allowing up to sixfold JSON escaping or PDF base64 overhead plus 256 KiB of
+metadata, within a fixed 32 MiB ceiling.
 Rendered HTML has a 5 MiB ceiling and PDF input a 16 MiB ceiling; the configured
 `URL_READ_MAX_CONTENT_LENGTH_BYTES` applies when lower. Malformed PDF bytes,
 size violations, credential-bearing content, and solution integrity errors
@@ -155,9 +157,9 @@ cache; pagination is applied afterward. Cache hits bypass acquisition.
 
 The same original URL can be disclosed first to FlareSolverr and then to Byparr.
 Each provider is attempted at most once. Transient acquisition failure permits
-failover. An unusable replay body, replay timeout/transient connection failure,
+failover, including a solver-service retry delay (that service is not retried). A replay timeout/transient connection failure,
 or target HTTP 403, 408, 500, 502, 503, or 504 also permits the next provider.
-Target 429, any explicit `Retry-After`, other persistent client errors,
+Target 429, target `Retry-After`, other persistent client errors,
 cancellation, and integrity failures stop the chain. A final solved-read
 failure is surfaced without another direct fetch. If all acquisitions are
 unavailable, one uncached direct fetch remains available; saturation instead
