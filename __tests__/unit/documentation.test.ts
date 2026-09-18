@@ -445,14 +445,14 @@ export async function runTests(): Promise<TestResult> {
     const security = readText(new URL('../../SECURITY.md', import.meta.url));
 
     for (const document of [configuration, security]) {
-      assert.ok(document.includes('FlareSolverr 3.5.0'));
-      assert.ok(document.includes('Byparr 2.1.0'));
-      assert.ok(document.includes('2026-07-30'));
+      assert.ok(document.includes('FlareSolverr 3.5.2'));
+      assert.ok(document.includes('Byparr 3.0.4'));
+      assert.ok(document.includes('2026-09-18'));
       assert.ok(document.includes(
-        'sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47',
+        'sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767',
       ));
       assert.ok(document.includes(
-        'sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0',
+        'sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6',
       ));
       assert.ok(document.includes('linux/amd64'));
       assert.ok(document.includes('remote browser may'));

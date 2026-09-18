@@ -391,6 +391,30 @@ async function runTests() {
     } finally { envManager.restore(); urlCache.clear(); await flare.close(); await byparr.close(); await target.close(); }
   }, results);
 
+  await testFunction('terminal binary and empty-conversion replay results match direct reads without failover', async () => {
+    for (const scenario of [
+      { type: 'image/png', body: 'binary fixture' },
+      { type: 'text/html', body: '<html><body></body></html>' },
+    ]) {
+      let secondary = 0;
+      const target = await startHttpServer((req, res) => {
+        res.writeHead(200, { 'content-type': scenario.type }); res.end(req.method === 'HEAD' ? '' : scenario.body);
+      });
+      const flare = await startHttpServer((req, res) => {
+        req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser' } }));
+      });
+      const byparr = await startHttpServer((req, res) => { req.resume(); secondary++; res.writeHead(503); res.end(); });
+      try {
+        const server = createMockServer() as any;
+        const direct = await fetchAndConvertToMarkdown(server, target.url);
+        envManager.set('FLARESOLVERR_URL', flare.url); envManager.set('BYPARR_URL', byparr.url);
+        assert.equal(await fetchAndConvertToMarkdown(server, target.url), direct);
+        assert.equal(secondary, 0);
+      } finally { envManager.restore(); urlCache.clear(); await flare.close(); await byparr.close(); await target.close(); }
+    }
+  }, results);
+
   await testFunction('malformed solver PDF fails closed without replay or caching', async () => {
     let gets = 0;
     const target = await startHttpServer((req, res) => { if (req.method === 'GET') gets++; res.end(); });
@@ -581,7 +605,7 @@ async function runTests() {
     urlCache.clear();
   }, results);
 
-  await testFunction('dual-provider mode fails over to Byparr and caches only the winning provider', async () => {
+  await testFunction('solver-service retry delay allows Byparr and caches only the winning provider', async () => {
     urlCache.clear();
     let targetHeadCount = 0;
     let targetGetCount = 0;
@@ -603,7 +627,7 @@ async function runTests() {
     let flarePosts = 0;
     const flare = await startHttpServer((_req, res) => {
       flarePosts++;
-      res.writeHead(503);
+      res.writeHead(503, { 'retry-after': '60' });
       res.end();
     });
     let byparrPosts = 0;

@@ -14,7 +14,7 @@ import {
   resolveBrowserSolverConfigs,
   type BrowserSolverSolution,
 } from "./browser-solver.js";
-import { browserSolverContentResponse } from "./browser-solver-content.js";
+import { browserSolverContentResponse, browserSolverEnvelopeLimit } from "./browser-solver-content.js";
 import { extractPdfText, MAX_PDF_BYTES, MAX_PDF_PAGES } from "./pdf-reader.js";
 import {
   createURLFormatError,
@@ -26,7 +26,6 @@ import {
   createTimeoutError,
   createEmptyContentWarning,
   createUnexpectedError,
-  type ErrorContext
 } from "./error-handler.js";
 
 interface PaginationOptions {
@@ -631,7 +630,8 @@ export async function fetchAndConvertToMarkdown(
     let wasBusy = false;
     for (const config of browserSolverConfigs) {
       signal?.throwIfAborted();
-      const acquisition = await acquireBrowserSolverSolution(mcpServer, config, parsedUrl, signal, false, true);
+      const boundedConfig = { ...config, maxResponseBytes: Math.min(config.maxResponseBytes, browserSolverEnvelopeLimit(maxContentLengthBytes)) };
+      const acquisition = await acquireBrowserSolverSolution(mcpServer, boundedConfig, parsedUrl, signal, false, true);
       if (acquisition.kind === "fallback") {
         wasBusy ||= acquisition.reason === "busy";
         logMessage(mcpServer, "warning", "Browser solver acquisition did not produce a solution.",
@@ -681,296 +681,221 @@ interface UrlReadAttemptOptions {
   maxContentLengthBytes: number;
 }
 
+interface ReadAttempt {
+  mcpServer: McpServer;
+  parsedUrl: URL;
+  url: string;
+  timeoutMs: number;
+  paginationOptions: PaginationOptions;
+  signal?: AbortSignal;
+  options: UrlReadAttemptOptions;
+  started: number;
+  controller: AbortController;
+  requestSignal: AbortSignal;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
+type ConvertedContent = { kind: "markdown" | "message"; text: string };
+
 async function convertUrlAttempt(
-  mcpServer: McpServer,
-  parsedUrl: URL,
-  timeoutMs: number,
-  paginationOptions: PaginationOptions,
-  signal: AbortSignal | undefined,
+  mcpServer: McpServer, parsedUrl: URL, timeoutMs: number,
+  paginationOptions: PaginationOptions, signal: AbortSignal | undefined,
   options: UrlReadAttemptOptions,
 ): Promise<string> {
-  const { browserSolverSolution, cacheKey, shouldCacheResult, skipHead, maxContentLengthBytes } = options;
-  const url = parsedUrl.href;
-  const startTime = Date.now();
   signal?.throwIfAborted();
-
-  // Create an AbortController instance
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const requestSignal = signal
-    ? AbortSignal.any([signal, controller.signal])
-    : controller.signal;
-
+  const attempt: ReadAttempt = {
+    mcpServer, parsedUrl, url: parsedUrl.href, timeoutMs, paginationOptions, signal, options,
+    started: Date.now(), controller,
+    requestSignal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+    timeoutId: setTimeout(() => controller.abort(), timeoutMs),
+  };
   try {
-    // Prepare base request options with proxy support
-    const requestOptions: RequestInit = {
-      signal: requestSignal,
-      redirect: "manual",
-    };
-
-    // Add User-Agent header if configured (URL_READER_USER_AGENT takes priority over USER_AGENT).
-    // A solved browser session replaces these headers for the replay.
-    const userAgent = process.env.URL_READER_USER_AGENT || process.env.USER_AGENT;
-    const directHeaders: Record<string, string> = userAgent
-      ? { "User-Agent": userAgent }
-      : {};
-
-    let response = options.renderedResponse!;
-    let currentUrl = parsedUrl;
-    assertUrlAllowed(currentUrl);
-    let usedDispatcher = false;
-    try {
-      for (let redirects = 0; !options.renderedResponse && redirects <= MAX_REDIRECTS; redirects++) {
-        // Add proxy or default dispatcher (includes system CA certs for TLS)
-        const proxyAgent = createProxyAgent(currentUrl.toString(), ProxyType.URL_READER);
-        const dispatcher = proxyAgent ?? createUrlReaderAgent();
-        usedDispatcher = !!dispatcher;
-        const currentRequestOptions = {
-          ...requestOptions,
-          headers: browserSolverSolution
-            ? buildBrowserSolverHeaders(browserSolverSolution, currentUrl)
-            : directHeaders,
-        };
-        if (dispatcher) {
-          (currentRequestOptions as any).dispatcher = dispatcher;
-        }
-
-        if (!skipHead) {
-          const contentLength = await checkContentLength(
-            mcpServer,
-            currentUrl.toString(),
-            timeoutMs,
-            dispatcher,
-            currentRequestOptions,
-          );
-          if (contentLength !== null && contentLength > maxContentLengthBytes) {
-            return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
-          }
-        }
-
-        // Fetch the URL with the abort signal.
-        // Use undici's own fetch so it shares the same internal version as the
-        // Agent/ProxyAgent dispatcher — avoids the Node.js bundled-undici vs
-        // npm-undici version mismatch that breaks Content-Encoding decompression.
-        response = await (undiciFetch as unknown as typeof fetch)(currentUrl.toString(), currentRequestOptions);
-
-        if (!isRedirectResponse(response)) {
-          break;
-        }
-
-        const location = response.headers.get("location");
-        if (!location) {
-          break;
-        }
-
-        if (redirects === MAX_REDIRECTS) {
-          throw createContentError(`Too many redirects while fetching URL: ${url}`, url);
-        }
-
-        const nextUrl = new URL(location, currentUrl);
-        assertUrlAllowed(nextUrl);
-        currentUrl = nextUrl;
-      }
-    } catch (error: any) {
-      if (error.name === 'MCPSearXNGError') {
-        throw error;
-      }
-
-      if (isUrlSecurityPolicyDnsError(error)) {
-        throw createURLSecurityPolicyError(currentUrl.toString());
-      }
-
-      const context: ErrorContext = {
-        url: currentUrl.toString(),
-        proxyAgent: usedDispatcher,
-        timeout: timeoutMs
-      };
-      const failure = createNetworkError(error, context);
-      if (browserSolverSolution && !signal?.aborted && isRetryableReplayError(error, controller.signal.aborted)) {
-        throw new RetryableSolverReadError(failure);
-      }
-      throw failure;
-    }
-
-    if (!response.ok) {
-      if (browserSolverSolution && isRetryableSolverStatus(response.status, response.headers)) {
-        await cancelResponseBody(response);
-        throw new RetryableSolverReadError(createServerError(response.status, "", "", { url }));
-      }
-      let responseBody: string;
-      try {
-        const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes);
-        responseBody = bodyRead.exceeded
-          ? createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes)
-          : bodyRead.text;
-      } catch {
-        responseBody = '[Could not read response body]';
-      }
-
-      const context: ErrorContext = { url };
-      throw createServerError(response.status, response.statusText, responseBody, context);
-    }
-
-    const contentType = classifyContentType(response.headers.get("content-type"));
-    if (contentType.kind === "binary") {
-      await cancelResponseBody(response);
-      if (browserSolverSolution) throw new RetryableSolverReadError(createContentError("Browser solver replay returned unsupported content.", url));
-      return createUnsupportedContentTypeMessage(contentType);
-    }
-
-    let markdownContent: string;
-    if (contentType.kind === "pdf") {
-      const effectivePdfLimit = Math.min(maxContentLengthBytes, MAX_PDF_BYTES);
-      let bodyRead: BoundedByteReadResult;
-      try {
-        bodyRead = await readResponseBytesWithLimit(response, effectivePdfLimit);
-      } catch (error: any) {
-        if (browserSolverSolution && !signal?.aborted && isRetryableReplayError(error, controller.signal.aborted)) {
-          throw new RetryableSolverReadError(createNetworkError(error, { url, timeout: timeoutMs }));
-        }
-        if (error?.name === "AbortError") {
-          throw error;
-        }
-        throw createContentError(
-          `Failed to read PDF content: ${error.message || "Unknown error reading content"}`,
-          url,
-        );
-      }
-      if (bodyRead.exceeded) {
-        return createPdfInputTooLargeMessage(
-          bodyRead.bytesRead,
-          effectivePdfLimit,
-          maxContentLengthBytes,
-        );
-      }
-
-      // The network phase is complete. PDF parsing has its own independent,
-      // bounded worker timeout rather than sharing the fetch budget.
-      clearTimeout(timeoutId);
-      if (!hasPdfSignature(bodyRead.bytes)) {
-        return "Response declared application/pdf but did not contain a PDF document.";
-      }
-
-      const extraction = await extractPdfText(
-        bodyRead.bytes,
-        effectivePdfLimit,
-        { signal },
-      );
-      switch (extraction.kind) {
-        case "text":
-          markdownContent = renderFencedMarkdown("text", extraction.text);
-          break;
-        case "no_text":
-          return "No extractable text (likely a scanned/image PDF; OCR is not supported).";
-        case "password_protected":
-          return "Password-protected PDF cannot be read.";
-        case "parse_error":
-          return "Unable to extract text from PDF.";
-        case "too_many_pages":
-          return `PDF has too many pages to extract safely (observed: ${extraction.totalPages}; limit: ${MAX_PDF_PAGES}).`;
-        case "text_too_large":
-          return createPdfTextTooLargeMessage(extraction.bytes, effectivePdfLimit);
-        case "timeout":
-          return "PDF text extraction timed out.";
-        case "busy":
-          return "PDF text extraction is busy; try again later.";
-        case "external_fetch_attempt":
-          return "PDF attempted an external resource fetch and was blocked.";
-        case "worker_failure":
-          return "PDF text extraction worker failed.";
-      }
-    } else {
-      // Retrieve readable text content.
-      let rawContent: string;
-      let hasNulInPrefix = false;
-      try {
-        const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes, true);
-        if (bodyRead.exceeded) {
-          return createContentTooLargeMessage(bodyRead.bytesRead, maxContentLengthBytes);
-        }
-        rawContent = bodyRead.text;
-        hasNulInPrefix = bodyRead.hasNulInPrefix;
-      } catch (error: any) {
-        if (browserSolverSolution && !signal?.aborted && isRetryableReplayError(error, controller.signal.aborted)) {
-          throw new RetryableSolverReadError(createNetworkError(error, { url, timeout: timeoutMs }));
-        }
-        throw createContentError(
-          `Failed to read website content: ${error.message || "Unknown error reading content"}`,
-          url,
-        );
-      }
-
-      if (hasNulInPrefix) {
-        return createNulRejectedContentMessage(contentType);
-      }
-
-      if (!rawContent || rawContent.trim().length === 0) {
-        if (browserSolverSolution) throw new RetryableSolverReadError(createContentError("Website returned empty content.", url));
-        throw createContentError("Website returned empty content.", url);
-      }
-
-      assertSafeOutput(rawContent);
-      if (contentType.kind === "json") {
-        markdownContent = renderJsonMarkdown(rawContent);
-      } else if (contentType.kind === "text") {
-        markdownContent = renderFencedMarkdown(contentType.language, rawContent);
-      } else {
-        try {
-          markdownContent = NodeHtmlMarkdown.translate(rawContent);
-        } catch {
-          throw createConversionError(url);
-        }
-      }
-    }
-
-    if (!markdownContent || markdownContent.trim().length === 0) {
-      if (options.renderedResponse) {
-        clearTimeout(timeoutId);
-        return await convertUrlAttempt(mcpServer, parsedUrl, timeoutMs, paginationOptions, signal,
-          { ...options, renderedResponse: null });
-      }
-      if (browserSolverSolution) {
-        throw new RetryableSolverReadError(createContentError("Browser solver replay returned empty content.", url));
-      }
-      logMessage(mcpServer, "warning", `Empty content after conversion: ${url}`);
-      // DON'T cache empty/failed conversions - return warning directly
-      return createEmptyContentWarning(url);
-    }
-
-    signal?.throwIfAborted();
-    assertSafeOutput(markdownContent);
-    // Only cache successful markdown conversion
-    if (shouldCacheResult) {
-      urlCache.set(cacheKey, markdownContent);
-    }
-
-    // Apply pagination options
-    const result = applyPaginationOptions(markdownContent, paginationOptions);
-
-    const duration = Date.now() - startTime;
-    logMessage(mcpServer, "info", `Successfully fetched and converted URL: ${url} (${result.length} chars in ${duration}ms)`);
-    return result;
+    const response = options.renderedResponse ?? await fetchReplayResponse(attempt);
+    if (typeof response === "string") return response;
+    await assertSuccessfulResponse(attempt, response);
+    return await completeConversion(attempt, await convertResponse(attempt, response));
   } catch (error: any) {
-    if (signal?.aborted) {
-      throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
-    }
-    if (error instanceof RetryableSolverReadError) throw error;
-    if (error.name === "AbortError") {
-      logMessage(mcpServer, "error", `Timeout fetching URL: ${url} (${timeoutMs}ms)`);
-      throw createTimeoutError(timeoutMs, url);
-    }
-    // Re-throw our enhanced errors
-    if (error.name === 'MCPSearXNGError') {
-      logMessage(mcpServer, "error", `Error fetching URL: ${url} - ${error.message}`);
-      throw error;
-    }
-    
-    // Catch any unexpected errors
-    logMessage(mcpServer, "error", `Unexpected error fetching URL: ${url}`, error);
-    const context: ErrorContext = { url };
-    throw createUnexpectedError(error, context);
+    throwAttemptError(attempt, error);
   } finally {
-    // Clean up the timeout to prevent memory leaks
-    clearTimeout(timeoutId);
+    clearTimeout(attempt.timeoutId);
   }
+}
+
+function targetRequestOptions(attempt: ReadAttempt, url: URL): RequestInit {
+  const userAgent = process.env.URL_READER_USER_AGENT || process.env.USER_AGENT;
+  const directHeaders: Record<string, string> = userAgent ? { "User-Agent": userAgent } : {};
+  const headers = attempt.options.browserSolverSolution
+    ? buildBrowserSolverHeaders(attempt.options.browserSolverSolution, url) : directHeaders;
+  const request: RequestInit = { signal: attempt.requestSignal, redirect: "manual", headers };
+  (request as any).dispatcher = createProxyAgent(url.href, ProxyType.URL_READER) ?? createUrlReaderAgent();
+  return request;
+}
+
+async function replaySizeMessage(attempt: ReadAttempt, url: URL, request: RequestInit): Promise<string | null> {
+  if (attempt.options.skipHead) return null;
+  const length = await checkContentLength(attempt.mcpServer, url.href, attempt.timeoutMs,
+    (request as any).dispatcher, request);
+  return length !== null && length > attempt.options.maxContentLengthBytes
+    ? createContentTooLargeMessage(length, attempt.options.maxContentLengthBytes) : null;
+}
+
+function redirectTarget(response: Response, current: URL, count: number): URL | null {
+  if (!isRedirectResponse(response)) return null;
+  const location = response.headers.get("location");
+  if (!location) return null;
+  if (count === MAX_REDIRECTS) throw createContentError("Too many redirects while fetching URL.", current.href);
+  const next = new URL(location, current);
+  assertUrlAllowed(next);
+  return next;
+}
+
+async function fetchReplayResponse(attempt: ReadAttempt): Promise<Response | string> {
+  let current = attempt.parsedUrl;
+  try {
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+      const request = targetRequestOptions(attempt, current);
+      const sizeMessage = await replaySizeMessage(attempt, current, request);
+      if (sizeMessage) return sizeMessage;
+      const response = await (undiciFetch as unknown as typeof fetch)(current.href, request);
+      const next = redirectTarget(response, current, redirects);
+      if (!next) return response;
+      current = next;
+    }
+    throw createContentError("Too many redirects while fetching URL.", attempt.url);
+  } catch (error: any) {
+    if (error.name === "MCPSearXNGError") throw error;
+    if (isUrlSecurityPolicyDnsError(error)) throw createURLSecurityPolicyError(current.href);
+    throwReplayError(attempt, error, current.href);
+  }
+}
+
+function throwReplayError(attempt: ReadAttempt, error: any, url = attempt.url): never {
+  const failure = createNetworkError(error, { url, proxyAgent: true, timeout: attempt.timeoutMs });
+  if (attempt.options.browserSolverSolution && !attempt.signal?.aborted
+      && isRetryableReplayError(error, attempt.controller.signal.aborted)) {
+    throw new RetryableSolverReadError(failure);
+  }
+  throw failure;
+}
+
+async function assertSuccessfulResponse(attempt: ReadAttempt, response: Response): Promise<void> {
+  if (response.ok) return;
+  if (attempt.options.browserSolverSolution && isRetryableSolverStatus(response.status, response.headers)) {
+    await cancelResponseBody(response);
+    throw new RetryableSolverReadError(createServerError(response.status, "", "", { url: attempt.url }));
+  }
+  let body = "[Could not read response body]";
+  try {
+    const read = await readResponseBodyWithLimit(response, attempt.options.maxContentLengthBytes);
+    body = read.exceeded ? createContentTooLargeMessage(read.bytesRead, attempt.options.maxContentLengthBytes) : read.text;
+  } catch { /* Preserve terminal HTTP status even if its error body stalls. */ }
+  throw createServerError(response.status, response.statusText, body, { url: attempt.url });
+}
+
+async function convertResponse(attempt: ReadAttempt, response: Response): Promise<ConvertedContent> {
+  const type = classifyContentType(response.headers.get("content-type"));
+  if (type.kind === "binary") {
+    await cancelResponseBody(response);
+    return { kind: "message", text: createUnsupportedContentTypeMessage(type) };
+  }
+  return type.kind === "pdf" ? await convertPdfResponse(attempt, response)
+    : await convertTextResponse(attempt, response, type);
+}
+
+async function readPdfBody(attempt: ReadAttempt, response: Response, limit: number): Promise<BoundedByteReadResult> {
+  try { return await readResponseBytesWithLimit(response, limit); }
+  catch (error: any) {
+    if (attempt.options.browserSolverSolution) throwReplayError(attempt, error);
+    if (error?.name === "AbortError") throw error;
+    throw createContentError(`Failed to read PDF content: ${error.message || "Unknown error reading content"}`, attempt.url);
+  }
+}
+
+const PDF_RESULT_MESSAGES = new Map<string, string>([
+  ["no_text", "No extractable text (likely a scanned/image PDF; OCR is not supported)."],
+  ["password_protected", "Password-protected PDF cannot be read."],
+  ["parse_error", "Unable to extract text from PDF."],
+  ["timeout", "PDF text extraction timed out."],
+  ["busy", "PDF text extraction is busy; try again later."],
+  ["external_fetch_attempt", "PDF attempted an external resource fetch and was blocked."],
+  ["worker_failure", "PDF text extraction worker failed."],
+]);
+
+function pdfExtractionContent(result: Awaited<ReturnType<typeof extractPdfText>>, limit: number): ConvertedContent {
+  if (result.kind === "text") return { kind: "markdown", text: renderFencedMarkdown("text", result.text) };
+  if (result.kind === "too_many_pages") return {
+    kind: "message", text: `PDF has too many pages to extract safely (observed: ${result.totalPages}; limit: ${MAX_PDF_PAGES}).`,
+  };
+  if (result.kind === "text_too_large") return { kind: "message", text: createPdfTextTooLargeMessage(result.bytes, limit) };
+  return { kind: "message", text: PDF_RESULT_MESSAGES.get(result.kind)! };
+}
+
+async function convertPdfResponse(attempt: ReadAttempt, response: Response): Promise<ConvertedContent> {
+  const configuredLimit = attempt.options.maxContentLengthBytes;
+  const limit = Math.min(configuredLimit, MAX_PDF_BYTES);
+  const read = await readPdfBody(attempt, response, limit);
+  if (read.exceeded) return { kind: "message", text: createPdfInputTooLargeMessage(read.bytesRead, limit, configuredLimit) };
+  clearTimeout(attempt.timeoutId);
+  if (!hasPdfSignature(read.bytes)) return { kind: "message", text: "Response declared application/pdf but did not contain a PDF document." };
+  return pdfExtractionContent(await extractPdfText(read.bytes, limit, { signal: attempt.signal }), limit);
+}
+
+async function readTextBody(attempt: ReadAttempt, response: Response): Promise<BoundedBodyReadResult> {
+  try { return await readResponseBodyWithLimit(response, attempt.options.maxContentLengthBytes, true); }
+  catch (error: any) {
+    if (attempt.options.browserSolverSolution) throwReplayError(attempt, error);
+    throw createContentError(`Failed to read website content: ${error.message || "Unknown error reading content"}`, attempt.url);
+  }
+}
+
+function convertText(text: string, type: ContentTypeClassification, url: string): string {
+  assertSafeOutput(text);
+  if (type.kind === "json") return renderJsonMarkdown(text);
+  if (type.kind === "text") return renderFencedMarkdown(type.language, text);
+  try { return NodeHtmlMarkdown.translate(text); }
+  catch { throw createConversionError(url); }
+}
+
+async function convertTextResponse(attempt: ReadAttempt, response: Response, type: ContentTypeClassification): Promise<ConvertedContent> {
+  const read = await readTextBody(attempt, response);
+  if (read.exceeded) return { kind: "message", text: createContentTooLargeMessage(read.bytesRead, attempt.options.maxContentLengthBytes) };
+  if (read.hasNulInPrefix) return { kind: "message", text: createNulRejectedContentMessage(type) };
+  if (!read.text.trim()) throw createContentError("Website returned empty content.", attempt.url);
+  return { kind: "markdown", text: convertText(read.text, type, attempt.url) };
+}
+
+async function completeConversion(attempt: ReadAttempt, converted: ConvertedContent): Promise<string> {
+  if (converted.kind === "message") return converted.text;
+  if (!converted.text.trim()) return await completeEmptyConversion(attempt);
+  attempt.signal?.throwIfAborted();
+  assertSafeOutput(converted.text);
+  if (attempt.options.shouldCacheResult) urlCache.set(attempt.options.cacheKey, converted.text);
+  const result = applyPaginationOptions(converted.text, attempt.paginationOptions);
+  logMessage(attempt.mcpServer, "info", `Successfully fetched and converted URL: ${attempt.url} (${result.length} chars in ${Date.now() - attempt.started}ms)`);
+  return result;
+}
+
+async function completeEmptyConversion(attempt: ReadAttempt): Promise<string> {
+  if (attempt.options.renderedResponse) {
+    const remaining = attempt.timeoutMs - (Date.now() - attempt.started);
+    if (remaining <= 0) throw new RetryableSolverReadError(createTimeoutError(attempt.timeoutMs, attempt.url));
+    clearTimeout(attempt.timeoutId);
+    return await convertUrlAttempt(attempt.mcpServer, attempt.parsedUrl, remaining,
+      attempt.paginationOptions, attempt.signal, { ...attempt.options, renderedResponse: null });
+  }
+  logMessage(attempt.mcpServer, "warning", `Empty content after conversion: ${attempt.url}`);
+  return createEmptyContentWarning(attempt.url);
+}
+
+function throwAttemptError(attempt: ReadAttempt, error: any): never {
+  attempt.signal?.throwIfAborted();
+  if (error instanceof RetryableSolverReadError) throw error;
+  if (error.name === "AbortError") throw createTimeoutError(attempt.timeoutMs, attempt.url);
+  if (error.name === "MCPSearXNGError") {
+    logMessage(attempt.mcpServer, "error", `Error fetching URL: ${attempt.url} - ${error.message}`);
+    throw error;
+  }
+  logMessage(attempt.mcpServer, "error", `Unexpected error fetching URL: ${attempt.url}`, error);
+  throw createUnexpectedError(error, { url: attempt.url });
 }

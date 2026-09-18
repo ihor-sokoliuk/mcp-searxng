@@ -8,6 +8,13 @@ import { MAX_PDF_BYTES } from "./pdf-reader.js";
 
 export const MAX_SOLVER_HTML_BYTES = 5 * 1024 * 1024;
 
+export function browserSolverEnvelopeLimit(maxBytes: number): number {
+  // JSON may escape each ASCII byte as six characters (e.g. \\u003c).
+  const htmlEnvelope = 6 * Math.min(maxBytes, MAX_SOLVER_HTML_BYTES);
+  const pdfEnvelope = 4 * Math.ceil(Math.min(maxBytes, MAX_PDF_BYTES) / 3);
+  return Math.max(htmlEnvelope, pdfEnvelope) + 256 * 1024;
+}
+
 function solutionMediaType(solution: BrowserSolverSolution): string | undefined {
   // Byparr's contentType describes its returned body (headers may describe the
   // original response instead). FlareSolverr often supplies no response headers.
@@ -24,10 +31,8 @@ function isPdfViewer(html: string): boolean {
       element.getAttribute("href")?.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"))
     || document.querySelectorAll("embed,object,iframe").some(element => {
       const type = element.getAttribute("type")?.toLowerCase();
-      return type === "application/pdf" || type === "application/x-google-chrome-pdf"
-        || element.getAttribute("id") === "plugin";
-    })
-    || document.querySelector("#viewerContainer") !== null;
+      return type === "application/pdf" || type === "application/x-google-chrome-pdf";
+    });
 }
 
 function decodePdf(body: string, limit: number, url: string): Uint8Array<ArrayBuffer> {
@@ -35,7 +40,7 @@ function decodePdf(body: string, limit: number, url: string): Uint8Array<ArrayBu
     throw createContentError("Browser solver PDF exceeds the content byte limit.", url);
   }
   // Buffer's base64 decoder is permissive: require canonical, padded base64.
-  if (body.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(body)) {
+  if (body.length % 4 !== 0) {
     throw createContentError("Browser solver returned malformed PDF base64.", url);
   }
   const bytes = Buffer.from(body, "base64");
@@ -46,29 +51,34 @@ function decodePdf(body: string, limit: number, url: string): Uint8Array<ArrayBu
   return new Uint8Array(bytes);
 }
 
-/** A null result requires guarded replay; invalid content fails closed. */
-export function browserSolverContentResponse(
-  provider: BrowserSolverProvider,
-  solution: BrowserSolverSolution,
-  maxBytes: number,
-): Response | null {
-  const body = solution.response;
-  if (!body || !body.trim()) return null;
-  const mediaType = solutionMediaType(solution);
-  if (mediaType === "application/pdf") {
-    if (provider !== "byparr") return null;
-    const bytes = decodePdf(body, Math.min(maxBytes, MAX_PDF_BYTES), solution.url);
-    return new Response(bytes, { headers: { "content-type": "application/pdf" } });
-  }
+function htmlContentResponse(body: string, solution: BrowserSolverSolution, maxBytes: number): Response | null {
   if (Buffer.byteLength(body, "utf8") > Math.min(maxBytes, MAX_SOLVER_HTML_BYTES)) {
     throw createContentError("Browser solver content exceeds the content byte limit.", solution.url);
   }
-  if (mediaType && mediaType !== "text/html" && mediaType !== "application/xhtml+xml") return null;
-  if (!mediaType && !/^\s*(?:<!doctype\s+html|<html[\s>])/iu.test(body)) return null;
+  if (!isHtmlBody(body, solutionMediaType(solution))) return null;
   if (body.slice(0, 1024).includes("\0")) {
     throw createContentError("Browser solver returned binary HTML content.", solution.url);
   }
   assertSafeOutput(body);
   if (isPdfViewer(body)) return null;
   return new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+function isHtmlBody(body: string, mediaType?: string): boolean {
+  if (mediaType) return mediaType === "text/html" || mediaType === "application/xhtml+xml";
+  const prefix = body.trimStart().slice(0, 20).toLowerCase();
+  return prefix.startsWith("<!doctype html")
+    || (prefix.startsWith("<html") && [">", " ", "\t", "\r", "\n", "\f"].includes(prefix[5]));
+}
+
+/** A null result requires guarded replay; invalid content fails closed. */
+export function browserSolverContentResponse(
+  provider: BrowserSolverProvider, solution: BrowserSolverSolution, maxBytes: number,
+): Response | null {
+  const body = solution.response;
+  if (!body?.trim()) return null;
+  if (solutionMediaType(solution) !== "application/pdf") return htmlContentResponse(body, solution, maxBytes);
+  if (provider !== "byparr") return null;
+  const bytes = decodePdf(body, Math.min(maxBytes, MAX_PDF_BYTES), solution.url);
+  return new Response(bytes, { headers: { "content-type": "application/pdf" } });
 }

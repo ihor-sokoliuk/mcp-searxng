@@ -58,10 +58,6 @@ export type BrowserSolverAcquisition =
   | { kind: "solved"; solution: BrowserSolverSolution }
   | { kind: "fallback"; reason: "busy" | "unavailable" };
 
-export type BrowserSolverChainAcquisition =
-  | { kind: "solved"; provider: BrowserSolverProvider; solution: BrowserSolverSolution }
-  | { kind: "fallback"; reason: "busy" | "unavailable" };
-
 const activeSolverRequests: Record<BrowserSolverProvider, number> = {
   flaresolverr: 0,
   byparr: 0,
@@ -331,9 +327,6 @@ async function readSolverResponse(
   }
   if (!response.ok) {
     await response.body?.cancel();
-    if (response.headers.has("retry-after")) {
-      throw createContentError("Browser solver requested a retry delay; try again later.", "");
-    }
     return null;
   }
   return await readBoundedResponse(response, maximumBytes);
@@ -398,8 +391,9 @@ async function reserveProviderSlot(config: BrowserSolverConfig, signal?: AbortSi
   const waiters = slotWaiters[config.provider];
   if (waiters.size >= config.maxConcurrentRequests * 4) return false;
   return await new Promise<boolean>((resolve, reject) => {
+    const deadline = AbortSignal.timeout(Math.min(config.timeoutMs, BROWSER_SOLVER_SLOT_WAIT_MS));
     const cleanup = () => {
-      clearTimeout(timer);
+      deadline.removeEventListener("abort", expire);
       waiters.delete(wake);
       signal?.removeEventListener("abort", abort);
     };
@@ -409,7 +403,8 @@ async function reserveProviderSlot(config: BrowserSolverConfig, signal?: AbortSi
       cleanup();
       reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
     };
-    const timer = setTimeout(() => finish(false), Math.min(config.timeoutMs, BROWSER_SOLVER_SLOT_WAIT_MS));
+    const expire = () => finish(false);
+    deadline.addEventListener("abort", expire, { once: true });
     waiters.add(wake);
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
@@ -461,49 +456,6 @@ export async function acquireBrowserSolverSolution(
     activeSolverRequests[config.provider]--;
     for (const wake of [...slotWaiters[config.provider]]) wake();
   }
-}
-
-function logProviderOutcome(
-  mcpServer: McpServer,
-  provider: BrowserSolverProvider,
-  reason: "busy" | "unavailable",
-): void {
-  logMessage(
-    mcpServer,
-    "warning",
-    "Browser solver provider did not produce a session.",
-    { provider, classification: reason },
-  );
-}
-
-export async function acquireBrowserSolverSolutionChain(
-  mcpServer: McpServer,
-  configs: readonly BrowserSolverConfig[],
-  requestedUrl: URL,
-  signal?: AbortSignal,
-): Promise<BrowserSolverChainAcquisition> {
-  let finalReason: "busy" | "unavailable" = "unavailable";
-  for (const config of configs) {
-    throwIfAborted(signal);
-    const acquisition = await acquireBrowserSolverSolution(
-      mcpServer,
-      config,
-      requestedUrl,
-      signal,
-      false,
-    );
-    if (acquisition.kind === "solved") {
-      return {
-        kind: "solved",
-        provider: config.provider,
-        solution: acquisition.solution,
-      };
-    }
-    finalReason = acquisition.reason;
-    logProviderOutcome(mcpServer, config.provider, acquisition.reason);
-  }
-  logDirectFallback(mcpServer);
-  return { kind: "fallback", reason: finalReason };
 }
 
 function cookiePath(cookie: BrowserSolverCookie): string {

@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { fileURLToPath } from "node:url";
-import { browserSolverContentResponse } from "../../src/browser-solver-content.js";
+import { browserSolverContentResponse, browserSolverEnvelopeLimit } from "../../src/browser-solver-content.js";
 import type { BrowserSolverSolution } from "../../src/browser-solver.js";
 import { createTestResults, printTestSummary, testFunction } from "../helpers/test-utils.js";
 import { EnvManager } from "../helpers/env-utils.js";
@@ -16,6 +16,8 @@ export async function runTests() {
       { response: "<html><body>content</body></html>" },
       { response: "<main>content</main>", contentType: "text/html; charset=utf-8" },
       { response: "<main>content</main>", headers: { "CONTENT-TYPE": "text/html" } },
+      { response: '<html\nlang="en"><body>content</body></html>' },
+      { response: '<html><div id="viewerContainer">content</div><iframe id="plugin"></iframe></html>' },
     ]) {
       const response = browserSolverContentResponse("flaresolverr", solution(extra), 1000);
       assert.ok((await response?.text())?.includes("content"));
@@ -29,9 +31,13 @@ export async function runTests() {
       { response: "<html><object type='application/x-google-chrome-pdf'></object></html>" },
       { response: "<html><pdf-viewer></pdf-viewer></html>" },
       { response: '<html><head><link rel="stylesheet" href="chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css"></head><body></body></html>' },
-      { response: "<html><div id='viewerContainer'></div></html>" },
       { response: "JVBERi0=", contentType: "application/pdf" },
     ]) assert.equal(browserSolverContentResponse("flaresolverr", solution(extra), 1000), null);
+  }, results);
+  await testFunction("envelope capacity accounts for JSON escaping and shrinks with configured limits", () => {
+    assert.equal(browserSolverEnvelopeLimit(1024), 6 * 1024 + 256 * 1024);
+    assert.ok(browserSolverEnvelopeLimit(5 * 1024 * 1024) <= 32 * 1024 * 1024);
+    assert.equal(browserSolverEnvelopeLimit(Number.MAX_SAFE_INTEGER), browserSolverEnvelopeLimit(16 * 1024 * 1024));
   }, results);
   await testFunction("Byparr contentType selects PDF despite original HTML headers", async () => {
     const body = Buffer.from("%PDF-1.7\nfixture");
