@@ -114,7 +114,9 @@ directly. Ambiguous bodies and PDF viewer shells use replay through normal
 URL-reader controls, restarting at the originally requested URL.
 Before accepting rendered content, the solver-returned hostname is resolved
 again through the reader's DNS policy within the read deadline. A private-address
-answer fails closed. This checks the MCP host's current DNS view; it cannot
+answer fails closed. Local DNS resolution is required even when target traffic
+uses a proxy; unresolved names also fail closed without replay or provider
+failover. This checks the MCP host's current DNS view; it cannot
 prove which address the remote browser contacted or validate its internal
 redirects, so solver-side egress isolation remains necessary.
 

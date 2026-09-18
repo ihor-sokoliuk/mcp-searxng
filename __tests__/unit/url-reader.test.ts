@@ -395,6 +395,8 @@ async function runTests() {
       const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url, 40);
       assert.ok(result.includes('Complete secondary')); assert.ok(!result.includes('partial'));
       assert.equal(urlCache.get(createBrowserSolverCacheKey('flaresolverr', target.url)), null);
+      envManager.delete('BYPARR_URL'); urlCache.clear();
+      await assert.rejects(fetchAndConvertToMarkdown(createMockServer() as any, target.url, 40), /Timeout Error/);
     } finally { envManager.restore(); urlCache.clear(); await flare.close(); await byparr.close(); await target.close(); }
   }, results);
 
