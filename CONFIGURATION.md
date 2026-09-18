@@ -149,6 +149,11 @@ authoritative. The original HEAD preflight remains in place.
 Provider envelope limits derive from the configured decoded-content limit,
 allowing up to sixfold JSON escaping or PDF base64 overhead plus 256 KiB of
 metadata, within a fixed 32 MiB ceiling.
+Budget memory for encoded and decoded copies: at the maximum 16 acquisitions
+per provider, 32 simultaneous default-sized envelopes can approach 1 GiB before
+JSON parsing and conversion overhead. The default two slots per provider allow
+up to roughly 121 MiB of envelope bytes across both providers. Lower concurrency
+and content limits on memory-constrained hosts.
 Rendered HTML has a 5 MiB ceiling and PDF input a 16 MiB ceiling; the configured
 `URL_READ_MAX_CONTENT_LENGTH_BYTES` applies when lower. Malformed PDF bytes,
 size violations, credential-bearing content, and solution integrity errors

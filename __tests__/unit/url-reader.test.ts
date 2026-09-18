@@ -415,6 +415,28 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('browser wrappers preserve image JSON and plain-text replay behavior', async () => {
+    for (const scenario of [
+      { type: 'image/png', body: 'image fixture', wrapper: '<img src="https://example.com/image.png">' },
+      { type: 'application/json', body: '{"value":42}', wrapper: '<pre>{"value":42}</pre>' },
+      { type: 'text/plain', body: 'Plain text fixture', wrapper: '<pre>Plain text fixture</pre>' },
+    ]) {
+      const target = await startHttpServer((req, res) => {
+        res.writeHead(200, { 'content-type': scenario.type }); res.end(req.method === 'HEAD' ? '' : scenario.body);
+      });
+      const flare = await startHttpServer((req, res) => {
+        req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: `<html><head></head><body>${scenario.wrapper}</body></html>` } }));
+      });
+      try {
+        const server = createMockServer() as any;
+        const direct = await fetchAndConvertToMarkdown(server, target.url);
+        envManager.set('FLARESOLVERR_URL', flare.url);
+        assert.equal(await fetchAndConvertToMarkdown(server, target.url), direct);
+      } finally { envManager.restore(); urlCache.clear(); await flare.close(); await target.close(); }
+    }
+  }, results);
+
   await testFunction('malformed solver PDF fails closed without replay or caching', async () => {
     let gets = 0;
     const target = await startHttpServer((req, res) => { if (req.method === 'GET') gets++; res.end(); });
