@@ -14,7 +14,7 @@ import {
   resolveBrowserSolverConfigs,
   type BrowserSolverSolution,
 } from "./browser-solver.js";
-import { browserSolverContentResponse, browserSolverEnvelopeLimit } from "./browser-solver-content.js";
+import { assertBrowserSolverContentDns, browserSolverContentResponse, browserSolverEnvelopeLimit } from "./browser-solver-content.js";
 import { extractPdfText, MAX_PDF_BYTES, MAX_PDF_PAGES } from "./pdf-reader.js";
 import {
   createURLFormatError,
@@ -711,6 +711,9 @@ async function convertUrlAttempt(
     timeoutId: setTimeout(() => controller.abort(), timeoutMs),
   };
   try {
+    if (options.renderedResponse && options.browserSolverSolution) {
+      await assertBrowserSolverContentDns(options.browserSolverSolution, attempt.requestSignal);
+    }
     const response = options.renderedResponse ?? await fetchReplayResponse(attempt);
     if (typeof response === "string") return response;
     await assertSuccessfulResponse(attempt, response);
@@ -758,6 +761,7 @@ async function fetchReplayResponse(attempt: ReadAttempt): Promise<Response | str
       const sizeMessage = await replaySizeMessage(attempt, current, request);
       if (sizeMessage) return sizeMessage;
       const response = await (undiciFetch as unknown as typeof fetch)(current.href, request);
+      if (isRedirectResponse(response)) void cancelResponseBody(response);
       const next = redirectTarget(response, current, redirects);
       if (!next) return response;
       current = next;

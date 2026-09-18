@@ -112,6 +112,11 @@ above 4096 bytes per pair, and validates the solution URL against URL policy, in
 rejection. Safe rendered HTML and explicit Byparr PDF content are consumed
 directly. Ambiguous bodies and PDF viewer shells use replay through normal
 URL-reader controls, restarting at the originally requested URL.
+Before accepting rendered content, the solver-returned hostname is resolved
+again through the reader's DNS policy within the read deadline. A private-address
+answer fails closed. This checks the MCP host's current DNS view; it cannot
+prove which address the remote browser contacted or validate its internal
+redirects, so solver-side egress isolation remains necessary.
 
 The browser service performs its own navigation internally. `mcp-searxng`
 cannot intercept or validate every redirect the browser follows while solving a
