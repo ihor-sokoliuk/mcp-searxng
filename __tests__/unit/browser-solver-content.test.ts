@@ -30,6 +30,9 @@ export async function runTests() {
       { response: "<html><embed type='application/pdf'></html>" },
       { response: "<html><object type='application/x-google-chrome-pdf'></object></html>" },
       { response: "<html><pdf-viewer></pdf-viewer></html>" },
+      { response: '<html><head></head><body><pre>{"value":42}</pre></body></html>' },
+      { response: '<html><body style="margin: 0px"><img src="https://example.com/image.png"></body></html>' },
+      { response: '<html><body><div class="json-formatter-container"></div><pre>{}</pre></body></html>' },
       { response: '<html><head><link rel="stylesheet" href="chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css"></head><body></body></html>' },
       { response: "JVBERi0=", contentType: "application/pdf" },
     ]) assert.equal(browserSolverContentResponse("flaresolverr", solution(extra), 1000), null);

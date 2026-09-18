@@ -24,8 +24,13 @@ function solutionMediaType(solution: BrowserSolverSolution): string | undefined 
   return typeof value === "string" ? value.split(";")[0].trim().toLowerCase() : undefined;
 }
 
-function isPdfViewer(html: string): boolean {
+function isBrowserDocumentWrapper(html: string): boolean {
   const document = parse(html);
+  const body = document.querySelector("body");
+  return (body !== null && isRawDocumentBody(body)) || isPdfDocument(document);
+}
+
+function isPdfDocument(document: ReturnType<typeof parse>): boolean {
   return document.querySelector("pdf-viewer") !== null
     || document.querySelectorAll("link").some(element =>
       element.getAttribute("href")?.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"))
@@ -33,6 +38,15 @@ function isPdfViewer(html: string): boolean {
       const type = element.getAttribute("type")?.toLowerCase();
       return type === "application/pdf" || type === "application/x-google-chrome-pdf";
     });
+}
+
+function isRawDocumentBody(body: ReturnType<typeof parse>): boolean {
+  // Chrome/Firefox wrap raw text, JSON and images in a generated HTML document.
+  // An HTML-only solver response cannot establish the original media type, so
+  // keep replay authoritative for these ambiguous shapes.
+  const children = body.children;
+  if (children.length === 1 && ["PRE", "IMG"].includes(children[0].tagName)) return true;
+  return body.querySelector(".json-formatter-container") !== null;
 }
 
 function decodePdf(body: string, limit: number, url: string): Uint8Array<ArrayBuffer> {
@@ -60,7 +74,7 @@ function htmlContentResponse(body: string, solution: BrowserSolverSolution, maxB
     throw createContentError("Browser solver returned binary HTML content.", solution.url);
   }
   assertSafeOutput(body);
-  if (isPdfViewer(body)) return null;
+  if (isBrowserDocumentWrapper(body)) return null;
   return new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
