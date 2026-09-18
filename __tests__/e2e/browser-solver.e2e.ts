@@ -70,6 +70,44 @@ async function runTests() {
     return { passed: 0, failed: 0, errors: [] };
   }
 
+  for (const provider of ['FLARESOLVERR_URL', 'BYPARR_URL']) {
+    await testFunction(`built MCP server consumes ${provider} content without replay`, async () => {
+      let gets = 0;
+      const target = await startServer((req, res) => {
+        if (req.method === 'GET') gets++;
+        res.writeHead(403); res.end();
+      });
+      const solver = await startServer((req, res) => {
+        req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+        const pdf = provider === 'BYPARR_URL';
+        res.end(JSON.stringify({ status: 'ok', solution: {
+          url: target.url, status: 200, cookies: [], userAgent: 'browser',
+          contentType: pdf ? 'application/pdf' : 'text/html',
+          response: pdf ? Buffer.from(createTextPdf(['Rendered transport content'])).toString('base64')
+            : '<html><body>Rendered transport content</body></html>',
+        } }));
+      });
+      try {
+        const responses = await spawnWithMessagesAsync(readUrlMessages(target.url), 'https://test-searx.example.com', 15_000, {
+          FLARESOLVERR_URL: undefined, BYPARR_URL: undefined, [provider]: solver.url,
+          MCP_HTTP_ALLOW_PRIVATE_URLS: 'true', NO_PROXY: '127.0.0.1',
+        });
+        const result = responses[2]?.result;
+        assert.ok(!result?.isError);
+        assert.ok(result?.content?.[0]?.text?.includes('Rendered transport content'));
+        assert.equal(gets, 0);
+        const withheld = await spawnWithMessagesAsync(readUrlMessages(target.url), 'https://test-searx.example.com', 15_000, {
+          FLARESOLVERR_URL: undefined, BYPARR_URL: undefined, [provider]: solver.url,
+          MCP_HTTP_ALLOW_PRIVATE_URLS: 'true', NO_PROXY: '127.0.0.1', AUTH_PASSWORD: 'Rendered transport content',
+        });
+        assert.equal(withheld[2]?.result?.isError, true);
+        assert.ok(JSON.stringify(withheld[2]).includes('Content withheld to protect configured authentication'));
+        assert.ok(!JSON.stringify(withheld[2]).includes('Rendered transport content'));
+        assert.equal(gets, 0);
+      } finally { await solver.close(); await target.close(); }
+    }, results);
+  }
+
   await testFunction('built MCP server replays a solved browser session', async () => {
     let replayUserAgent = '';
     let replayCookie = '';
@@ -105,6 +143,7 @@ async function runTests() {
               path: '/',
             }],
             userAgent: 'flaresolverr-e2e-agent',
+            response: '<html><head><link href="chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css"></head><body></body></html>',
           },
         }));
       });
@@ -170,7 +209,6 @@ async function runTests() {
             status: 200,
             cookies: [],
             userAgent: 'byparr-e2e-agent',
-            response: '<html>ignored</html>',
           },
         }));
       });

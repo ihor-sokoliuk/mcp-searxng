@@ -85,16 +85,15 @@ To allow private URL reads and private DNS-resolved targets (e.g. for internal d
 ### Delegated Browser Service
 
 Setting `FLARESOLVERR_URL` or `BYPARR_URL` delegates challenge-page navigation
-to a trusted browser service. FlareSolverr 3.5.0 and Byparr 2.1.0 were verified
-on 2026-07-30. When both endpoints are configured, this release uses
-FlareSolverr as the fixed primary and Byparr as the fallback only for busy or
-transient-unavailable acquisition.
+to a trusted browser service. FlareSolverr 3.5.2 and Byparr 3.0.4 were verified
+on 2026-09-18. When both endpoints are configured, this release uses
+FlareSolverr as the fixed primary and Byparr as the fallback for bounded acquisition or retryable read failures.
 Canonical duplicate endpoints fail closed.
 
 The verified `linux/amd64` images came from multi-architecture manifests
-`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
+`ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767`
 and
-`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
+`ghcr.io/thephaseless/byparr:3.0.4@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6`.
 Client cancellation stops local work promptly, but a remote browser may
 continue until its configured provider timeout after the HTTP client
 disconnects.
@@ -109,9 +108,17 @@ Independent concurrency limits prevent either provider from consuming the
 other's slots. `mcp-searxng` accepts a solution only for
 the same hostname, filters returned cookies by domain, path, secure flag, and
 expiry, rejects cookie names or values outside the HTTP cookie character set or
-above 4096 bytes per pair, and performs the final target fetch through the
-normal URL-reader controls. Replay restarts at the originally requested URL;
-the solver-returned URL is used only for same-host integrity validation.
+above 4096 bytes per pair, and validates the solution URL against URL policy, including HTTPS downgrade
+rejection. Safe rendered HTML and explicit Byparr PDF content are consumed
+directly. Ambiguous bodies and PDF viewer shells use replay through normal
+URL-reader controls, restarting at the originally requested URL.
+Before accepting rendered content, the solver-returned hostname is resolved
+again through the reader's DNS policy within the read deadline. A private-address
+answer fails closed. Local DNS resolution is required even when target traffic
+uses a proxy; unresolved names also fail closed without replay or provider
+failover. This checks the MCP host's current DNS view; it cannot
+prove which address the remote browser contacted or validate its internal
+redirects, so solver-side egress isolation remains necessary.
 
 The browser service performs its own navigation internally. `mcp-searxng`
 cannot intercept or validate every redirect the browser follows while solving a
@@ -124,26 +131,30 @@ challenge. Treat that service as part of the trusted deployment boundary:
   workload;
 - keep the solver image updated and review its own security guidance.
 
-Transient or busy primary outcomes advance to Byparr; the final busy or
-unavailable outcome uses the direct URL-reader path once. Persistent provider
-4xx, hostname divergence, and solved non-2xx target status stop the chain.
-Cancellation
-does not trigger fallback and is propagated through acquisition, replay, body
-streaming, and PDF extraction. Invalid solver configuration fails closed. The solver API
-response is capped at 256 KiB for FlareSolverr and 5 MiB for Byparr. During
-2.1.0 verification, Byparr returned rendered content alongside cookies.
-Concurrent
-acquisitions are bounded independently by the selected provider's
-`*_MAX_CONCURRENT_REQUESTS` variable.
+Each provider is attempted at most once. Retryable target/replay failures may
+advance to Byparr; target 429, target `Retry-After`, persistent client errors,
+cancellation, credential-bearing output, and integrity failures stop the chain.
+Only entirely unavailable acquisitions permit one uncached direct fetch. A
+saturated chain returns busy after bounded waiting and cannot silently bypass
+the solver. Queues hold at most four callers per configured slot and wait at
+most one second, bounded further by the provider timeout. Provider acquisition
+concurrency ceilings remain independent.
 
-Each provider keeps its full timeout. The default dual-provider worst case is
-143 seconds of stage budgets before PDF parsing: a 3-second preflight,
-two 65-second acquisitions including response grace, and a 10-second final
-fetch. PDF parsing can add 30 seconds. Timer budgets are not a precise
-wall-clock completion guarantee. Repeated
-value-free `unavailable` warnings for the same provider should trigger
-operational alerting; this feature does not retain a health score or silently
-reverse provider order.
+Solver API envelopes derive from the effective content limits plus JSON/base64
+overhead and 256 KiB of metadata, capped at 32 MiB. Decoded HTML is capped at 5 MiB and
+PDF input at 16 MiB, or the configured URL-reader byte limit when lower.
+Byparr PDF decoding checks canonical base64 and a valid PDF signature before
+isolated extraction. Credential checks run before caching and pagination.
+Rendered content is supplied by a trusted remote browser; this cannot verify
+the browser's internal redirect chain or network egress. Keep that boundary
+isolated as described above. Cookie/User-Agent replay skips redundant HEADs,
+while GET redirect policy and streaming byte limits remain enforced.
+
+Default stage budgets can total 155 seconds before PDF parsing: a 3-second
+preflight, two 1-second waits, two 65-second acquisitions, and two 10-second
+replays. PDF parsing can add 30 seconds. Timer budgets are not a precise
+wall-clock guarantee. Provider/stage diagnostics contain no response values.
+This feature does not retain a health score or reverse provider order.
 
 ### PDF Text Extraction
 

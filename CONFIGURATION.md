@@ -104,23 +104,23 @@ for trust, evaluation, and conservative-use guidance.
 | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | No | `5242880` | Maximum decompressed response-body bytes `web_url_read` will read while streaming a page. A HEAD `Content-Length` preflight may reject oversized pages before GET, but the streaming cap is authoritative. PDF input and extracted text additionally have a fixed 16 MiB ceiling. Invalid values fall back to the default. |
 | `FLARESOLVERR_URL` | No | — | Base URL of a trusted FlareSolverr service, such as `http://flaresolverr:8191`. When set, `web_url_read` attempts to ask its `/v1` API for a browser session after an uncached URL passes URL validation and the HEAD size preflight. |
 | `FLARESOLVERR_TIMEOUT_MS` | No | `60000` | Maximum session-acquisition time in milliseconds, from `1` through `300000`. Invalid values use the default. This is separate from `FETCH_TIMEOUT_MS`, which starts when the target is replayed. |
-| `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent FlareSolverr acquisitions per MCP process, from `1` through `16`. In dual mode, a full primary limit advances to Byparr instead of waiting in a queue. |
+| `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent FlareSolverr acquisitions per MCP process, from `1` through `16`. A full limit waits at most 1 second (or the shorter provider timeout), with at most four queued callers per configured slot. |
 | `BYPARR_URL` | No | — | Base URL of a trusted Byparr service, such as `http://byparr:8191`. It may be configured alone or with `FLARESOLVERR_URL`; dual mode always tries FlareSolverr first. |
 | `BYPARR_TIMEOUT_SECONDS` | No | `60` | Maximum Byparr session-acquisition time in whole seconds, from `1` through `300`. Invalid values use the default. |
 | `BYPARR_MAX_CONCURRENT_REQUESTS` | No | `2` | Maximum concurrent Byparr acquisitions per MCP process, from `1` through `16`. It is independent from the FlareSolverr counter. |
 | `CACHE_TTL_MS` | No | `86400000` | URL cache TTL in milliseconds. Invalid or non-positive values fall back to the default (24 hours). |
 | `CACHE_MAX_ENTRIES` | No | `500` | Maximum number of cached URLs. When the cache exceeds this size, the least frequently used entry is evicted, with oldest entry used as the tie-breaker. Invalid or non-positive values fall back to the default. |
 
-FlareSolverr 3.5.0 and Byparr 2.1.0 were verified on 2026-07-30. Configure
+FlareSolverr 3.5.2 and Byparr 3.0.4 were verified on 2026-09-18. Configure
 either provider, both providers, or neither provider. With both endpoints,
 FlareSolverr is always primary and Byparr is the secondary; ordering is not
 configurable and automatic reverse failover is not performed. Canonically
 identical endpoints fail startup without echoing either configured value.
 
 The verified `linux/amd64` images came from multi-architecture manifests
-`ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47`
+`ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767`
 and
-`ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0`.
+`ghcr.io/thephaseless/byparr:3.0.4@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6`.
 Client cancellation stops local work promptly, but a remote browser may
 continue until its configured provider timeout after the HTTP client
 disconnects. See [browser solver verification](docs/browser-solver-verification.md).
@@ -138,41 +138,52 @@ additional seconds to receive and validate either solver response.
 
 With at least one browser-solver endpoint configured, `web_url_read` first performs its normal
 target URL security and HEAD size preflight for every uncached read. It then
-requests a browser session and uses only its cookies and user-agent. Byparr
-2.1.0 also returns rendered content; that field is discarded after a bounded
-parse.
-When a solver slot is available, every uncached URL that passes URL validation
-and the HEAD size preflight is disclosed to that provider. In dual mode the
-same original URL can therefore be disclosed first to FlareSolverr and then to
-Byparr after an allowed primary failure. The providers have independent
-concurrency counters. Cache hits bypass acquisition. The actual target is
-fetched by `mcp-searxng`, so
-redirect validation, URL-reader proxy selection, streaming size limits, and
-content-type handling remain authoritative.
-Replay starts again at the originally requested URL rather than trusting a
-same-host path returned by the solver.
+requests a browser-rendered response (`returnOnlyCookies: false`). Usable HTML
+is consumed directly. Byparr responses explicitly declaring `application/pdf`
+are decoded from strict base64, checked for the PDF signature, and processed by
+the isolated PDF extractor. FlareSolverr PDF viewer shells and ambiguous bodies
+use guarded cookie/User-Agent replay from the original requested URL. Replay
+skips additional HEAD requests; GET redirects and streaming byte limits remain
+authoritative. The original HEAD preflight remains in place.
 
-A transient solver connection, timeout, overload, HTTP 408/429/5xx response,
-malformed response, or oversized response advances to the next configured
-provider. If the final provider is busy or unavailable, one uncached direct
-URL-reader fetch runs. Invalid solver configuration, other HTTP 4xx responses, a
-solver result for a different hostname, and a non-success target status
-reported by the solver fail closed. A direct-fetch fallback result is not
-cached, so repeated reads re-fetch until solver acquisition succeeds.
-Solver-backed cache entries are isolated by provider and from direct-fetch
-entries. Cancellation never falls back or writes a cache entry. When the
-replay response is `application/pdf`, the URL reader applies its bounded PDF
-text-extraction path.
+Rendered content requires a fresh successful DNS-policy check on the MCP host,
+even when target traffic uses a proxy. Names resolvable only by the proxy or
+browser service cannot use this path: local DNS failure stops the read without
+replay or provider failover. Configure working local DNS for those targets.
 
-There is no shared solver timeout. At defaults, the stage budgets total 143
-seconds before PDF parsing: up to 3 seconds for the initial HEAD preflight,
-65 seconds for each provider including response grace, and 10 seconds for the
-final replay or direct fetch. The HEAD budget is the lower of `FETCH_TIMEOUT_MS`
-and 3000 milliseconds. PDF parsing can add up to 30 seconds after download.
-These are cancellation budgets, not a precise wall-clock completion guarantee.
-MCP cancellation stops the chain immediately when the client propagates it.
-Repeated value-free `unavailable` warnings for one provider should be monitored
-as persistent degradation.
+Provider envelope limits derive from the configured decoded-content limit,
+allowing up to sixfold JSON escaping or PDF base64 overhead plus 256 KiB of
+metadata, within a fixed 32 MiB ceiling.
+Budget memory for encoded and decoded copies: at the maximum 16 acquisitions
+per provider, 32 simultaneous default-sized envelopes can approach 1 GiB before
+JSON parsing and conversion overhead. The default two slots per provider allow
+up to roughly 121 MiB of envelope bytes across both providers. Lower concurrency
+and content limits on memory-constrained hosts.
+Rendered HTML has a 5 MiB ceiling and PDF input a 16 MiB ceiling; the configured
+`URL_READ_MAX_CONTENT_LENGTH_BYTES` applies when lower. Malformed PDF bytes,
+size violations, credential-bearing content, and solution integrity errors
+fail closed. Only successful converted content enters the provider-specific
+cache; pagination is applied afterward. Cache hits bypass acquisition.
+
+The same original URL can be disclosed first to FlareSolverr and then to Byparr.
+Each provider is attempted at most once. Transient acquisition failure permits
+failover, including a solver-service retry delay (that service is not retried). A replay timeout/transient connection failure,
+or target HTTP 403, 408, 500, 502, 503, or 504 also permits the next provider.
+Target 429, target `Retry-After`, other persistent client errors,
+cancellation, and integrity failures stop the chain. A final solved-read
+failure is surfaced without another direct fetch. If all acquisitions are
+unavailable, one uncached direct fetch remains available; saturation instead
+returns a stable busy error after bounded waiting. Wait queues are independent
+per provider and bounded at four callers per configured slot.
+
+At defaults, stage budgets total up to 155 seconds before PDF parsing: a
+3-second HEAD preflight, two 1-second slot waits, two 65-second acquisitions
+including response grace, and two 10-second replay attempts. Direct rendered
+content skips replay. PDF parsing can add up to 30 seconds. These are
+cancellation budgets, not a precise wall-clock completion guarantee. Client
+cancellation stops local acquisition, waiting, replay, and extraction.
+Diagnostics contain only provider, stage, and outcome categories. Optional
+persistent browser sessions and per-call provider selection are not enabled.
 
 Example with the official FlareSolverr image:
 

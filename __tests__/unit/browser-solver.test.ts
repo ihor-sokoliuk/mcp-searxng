@@ -8,6 +8,7 @@ import {
   acquireBrowserSolverSolution,
   resolveBrowserSolverConfigs,
   type BrowserSolverConfig,
+  MAX_BYPARR_RESPONSE_BYTES,
 } from "../../src/browser-solver.js";
 import { createMockServer, createMockServerWithTracking } from "../helpers/mock-server.js";
 import { createTestResults, printTestSummary, testFunction } from "../helpers/test-utils.js";
@@ -141,7 +142,7 @@ async function runTests() {
       timeoutMs: 60_000,
       wireTimeout: 60,
       maxConcurrentRequests: 2,
-      maxResponseBytes: 5 * 1024 * 1024,
+      maxResponseBytes: MAX_BYPARR_RESPONSE_BYTES,
     });
 
     process.env.BYPARR_TIMEOUT_SECONDS = "300";
@@ -268,7 +269,7 @@ async function runTests() {
         cmd: "request.get",
         url: target.href,
         maxTimeout: 1000,
-        returnOnlyCookies: true,
+        returnOnlyCookies: false,
       });
       assert.equal(acquisition.kind, "solved");
       if (acquisition.kind === "solved") {
