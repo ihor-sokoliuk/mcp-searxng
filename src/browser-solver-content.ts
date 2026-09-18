@@ -1,0 +1,74 @@
+import { Buffer } from "node:buffer";
+import { parse } from "node-html-parser";
+import type { BrowserSolverSolution } from "./browser-solver.js";
+import type { BrowserSolverProvider } from "./browser-solver-config.js";
+import { createContentError } from "./error-handler.js";
+import { assertSafeOutput } from "./credential-output.js";
+import { MAX_PDF_BYTES } from "./pdf-reader.js";
+
+export const MAX_SOLVER_HTML_BYTES = 5 * 1024 * 1024;
+
+function solutionMediaType(solution: BrowserSolverSolution): string | undefined {
+  // Byparr's contentType describes its returned body (headers may describe the
+  // original response instead). FlareSolverr often supplies no response headers.
+  const header = Object.entries(solution.headers ?? {})
+    .find(([name]) => name.toLowerCase() === "content-type")?.[1];
+  const value = solution.contentType ?? header;
+  return typeof value === "string" ? value.split(";")[0].trim().toLowerCase() : undefined;
+}
+
+function isPdfViewer(html: string): boolean {
+  const document = parse(html);
+  return document.querySelector("pdf-viewer") !== null
+    || document.querySelectorAll("link").some(element =>
+      element.getAttribute("href")?.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"))
+    || document.querySelectorAll("embed,object,iframe").some(element => {
+      const type = element.getAttribute("type")?.toLowerCase();
+      return type === "application/pdf" || type === "application/x-google-chrome-pdf"
+        || element.getAttribute("id") === "plugin";
+    })
+    || document.querySelector("#viewerContainer") !== null;
+}
+
+function decodePdf(body: string, limit: number, url: string): Uint8Array<ArrayBuffer> {
+  if (body.length > Math.ceil(limit / 3) * 4) {
+    throw createContentError("Browser solver PDF exceeds the content byte limit.", url);
+  }
+  // Buffer's base64 decoder is permissive: require canonical, padded base64.
+  if (body.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(body)) {
+    throw createContentError("Browser solver returned malformed PDF base64.", url);
+  }
+  const bytes = Buffer.from(body, "base64");
+  if (bytes.toString("base64") !== body || bytes.byteLength > limit
+      || bytes.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throw createContentError("Browser solver returned invalid PDF content.", url);
+  }
+  return new Uint8Array(bytes);
+}
+
+/** A null result requires guarded replay; invalid content fails closed. */
+export function browserSolverContentResponse(
+  provider: BrowserSolverProvider,
+  solution: BrowserSolverSolution,
+  maxBytes: number,
+): Response | null {
+  const body = solution.response;
+  if (!body || !body.trim()) return null;
+  const mediaType = solutionMediaType(solution);
+  if (mediaType === "application/pdf") {
+    if (provider !== "byparr") return null;
+    const bytes = decodePdf(body, Math.min(maxBytes, MAX_PDF_BYTES), solution.url);
+    return new Response(bytes, { headers: { "content-type": "application/pdf" } });
+  }
+  if (Buffer.byteLength(body, "utf8") > Math.min(maxBytes, MAX_SOLVER_HTML_BYTES)) {
+    throw createContentError("Browser solver content exceeds the content byte limit.", solution.url);
+  }
+  if (mediaType && mediaType !== "text/html" && mediaType !== "application/xhtml+xml") return null;
+  if (!mediaType && !/^\s*(?:<!doctype\s+html|<html[\s>])/iu.test(body)) return null;
+  if (body.slice(0, 1024).includes("\0")) {
+    throw createContentError("Browser solver returned binary HTML content.", solution.url);
+  }
+  assertSafeOutput(body);
+  if (isPdfViewer(body)) return null;
+  return new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });
+}

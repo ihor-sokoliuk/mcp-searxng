@@ -20,6 +20,8 @@ import { checkContentLength, fetchAndConvertToMarkdown } from '../../src/url-rea
 import {
   createBrowserSolverCacheKey,
   MAX_BYPARR_RESPONSE_BYTES,
+  acquireBrowserSolverSolution,
+  resolveBrowserSolverConfigs,
 } from '../../src/browser-solver.js';
 import { createUrlReaderLookup } from '../../src/proxy.js';
 import { isUrlSecurityPolicyDnsError } from '../../src/url-security.js';
@@ -224,6 +226,185 @@ async function runTests() {
     }
   }, results);
 
+  for (const provider of ['FLARESOLVERR_URL', 'BYPARR_URL']) {
+    await testFunction(`${provider} consumes rendered HTML without a blocked replay and caches pagination`, async () => {
+      urlCache.clear();
+      let gets = 0;
+      let heads = 0;
+      let solves = 0;
+      const target = await startHttpServer((req, res) => {
+        if (req.method === 'GET') gets++;
+        else heads++;
+        res.writeHead(403);
+        res.end();
+      });
+      const solver = await startHttpServer((req, res) => {
+        req.resume();
+        solves++;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', solution: {
+          url: target.url, status: 200, cookies: [], userAgent: 'browser',
+          headers: { 'Content-Type': 'text/html' },
+          response: '<html><body><h1>Rendered page</h1><p>Browser-only content</p></body></html>',
+        } }));
+      });
+      try {
+        envManager.set(provider, solver.url);
+        const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+        assert.ok(result.includes('Browser-only content'));
+        const headings = await fetchAndConvertToMarkdown(createMockServer() as any, target.url, 1000, { readHeadings: true });
+        assert.equal(headings, '# Rendered page');
+        assert.equal(gets, 0);
+        assert.equal(heads, 1);
+        assert.equal(solves, 1);
+      } finally {
+        envManager.restore(); urlCache.clear();
+        await solver.close(); await target.close();
+      }
+    }, results);
+  }
+
+  await testFunction('retryable primary replay failure advances once to Byparr rendered content', async () => {
+    let gets = 0;
+    let secondary = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') gets++;
+      res.writeHead(403); res.end();
+    });
+    const flare = await startHttpServer((req, res) => {
+      req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: '<html><body></body></html>' } }));
+    });
+    const byparr = await startHttpServer((req, res) => {
+      req.resume(); secondary++; res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: '<html><body>Secondary success</body></html>' } }));
+    });
+    try {
+      envManager.set('FLARESOLVERR_URL', flare.url); envManager.set('BYPARR_URL', byparr.url);
+      assert.ok((await fetchAndConvertToMarkdown(createMockServer() as any, target.url)).includes('Secondary success'));
+      assert.equal(gets, 1); assert.equal(secondary, 1);
+    } finally {
+      envManager.restore(); urlCache.clear();
+      await flare.close(); await byparr.close(); await target.close();
+    }
+  }, results);
+
+  await testFunction('Byparr consumes explicit base64 PDF without replay', async () => {
+    let gets = 0;
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') gets++;
+      res.writeHead(403); res.end();
+    });
+    const solver = await startHttpServer((req, res) => {
+      req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: {
+        url: target.url, status: 200, cookies: [], userAgent: 'browser',
+        headers: { 'content-type': 'application/pdf' },
+        response: Buffer.from(createTextPdf(['Browser PDF content'])).toString('base64'),
+      } }));
+    });
+    try {
+      envManager.set('BYPARR_URL', solver.url);
+      assert.ok((await fetchAndConvertToMarkdown(createMockServer() as any, target.url)).includes('Browser PDF content'));
+      assert.equal(gets, 0);
+    } finally {
+      envManager.restore(); urlCache.clear(); await solver.close(); await target.close();
+    }
+  }, results);
+
+  await testFunction('solver saturation returns busy without an unprotected direct fetch', async () => {
+    let gets = 0;
+    let notify!: () => void;
+    const entered = new Promise<void>(resolve => { notify = resolve; });
+    const target = await startHttpServer((req, res) => {
+      if (req.method === 'GET') gets++;
+      res.end();
+    });
+    const solver = await startHttpServer((req) => { req.resume(); notify(); });
+    const controller = new AbortController();
+    try {
+      envManager.set('FLARESOLVERR_URL', solver.url);
+      envManager.set('FLARESOLVERR_MAX_CONCURRENT_REQUESTS', '1');
+      envManager.set('FLARESOLVERR_TIMEOUT_MS', '20');
+      const server = createMockServer() as any;
+      const held = acquireBrowserSolverSolution(server, resolveBrowserSolverConfigs(server)[0], new URL(target.url), controller.signal);
+      const cancelled = assert.rejects(held, { name: 'AbortError' });
+      await entered;
+      await assert.rejects(fetchAndConvertToMarkdown(server, target.url), /solver is busy/);
+      assert.equal(gets, 0);
+      assert.equal(urlCache.getStats().size, 0);
+      controller.abort(); await cancelled;
+    } finally {
+      controller.abort(); envManager.restore(); urlCache.clear(); await solver.close(); await target.close();
+    }
+  }, results);
+
+  await testFunction('replay status classification respects rate limits and persistent client failures', async () => {
+    for (const scenario of [
+      { status: 403, retry: true }, { status: 408, retry: true }, { status: 503, retry: true },
+      { status: 404, retry: false }, { status: 401, retry: false }, { status: 429, retry: false },
+      { status: 503, retry: false, retryAfter: '60' },
+    ]) {
+      let secondary = 0;
+      const target = await startHttpServer((req, res) => {
+        res.writeHead(scenario.status, scenario.retryAfter ? { 'retry-after': scenario.retryAfter } : {}); res.end();
+      });
+      const flare = await startHttpServer((req, res) => {
+        req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser' } }));
+      });
+      const byparr = await startHttpServer((req, res) => {
+        req.resume(); secondary++; res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: '<html>Recovered</html>' } }));
+      });
+      try {
+        envManager.set('FLARESOLVERR_URL', flare.url); envManager.set('BYPARR_URL', byparr.url);
+        const read = fetchAndConvertToMarkdown(createMockServer() as any, target.url);
+        if (scenario.retry) assert.ok((await read).includes('Recovered'));
+        else await assert.rejects(read, error => error instanceof Error && error.message.includes(String(scenario.status)));
+        assert.equal(secondary, scenario.retry ? 1 : 0);
+      } finally {
+        envManager.restore(); urlCache.clear(); await flare.close(); await byparr.close(); await target.close();
+      }
+    }
+  }, results);
+
+  await testFunction('a stalled replay body fails over after its independent timeout', async () => {
+    const target = await startHttpServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      if (req.method === 'HEAD') res.end();
+      else res.write('<html>partial');
+    });
+    const flare = await startHttpServer((req, res) => {
+      req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser' } }));
+    });
+    const byparr = await startHttpServer((req, res) => {
+      req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: '<html>Complete secondary</html>' } }));
+    });
+    try {
+      envManager.set('FLARESOLVERR_URL', flare.url); envManager.set('BYPARR_URL', byparr.url);
+      const result = await fetchAndConvertToMarkdown(createMockServer() as any, target.url, 40);
+      assert.ok(result.includes('Complete secondary')); assert.ok(!result.includes('partial'));
+      assert.equal(urlCache.get(createBrowserSolverCacheKey('flaresolverr', target.url)), null);
+    } finally { envManager.restore(); urlCache.clear(); await flare.close(); await byparr.close(); await target.close(); }
+  }, results);
+
+  await testFunction('malformed solver PDF fails closed without replay or caching', async () => {
+    let gets = 0;
+    const target = await startHttpServer((req, res) => { if (req.method === 'GET') gets++; res.end(); });
+    const solver = await startHttpServer((req, res) => {
+      req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', contentType: 'application/pdf', response: 'bm90IGEgcGRm' } }));
+    });
+    try {
+      envManager.set('BYPARR_URL', solver.url);
+      await assert.rejects(fetchAndConvertToMarkdown(createMockServer() as any, target.url), /invalid PDF/);
+      assert.equal(gets, 0); assert.equal(urlCache.getStats().size, 0);
+    } finally { envManager.restore(); urlCache.clear(); await solver.close(); await target.close(); }
+  }, results);
+
   // ── network-error wrapping ────────────────────────────────────────────────
 
   await testFunction('configured FlareSolverr session is replayed with its user agent and cookies', async () => {
@@ -292,7 +473,7 @@ async function runTests() {
       assert.equal(receivedCookie, 'cf_clearance=clearance-token');
       assert.equal(solverRequest?.cmd, 'request.get');
       assert.equal(solverRequest?.url, requestedUrl);
-      assert.equal(solverRequest?.returnOnlyCookies, true);
+      assert.equal(solverRequest?.returnOnlyCookies, false);
     } finally {
       envManager.restore();
       urlCache.clear();
@@ -457,7 +638,7 @@ async function runTests() {
       assert.equal(second, first);
       assert.equal(flarePosts, 1);
       assert.equal(byparrPosts, 1);
-      assert.equal(targetHeadCount, 2);
+      assert.equal(targetHeadCount, 1);
       assert.equal(targetGetCount, 1);
       assert.equal(receivedUserAgent, 'byparr-winner-agent');
       assert.equal(receivedCookie, 'cf_clearance=byparr-cookie');
@@ -589,7 +770,7 @@ async function runTests() {
     }
   }, results);
 
-  await testFunction('non-success solver status is surfaced without a direct replay', async () => {
+  await testFunction('persistent non-success solver status is surfaced without a direct replay', async () => {
     urlCache.clear();
     let targetGetCount = 0;
     const target = await startHttpServer((req, res) => {
@@ -605,7 +786,7 @@ async function runTests() {
         status: 'ok',
         solution: {
           url: target.url,
-          status: 403,
+          status: 404,
           cookies: [],
           userAgent: 'solver-agent',
         },
@@ -624,7 +805,7 @@ async function runTests() {
       envManager.set('NO_PROXY', '127.0.0.1');
       await assert.rejects(
         fetchAndConvertToMarkdown(createMockServer() as any, target.url),
-        /403/u,
+        /404/u,
       );
       assert.equal(targetGetCount, 0);
       assert.equal(byparrPostCount, 0);

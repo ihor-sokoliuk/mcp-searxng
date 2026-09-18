@@ -8,12 +8,13 @@ import { urlCache } from "./cache.js";
 import { assertUrlAllowed, isUrlSecurityPolicyDnsError } from "./url-security.js";
 import { parseStrictInteger } from "./env-int.js";
 import {
-  acquireBrowserSolverSolutionChain,
+  acquireBrowserSolverSolution,
   buildBrowserSolverHeaders,
   createBrowserSolverCacheKey,
   resolveBrowserSolverConfigs,
   type BrowserSolverSolution,
 } from "./browser-solver.js";
+import { browserSolverContentResponse } from "./browser-solver-content.js";
 import { extractPdfText, MAX_PDF_BYTES, MAX_PDF_PAGES } from "./pdf-reader.js";
 import {
   createURLFormatError,
@@ -548,6 +549,22 @@ function hasPdfSignature(bytes: Uint8Array): boolean {
     && bytes[4] === 0x2d;
 }
 
+class RetryableSolverReadError extends Error {
+  constructor(readonly failure: Error) { super("Browser solver read may use the next provider."); }
+}
+
+function isRetryableSolverStatus(status: number, headers?: Headers): boolean {
+  // Respect rate limiting and any explicit retry delay; never switch providers
+  // to circumvent Retry-After. Other persistent client errors stop the chain.
+  return !headers?.has("retry-after")
+    && (status === 403 || status === 408 || status === 500 || status === 502 || status === 503 || status === 504);
+}
+
+function isRetryableReplayError(error: any, timedOut: boolean): boolean {
+  return timedOut || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT']
+    .includes(error?.cause?.code ?? error?.code);
+}
+
 export async function fetchAndConvertToMarkdown(
   mcpServer: McpServer,
   url: string,
@@ -587,10 +604,6 @@ export async function fetchAndConvertToMarkdown(
 
   const maxContentLengthBytes = getMaxContentLengthBytes(mcpServer);
 
-  let browserSolverSolution: BrowserSolverSolution | null = null;
-  let cacheKey = url;
-  let shouldCacheResult = true;
-  let skipInitialReplayHead = false;
   if (browserSolverConfigs.length > 0) {
     const preflightProxyAgent = createProxyAgent(parsedUrl.toString(), ProxyType.URL_READER);
     const preflightDispatcher = preflightProxyAgent ?? createUrlReaderAgent();
@@ -614,28 +627,72 @@ export async function fetchAndConvertToMarkdown(
       return createContentTooLargeMessage(contentLength, maxContentLengthBytes);
     }
 
-    const acquisition = await acquireBrowserSolverSolutionChain(
-      mcpServer,
-      browserSolverConfigs,
-      parsedUrl,
-      signal,
-    );
-    if (acquisition.kind === "solved") {
-      browserSolverSolution = acquisition.solution;
-      if (browserSolverSolution.status < 200 || browserSolverSolution.status >= 300) {
-        throw createServerError(
-          browserSolverSolution.status,
-          "",
-          "",
-          { url },
-        );
+    let retryFailure: Error | undefined;
+    let wasBusy = false;
+    for (const config of browserSolverConfigs) {
+      signal?.throwIfAborted();
+      const acquisition = await acquireBrowserSolverSolution(mcpServer, config, parsedUrl, signal, false, true);
+      if (acquisition.kind === "fallback") {
+        wasBusy ||= acquisition.reason === "busy";
+        logMessage(mcpServer, "warning", "Browser solver acquisition did not produce a solution.",
+          { provider: config.provider, stage: "acquisition", classification: acquisition.reason });
+        continue;
       }
-      cacheKey = createBrowserSolverCacheKey(acquisition.provider, url);
-    } else {
-      skipInitialReplayHead = true;
-      shouldCacheResult = false;
+      const solution = acquisition.solution;
+      try {
+        if (solution.status < 200 || solution.status >= 300) {
+          const failure = createServerError(solution.status, "", "", { url });
+          const retryAfter = Object.keys(solution.headers ?? {}).some(name => name.toLowerCase() === "retry-after");
+          if (!retryAfter && isRetryableSolverStatus(solution.status)) throw new RetryableSolverReadError(failure);
+          throw failure;
+        }
+        const renderedResponse = browserSolverContentResponse(config.provider, solution, maxContentLengthBytes);
+        logMessage(mcpServer, "debug", "Reading browser solver result.",
+          { provider: config.provider, stage: renderedResponse ? "content" : "replay" });
+        return await convertUrlAttempt(mcpServer, parsedUrl, timeoutMs, paginationOptions, signal, {
+          browserSolverSolution: solution, renderedResponse,
+          cacheKey: createBrowserSolverCacheKey(config.provider, url),
+          shouldCacheResult: true, skipHead: true, maxContentLengthBytes,
+        });
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (!(error instanceof RetryableSolverReadError)) throw error;
+        retryFailure = error.failure;
+        logMessage(mcpServer, "warning", "Browser solver read did not complete.",
+          { provider: config.provider, stage: "read", classification: "retryable" });
+      }
     }
+    if (retryFailure) throw retryFailure;
+    if (wasBusy) throw createContentError("Browser solver is busy; try again later.", url);
   }
+
+  return await convertUrlAttempt(mcpServer, parsedUrl, timeoutMs, paginationOptions, signal, {
+    cacheKey: url, shouldCacheResult: browserSolverConfigs.length === 0,
+    skipHead: browserSolverConfigs.length > 0, maxContentLengthBytes,
+  });
+}
+
+interface UrlReadAttemptOptions {
+  browserSolverSolution?: BrowserSolverSolution;
+  renderedResponse?: Response | null;
+  cacheKey: string;
+  shouldCacheResult: boolean;
+  skipHead: boolean;
+  maxContentLengthBytes: number;
+}
+
+async function convertUrlAttempt(
+  mcpServer: McpServer,
+  parsedUrl: URL,
+  timeoutMs: number,
+  paginationOptions: PaginationOptions,
+  signal: AbortSignal | undefined,
+  options: UrlReadAttemptOptions,
+): Promise<string> {
+  const { browserSolverSolution, cacheKey, shouldCacheResult, skipHead, maxContentLengthBytes } = options;
+  const url = parsedUrl.href;
+  const startTime = Date.now();
+  signal?.throwIfAborted();
 
   // Create an AbortController instance
   const controller = new AbortController();
@@ -658,12 +715,12 @@ export async function fetchAndConvertToMarkdown(
       ? { "User-Agent": userAgent }
       : {};
 
-    let response!: Response;
+    let response = options.renderedResponse!;
     let currentUrl = parsedUrl;
     assertUrlAllowed(currentUrl);
     let usedDispatcher = false;
     try {
-      for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+      for (let redirects = 0; !options.renderedResponse && redirects <= MAX_REDIRECTS; redirects++) {
         // Add proxy or default dispatcher (includes system CA certs for TLS)
         const proxyAgent = createProxyAgent(currentUrl.toString(), ProxyType.URL_READER);
         const dispatcher = proxyAgent ?? createUrlReaderAgent();
@@ -678,7 +735,7 @@ export async function fetchAndConvertToMarkdown(
           (currentRequestOptions as any).dispatcher = dispatcher;
         }
 
-        if (!(skipInitialReplayHead && redirects === 0)) {
+        if (!skipHead) {
           const contentLength = await checkContentLength(
             mcpServer,
             currentUrl.toString(),
@@ -728,10 +785,18 @@ export async function fetchAndConvertToMarkdown(
         proxyAgent: usedDispatcher,
         timeout: timeoutMs
       };
-      throw createNetworkError(error, context);
+      const failure = createNetworkError(error, context);
+      if (browserSolverSolution && !signal?.aborted && isRetryableReplayError(error, controller.signal.aborted)) {
+        throw new RetryableSolverReadError(failure);
+      }
+      throw failure;
     }
 
     if (!response.ok) {
+      if (browserSolverSolution && isRetryableSolverStatus(response.status, response.headers)) {
+        await cancelResponseBody(response);
+        throw new RetryableSolverReadError(createServerError(response.status, "", "", { url }));
+      }
       let responseBody: string;
       try {
         const bodyRead = await readResponseBodyWithLimit(response, maxContentLengthBytes);
@@ -749,6 +814,7 @@ export async function fetchAndConvertToMarkdown(
     const contentType = classifyContentType(response.headers.get("content-type"));
     if (contentType.kind === "binary") {
       await cancelResponseBody(response);
+      if (browserSolverSolution) throw new RetryableSolverReadError(createContentError("Browser solver replay returned unsupported content.", url));
       return createUnsupportedContentTypeMessage(contentType);
     }
 
@@ -759,6 +825,9 @@ export async function fetchAndConvertToMarkdown(
       try {
         bodyRead = await readResponseBytesWithLimit(response, effectivePdfLimit);
       } catch (error: any) {
+        if (browserSolverSolution && !signal?.aborted && isRetryableReplayError(error, controller.signal.aborted)) {
+          throw new RetryableSolverReadError(createNetworkError(error, { url, timeout: timeoutMs }));
+        }
         if (error?.name === "AbortError") {
           throw error;
         }
@@ -822,6 +891,9 @@ export async function fetchAndConvertToMarkdown(
         rawContent = bodyRead.text;
         hasNulInPrefix = bodyRead.hasNulInPrefix;
       } catch (error: any) {
+        if (browserSolverSolution && !signal?.aborted && isRetryableReplayError(error, controller.signal.aborted)) {
+          throw new RetryableSolverReadError(createNetworkError(error, { url, timeout: timeoutMs }));
+        }
         throw createContentError(
           `Failed to read website content: ${error.message || "Unknown error reading content"}`,
           url,
@@ -833,6 +905,7 @@ export async function fetchAndConvertToMarkdown(
       }
 
       if (!rawContent || rawContent.trim().length === 0) {
+        if (browserSolverSolution) throw new RetryableSolverReadError(createContentError("Website returned empty content.", url));
         throw createContentError("Website returned empty content.", url);
       }
 
@@ -851,11 +924,20 @@ export async function fetchAndConvertToMarkdown(
     }
 
     if (!markdownContent || markdownContent.trim().length === 0) {
+      if (options.renderedResponse) {
+        clearTimeout(timeoutId);
+        return await convertUrlAttempt(mcpServer, parsedUrl, timeoutMs, paginationOptions, signal,
+          { ...options, renderedResponse: null });
+      }
+      if (browserSolverSolution) {
+        throw new RetryableSolverReadError(createContentError("Browser solver replay returned empty content.", url));
+      }
       logMessage(mcpServer, "warning", `Empty content after conversion: ${url}`);
       // DON'T cache empty/failed conversions - return warning directly
       return createEmptyContentWarning(url);
     }
 
+    signal?.throwIfAborted();
     assertSafeOutput(markdownContent);
     // Only cache successful markdown conversion
     if (shouldCacheResult) {
@@ -872,6 +954,7 @@ export async function fetchAndConvertToMarkdown(
     if (signal?.aborted) {
       throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
     }
+    if (error instanceof RetryableSolverReadError) throw error;
     if (error.name === "AbortError") {
       logMessage(mcpServer, "error", `Timeout fetching URL: ${url} (${timeoutMs}ms)`);
       throw createTimeoutError(timeoutMs, url);

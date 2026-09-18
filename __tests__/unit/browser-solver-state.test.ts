@@ -179,6 +179,31 @@ async function assertProviderCounterIsolation(): Promise<void> {
 async function runTests() {
   console.log("🧪 Testing: browser solver state and replay headers\n");
 
+  await testFunction("bounded slot wait wakes on release and cancellation releases queued capacity", async () => {
+    const target = new URL("https://example.com/page");
+    const pending: http.ServerResponse[] = [];
+    const solver = await startServer((_req, res) => pending.push(res));
+    const config = createProviderConfig("flaresolverr", solver.url);
+    const server = createMockServer() as any;
+    const held = acquireBrowserSolverSolution(server, config, target);
+    await waitForPending(pending, 1);
+    try {
+      const controller = new AbortController();
+      const cancelled = acquireBrowserSolverSolution(server, config, target, controller.signal, false, true);
+      controller.abort();
+      await assert.rejects(cancelled, { name: "AbortError" });
+      assert.deepEqual(await acquireBrowserSolverSolution(server, { ...config, timeoutMs: 10 }, target, undefined, false, true), { kind: "fallback", reason: "busy" });
+      const queued = acquireBrowserSolverSolution(server, config, target, undefined, false, true);
+      pending[0].writeHead(200, { "content-type": "application/json" });
+      pending[0].end(JSON.stringify(jsonSolution(target.href)));
+      assert.equal((await held).kind, "solved");
+      await waitForPending(pending, 2);
+      pending[1].writeHead(200, { "content-type": "application/json" });
+      pending[1].end(JSON.stringify(jsonSolution(target.href)));
+      assert.equal((await queued).kind, "solved");
+    } finally { await solver.close(); }
+  }, results);
+
   await testFunction(
     "provider counters stay independent across environment switches and saturation",
     assertProviderCounterIsolation,

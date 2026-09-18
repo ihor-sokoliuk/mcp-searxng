@@ -9,6 +9,7 @@ import {
 import { parseStrictInteger } from "./env-int.js";
 import { logMessage } from "./logging.js";
 import { applyTrustedServiceRequestConfig } from "./proxy.js";
+import { assertUrlAllowed } from "./url-security.js";
 
 export const DEFAULT_FLARESOLVERR_TIMEOUT_MS = 60_000;
 export const MAX_FLARESOLVERR_TIMEOUT_MS = 300_000;
@@ -18,8 +19,10 @@ export const DEFAULT_BYPARR_TIMEOUT_SECONDS = 60;
 export const MAX_BYPARR_TIMEOUT_SECONDS = 300;
 export const DEFAULT_BYPARR_CONCURRENCY = 2;
 export const MAX_BYPARR_CONCURRENCY = 16;
-export const MAX_FLARESOLVERR_RESPONSE_BYTES = 256 * 1024;
-export const MAX_BYPARR_RESPONSE_BYTES = 5 * 1024 * 1024;
+// Includes JSON escaping overhead for a bounded rendered document.
+export const MAX_FLARESOLVERR_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const MAX_BYPARR_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const BROWSER_SOLVER_SLOT_WAIT_MS = 1_000;
 const BROWSER_SOLVER_RESPONSE_GRACE_MS = 5_000;
 const MAX_COOKIE_PAIR_BYTES = 4_096;
 
@@ -46,6 +49,9 @@ export interface BrowserSolverSolution {
   status: number;
   cookies: BrowserSolverCookie[];
   userAgent: string;
+  response?: string;
+  contentType?: string;
+  headers?: Record<string, unknown>;
 }
 
 export type BrowserSolverAcquisition =
@@ -59,6 +65,10 @@ export type BrowserSolverChainAcquisition =
 const activeSolverRequests: Record<BrowserSolverProvider, number> = {
   flaresolverr: 0,
   byparr: 0,
+};
+const slotWaiters: Record<BrowserSolverProvider, Set<() => void>> = {
+  flaresolverr: new Set(),
+  byparr: new Set(),
 };
 
 function resolveBoundedInteger(
@@ -246,6 +256,9 @@ function parseSolution(value: unknown): BrowserSolverSolution | null {
     status: solution.status,
     cookies: solution.cookies as BrowserSolverCookie[],
     userAgent: solution.userAgent,
+    response: typeof solution.response === "string" ? solution.response : undefined,
+    contentType: typeof solution.contentType === "string" ? solution.contentType : undefined,
+    headers: asRecord(solution.headers) ?? undefined,
   };
 }
 
@@ -264,6 +277,10 @@ function validateSolutionUrl(solution: BrowserSolverSolution, requestedUrl: URL)
       "Browser solver returned a solution URL on a different or unsupported hostname.",
       requestedUrl.href,
     );
+  }
+  assertUrlAllowed(solvedUrl);
+  if (requestedUrl.protocol === "https:" && solvedUrl.protocol !== "https:") {
+    throw createContentError("Browser solver returned an insecure solution URL.", requestedUrl.href);
   }
 }
 
@@ -288,7 +305,7 @@ function createSolverRequestOptions(
       cmd: "request.get",
       url: requestedUrl.href,
       maxTimeout: config.wireTimeout,
-      returnOnlyCookies: true,
+      returnOnlyCookies: false,
     }),
   };
   applyTrustedServiceRequestConfig(requestOptions, config.endpoint.href);
@@ -314,6 +331,9 @@ async function readSolverResponse(
   }
   if (!response.ok) {
     await response.body?.cancel();
+    if (response.headers.has("retry-after")) {
+      throw createContentError("Browser solver requested a retry delay; try again later.", "");
+    }
     return null;
   }
   return await readBoundedResponse(response, maximumBytes);
@@ -373,6 +393,29 @@ function tryReserveProviderSlot(
   return false;
 }
 
+async function reserveProviderSlot(config: BrowserSolverConfig, signal?: AbortSignal): Promise<boolean> {
+  if (tryReserveProviderSlot(config)) return true;
+  const waiters = slotWaiters[config.provider];
+  if (waiters.size >= config.maxConcurrentRequests * 4) return false;
+  return await new Promise<boolean>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      waiters.delete(wake);
+      signal?.removeEventListener("abort", abort);
+    };
+    const finish = (reserved: boolean) => { cleanup(); resolve(reserved); };
+    const wake = () => { if (tryReserveProviderSlot(config)) finish(true); };
+    const abort = () => {
+      cleanup();
+      reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    const timer = setTimeout(() => finish(false), Math.min(config.timeoutMs, BROWSER_SOLVER_SLOT_WAIT_MS));
+    waiters.add(wake);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
 function classifyAcquisition(
   responseText: string | null,
   requestedUrl: URL,
@@ -391,9 +434,14 @@ export async function acquireBrowserSolverSolution(
   requestedUrl: URL,
   signal?: AbortSignal,
   logFallback: boolean = true,
+  waitForSlot: boolean = false,
 ): Promise<BrowserSolverAcquisition> {
   throwIfAborted(signal);
-  if (!tryReserveProviderSlot(config)) {
+  const reserved = waitForSlot
+    ? await reserveProviderSlot(config, signal)
+    : tryReserveProviderSlot(config);
+  if (!reserved) {
+    throwIfAborted(signal);
     if (logFallback) {
       logDirectFallback(mcpServer);
     }
@@ -401,6 +449,7 @@ export async function acquireBrowserSolverSolution(
   }
 
   try {
+    throwIfAborted(signal);
     const responseText = await requestBrowserSolverSession(config, requestedUrl, signal);
     throwIfAborted(signal);
     const acquisition = classifyAcquisition(responseText, requestedUrl);
@@ -410,6 +459,7 @@ export async function acquireBrowserSolverSolution(
     return acquisition;
   } finally {
     activeSolverRequests[config.provider]--;
+    for (const wake of [...slotWaiters[config.provider]]) wake();
   }
 }
 

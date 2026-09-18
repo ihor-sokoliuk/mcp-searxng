@@ -462,12 +462,12 @@ export async function runTests(): Promise<TestResult> {
     for (const document of [configuration]) {
       const normalized = document.replace(/\s+/gu, ' ');
       assert.ok(normalized.includes('FlareSolverr is always primary'));
-      assert.ok(normalized.includes('143 seconds'));
+      assert.ok(normalized.includes('155 seconds'));
       assert.ok(normalized.includes('unavailable'));
     }
     const normalizedSecurity = security.replace(/\s+/gu, ' ');
     assert.ok(normalizedSecurity.includes('FlareSolverr as the fixed primary'));
-    assert.ok(normalizedSecurity.includes('143 seconds'));
+    assert.ok(normalizedSecurity.includes('155 seconds'));
     assert.ok(normalizedSecurity.includes('unavailable'));
     assert.ok(readme.includes('browser-solver-verification.md'));
     assert.ok(configuration.includes('automatic reverse failover is not performed'));
