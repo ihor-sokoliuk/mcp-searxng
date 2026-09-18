@@ -84,6 +84,11 @@ function startHttpServer(handler: ServerHandler): Promise<TestServer> {
 function startConnectProxyServer(handler: ConnectProxyHandler): Promise<TestServer> {
   return new Promise((resolve, reject) => {
     const server = http.createServer();
+    const sockets = new Set<net.Socket>();
+    server.on('connection', socket => {
+      sockets.add(socket);
+      socket.once('close', () => sockets.delete(socket));
+    });
 
     server.on('connect', (req, socket) => {
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
@@ -107,6 +112,8 @@ function startConnectProxyServer(handler: ConnectProxyHandler): Promise<TestServ
         url: `http://127.0.0.1:${addr.port}`,
         close: () =>
           new Promise<void>((res) => {
+            // closeAllConnections excludes upgraded CONNECT sockets.
+            for (const socket of sockets) socket.destroy();
             server.closeAllConnections();
             server.close(() => res());
           }),
@@ -435,6 +442,27 @@ async function runTests() {
         assert.equal(await fetchAndConvertToMarkdown(server, target.url), direct);
       } finally { envManager.restore(); urlCache.clear(); await flare.close(); await target.close(); }
     }
+  }, results);
+
+  await testFunction('rendered content is withheld when the final hostname resolves private after solving', async () => {
+    const records: MockDnsRecords = { 'public.example': [{ address: TEST_PUBLIC_IP, family: 4 }] };
+    const restoreDns = installDnsLookupMock(records);
+    let gets = 0;
+    const proxy = await startConnectProxyServer((_authority, request) => {
+      if (request.startsWith('GET')) gets++;
+      return { status: 200, body: '' };
+    });
+    const solver = await startHttpServer((req, res) => {
+      req.resume(); records['public.example'] = [{ address: '127.0.0.1', family: 4 }];
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', solution: { url: 'http://public.example/page', status: 200, cookies: [], userAgent: 'browser', response: '<html><body>Private content</body></html>' } }));
+    });
+    try {
+      envManager.delete('MCP_HTTP_ALLOW_PRIVATE_URLS');
+      envManager.set('FLARESOLVERR_URL', solver.url); envManager.set('URL_READER_HTTP_PROXY', proxy.url);
+      await assert.rejects(fetchAndConvertToMarkdown(createMockServer() as any, 'http://public.example/page'), /blocked by security policy/);
+      assert.equal(gets, 0); assert.equal(urlCache.getStats().size, 0);
+    } finally { restoreDns(); envManager.restore(); urlCache.clear(); await solver.close(); await proxy.close(); }
   }, results);
 
   await testFunction('malformed solver PDF fails closed without replay or caching', async () => {

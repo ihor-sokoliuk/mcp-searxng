@@ -2,11 +2,29 @@ import { Buffer } from "node:buffer";
 import { parse } from "node-html-parser";
 import type { BrowserSolverSolution } from "./browser-solver.js";
 import type { BrowserSolverProvider } from "./browser-solver-config.js";
-import { createContentError } from "./error-handler.js";
+import { createContentError, createNetworkError, createURLSecurityPolicyError } from "./error-handler.js";
 import { assertSafeOutput } from "./credential-output.js";
 import { MAX_PDF_BYTES } from "./pdf-reader.js";
+import { createUrlReaderLookup } from "./proxy.js";
+import { isUrlSecurityPolicyDnsError } from "./url-security.js";
 
 export const MAX_SOLVER_HTML_BYTES = 5 * 1024 * 1024;
+
+export async function assertBrowserSolverContentDns(solution: BrowserSolverSolution, signal: AbortSignal): Promise<void> {
+  const url = new URL(solution.url);
+  const hostname = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) { signal.removeEventListener("abort", abort); abort(); return; }
+    createUrlReaderLookup()(hostname, { all: true }, error => {
+      signal.removeEventListener("abort", abort);
+      if (!error) { resolve(); return; }
+      reject(isUrlSecurityPolicyDnsError(error) ? createURLSecurityPolicyError(url.href)
+        : createNetworkError(error, { url: url.href }));
+    });
+  });
+}
 
 export function browserSolverEnvelopeLimit(maxBytes: number): number {
   // JSON may escape each ASCII byte as six characters (e.g. \\u003c).
