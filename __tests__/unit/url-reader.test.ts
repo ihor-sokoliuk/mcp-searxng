@@ -417,16 +417,16 @@ async function runTests() {
 
   await testFunction('browser wrappers preserve image JSON and plain-text replay behavior', async () => {
     for (const scenario of [
-      { type: 'image/png', body: 'image fixture', wrapper: '<img src="https://example.com/image.png">' },
-      { type: 'application/json', body: '{"value":42}', wrapper: '<pre>{"value":42}</pre>' },
-      { type: 'text/plain', body: 'Plain text fixture', wrapper: '<pre>Plain text fixture</pre>' },
+      { type: 'image/png', body: 'image fixture', wrapper: '<html><body><img src="https://example.com/image.png"></body></html>' },
+      { type: 'application/json', body: '{"value":42}', wrapper: '<html><body><pre>{"value":42}</pre></body></html>' },
+      { type: 'text/plain', body: 'Plain text fixture', wrapper: '<html><body><pre>Plain text fixture</pre></body></html>' },
     ]) {
       const target = await startHttpServer((req, res) => {
         res.writeHead(200, { 'content-type': scenario.type }); res.end(req.method === 'HEAD' ? '' : scenario.body);
       });
       const flare = await startHttpServer((req, res) => {
         req.resume(); res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: `<html><head></head><body>${scenario.wrapper}</body></html>` } }));
+        res.end(JSON.stringify({ status: 'ok', solution: { url: target.url, status: 200, cookies: [], userAgent: 'browser', response: scenario.wrapper } }));
       });
       try {
         const server = createMockServer() as any;
