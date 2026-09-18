@@ -146,6 +146,11 @@ use guarded cookie/User-Agent replay from the original requested URL. Replay
 skips additional HEAD requests; GET redirects and streaming byte limits remain
 authoritative. The original HEAD preflight remains in place.
 
+Rendered content requires a fresh successful DNS-policy check on the MCP host,
+even when target traffic uses a proxy. Names resolvable only by the proxy or
+browser service cannot use this path: local DNS failure stops the read without
+replay or provider failover. Configure working local DNS for those targets.
+
 Provider envelope limits derive from the configured decoded-content limit,
 allowing up to sixfold JSON escaping or PDF base64 overhead plus 256 KiB of
 metadata, within a fixed 32 MiB ceiling.

@@ -775,7 +775,9 @@ async function fetchReplayResponse(attempt: ReadAttempt): Promise<Response | str
 }
 
 function throwReplayError(attempt: ReadAttempt, error: any, url = attempt.url): never {
-  const failure = createNetworkError(error, { url, proxyAgent: true, timeout: attempt.timeoutMs });
+  const failure = attempt.controller.signal.aborted
+    ? createTimeoutError(attempt.timeoutMs, url)
+    : createNetworkError(error, { url, proxyAgent: true, timeout: attempt.timeoutMs });
   if (attempt.options.browserSolverSolution && !attempt.signal?.aborted
       && isRetryableReplayError(error, attempt.controller.signal.aborted)) {
     throw new RetryableSolverReadError(failure);
