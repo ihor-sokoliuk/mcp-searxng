@@ -66,7 +66,7 @@
     },
     "devDependencies": {
         "@modelcontextprotocol/client": "2.0.0",
-        "@types/node": "22.20.2",
+        "@types/node": "22.20.3",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.70.0",
         "@typescript-eslint/parser": "8.70.0",
@@ -74,7 +74,7 @@
         "cross-env": "^10.1.0",
         "eslint": "10.10.0",
         "eslint-plugin-security": "^4.0.0",
-        "fast-check": "4.10.0",
+        "fast-check": "4.10.1",
         "shx": "^0.4.0",
         "supertest": "^7.2.2",
         "tsx": "4.23.13",
