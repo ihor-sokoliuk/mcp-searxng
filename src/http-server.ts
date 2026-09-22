@@ -35,6 +35,8 @@ interface Session {
 }
 
 export const DEFAULT_STATELESS_MAX_IN_FLIGHT = 16;
+export const DEFAULT_HTTP_MAX_SESSIONS = 1000;
+export const MAX_HTTP_MAX_SESSIONS = 10000;
 export const DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP = 8;
 export const DEFAULT_STATELESS_REQUEST_TIMEOUT_MS = 900000;
 export const MAX_STATELESS_MAX_IN_FLIGHT = 256;
@@ -208,6 +210,10 @@ export function resolveStatelessHttpConfig(): StatelessHttpConfig {
   };
 }
 
+export function resolveHttpMaxSessions(): number {
+  return parseBoundedStatelessEnv("MCP_HTTP_MAX_SESSIONS", DEFAULT_HTTP_MAX_SESSIONS, 1, MAX_HTTP_MAX_SESSIONS);
+}
+
 function makeRateLimiters() {
   const windowMs = parseRateLimitEnv("MCP_RATE_WINDOW_MS", 60000);
 
@@ -253,6 +259,7 @@ export async function createHttpServer(
   const app = express();
   const security = getHttpSecurityConfig(port);
   const stateless = resolveStatelessHttpConfig();
+  const maxSessions = resolveHttpMaxSessions();
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
@@ -397,6 +404,81 @@ export async function createHttpServer(
 
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
+  let retainedSessions = 0;
+
+  async function initializeStatefulSession(req: express.Request, res: express.Response): Promise<void> {
+    if (retainedSessions >= maxSessions) {
+      res.set("Retry-After", "1").status(503).json({
+        jsonrpc: "2.0", error: { code: -32000, message: "Server busy" }, id: null,
+      });
+      return;
+    }
+    // Reserve synchronously before either resource is constructed or connected.
+    retainedSessions++;
+    let released = false;
+    let activeId: string | undefined;
+    let transport: NodeStreamableHTTPServerTransport | undefined;
+    let mcpServer: McpServer | undefined;
+    let cleanupPromise: Promise<void> | undefined;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      retainedSessions--;
+      if (activeId) sessions.delete(activeId);
+      req.off("aborted", abort);
+      res.off("close", responseClosed);
+      res.off("finish", responseFinished);
+    };
+    const cleanup = (): Promise<void> => {
+      release();
+      cleanupPromise ??= (async () => {
+        try { await transport?.close(); }
+        catch (error) { warnDiagnostic("Stateful transport cleanup failed.", error); }
+        try { await mcpServer?.close(); }
+        catch (error) { warnDiagnostic("Stateful server cleanup failed.", error); }
+      })();
+      return cleanupPromise;
+    };
+    const abort = (): void => { void cleanup(); };
+    const responseClosed = (): void => {
+      if (!res.writableFinished || !activeId || res.statusCode >= 400) abort();
+    };
+    const responseFinished = (): void => {
+      if (!activeId || res.statusCode >= 400) abort();
+      // A successfully delivered initialize response no longer owns the session.
+      else {
+        req.off("aborted", abort);
+        res.off("close", responseClosed);
+        res.off("finish", responseFinished);
+      }
+    };
+    req.once("aborted", abort);
+    res.once("close", responseClosed);
+    res.once("finish", responseFinished);
+    try {
+      mcpServer = createMcpServer();
+      transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sessionId) => {
+          if (released) throw new Error("Initialization was aborted");
+          activeId = sessionId;
+          sessions.set(sessionId, { transport: transport!, mcpServer: mcpServer!, oauthPrincipal: res.locals.oauthPrincipal });
+          logMessage(mcpServer!, "debug", `Session initialized: ${sessionId}`);
+        },
+        enableDnsRebindingProtection: security.enableDnsRebindingProtection,
+        allowedHosts: security.allowedHosts,
+        allowedOrigins: security.allowedOrigins,
+      });
+      transport.onclose = release;
+      await mcpServer.connect(transport);
+      if (released || res.destroyed) { await cleanup(); return; }
+      await handleTransportRequest(transport, req, res);
+      if (!activeId || res.statusCode >= 400) await cleanup();
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
+  }
 
   function findStatefulSession(
     method: "GET" | "DELETE",
@@ -730,29 +812,8 @@ export async function createHttpServer(
       mcpServer = session.mcpServer;
       logMessage(mcpServer, "debug", `Reusing session: ${sessionId}`);
     } else if (isInitializeRequest(req.body)) {
-      // New initialization request — create fresh McpServer and transport
-      mcpServer = createMcpServer();
-
-      transport = new NodeStreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
-          sessions.set(sessionId, { transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal });
-          logMessage(mcpServer, "debug", `Session initialized: ${sessionId}`);
-        },
-        enableDnsRebindingProtection: security.enableDnsRebindingProtection,
-        allowedHosts: security.allowedHosts,
-        allowedOrigins: security.allowedOrigins,
-      });
-
-      // Clean up session when transport closes
-      transport.onclose = () => {
-        if (transport.sessionId) {
-          sessions.delete(transport.sessionId);
-        }
-      };
-
-      // Connect this session's McpServer to its transport
-      await mcpServer.connect(transport);
+      await initializeStatefulSession(req, res);
+      return;
     } else {
       rejectInvalidPost(req, res, sessionId);
       return;
