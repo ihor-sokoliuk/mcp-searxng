@@ -424,24 +424,41 @@ async function runTests() {
 
   await testFunction('SSE response finish does not cancel a still-pending SDK send deadline', async () => {
     envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
     const resume = createDeferred();
+    let created = 0;
+    let initialCloseCount = 0;
     const originalSend = NodeStreamableHTTPServerTransport.prototype.send;
     NodeStreamableHTTPServerTransport.prototype.send = async function (message, options) {
       await originalSend.call(this, message, options);
       await resume.promise;
     };
     try {
-      const app = await createHttpServer(createTestMcpServer);
-      const initialized = await postStatelessMcp(app, {
+      const app = await createHttpServer(() => {
+        const server = createTestMcpServer();
+        if (created++ === 0) {
+          const close = server.close.bind(server);
+          server.close = async () => { initialCloseCount++; await close(); };
+        }
+        return server;
+      });
+      const body = {
         jsonrpc: '2.0', id: 1, method: 'initialize', params: {
           protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'pending-send', version: '1' },
         },
-      });
+      };
+      const initialized = await postStatelessMcp(app, body);
       assert.equal(initialized.status, 200);
       await new Promise(resolve => setTimeout(resolve, 1100));
       const stale = await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })
         .set('mcp-session-id', initialized.headers['mcp-session-id']);
       assert.equal(stale.status, 404);
+      assert.equal(initialCloseCount, 1);
+      const replacement = await postStatelessMcp(app, body);
+      assert.equal(replacement.status, 200, 'timed-out send must return its sole capacity slot');
+      resume.resolve();
+      await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
+      assert.equal(initialCloseCount, 1);
     } finally {
       resume.resolve();
       NodeStreamableHTTPServerTransport.prototype.send = originalSend;
