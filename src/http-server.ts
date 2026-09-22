@@ -37,6 +37,7 @@ interface Session {
 export const DEFAULT_STATELESS_MAX_IN_FLIGHT = 16;
 export const DEFAULT_HTTP_MAX_SESSIONS = 1000;
 export const MAX_HTTP_MAX_SESSIONS = 10000;
+export const DEFAULT_HTTP_INITIALIZE_TIMEOUT_MS = 30000;
 export const DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP = 8;
 export const DEFAULT_STATELESS_REQUEST_TIMEOUT_MS = 900000;
 export const MAX_STATELESS_MAX_IN_FLIGHT = 256;
@@ -214,6 +215,10 @@ export function resolveHttpMaxSessions(): number {
   return parseBoundedStatelessEnv("MCP_HTTP_MAX_SESSIONS", DEFAULT_HTTP_MAX_SESSIONS, 1, MAX_HTTP_MAX_SESSIONS);
 }
 
+export function resolveHttpInitializeTimeoutMs(): number {
+  return parseBoundedStatelessEnv("MCP_HTTP_INITIALIZE_TIMEOUT_MS", DEFAULT_HTTP_INITIALIZE_TIMEOUT_MS, 1000, 2147483647);
+}
+
 function makeRateLimiters() {
   const windowMs = parseRateLimitEnv("MCP_RATE_WINDOW_MS", 60000);
 
@@ -260,6 +265,7 @@ export async function createHttpServer(
   const security = getHttpSecurityConfig(port);
   const stateless = resolveStatelessHttpConfig();
   const maxSessions = resolveHttpMaxSessions();
+  const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
@@ -414,6 +420,7 @@ export async function createHttpServer(
       released: false,
       activeId: undefined as string | undefined,
       session: undefined as Session | undefined,
+      onRelease: undefined as (() => void) | undefined,
       activate(sessionId: string): void {
         if (reservation.released || !reservation.session) throw new Error("Initialization was aborted");
         reservation.activeId = sessionId;
@@ -426,6 +433,9 @@ export async function createHttpServer(
         retainedSessions--;
         if (reservation.activeId) sessions.delete(reservation.activeId);
         reservation.session = undefined;
+        const onRelease = reservation.onRelease;
+        reservation.onRelease = undefined;
+        onRelease?.();
       },
     };
     return reservation;
@@ -442,6 +452,17 @@ export async function createHttpServer(
     let transport: NodeStreamableHTTPServerTransport | undefined;
     let mcpServer: McpServer | undefined;
     let cleanupPromise: Promise<void> | undefined;
+    const deadlineAt = performance.now() + initializeTimeoutMs;
+    let deadlineTimer: NodeJS.Timeout | undefined;
+    let delivered = false;
+    let timedOut = false;
+    let restoreSend = (): void => {};
+    const cancelDeadline = (): void => {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      deadlineTimer = undefined;
+      reservation.onRelease = undefined;
+      restoreSend();
+    };
     const detachRequest = (): void => {
       req.off("aborted", abort);
       res.off("close", responseClosed);
@@ -459,19 +480,51 @@ export async function createHttpServer(
       return cleanupPromise;
     };
     const abort = (): void => { void cleanup(); };
+    const expire = (): void => {
+      if (delivered || timedOut || reservation.released) return;
+      timedOut = true;
+      // Invalidate the identifier/capacity before writing a terminal response.
+      reservation.release();
+      if (!res.headersSent && !res.destroyed) {
+        const id = objectRecord(req.body)?.id;
+        res.status(504).json({
+          jsonrpc: "2.0", error: { code: -32000, message: "Initialization timed out" },
+          id: typeof id === "string" || (typeof id === "number" && Number.isFinite(id)) ? id : null,
+        });
+      } else if (!res.destroyed) res.destroy();
+      void cleanup();
+    };
+    const deadlineExpired = (): boolean => {
+      if (!delivered && performance.now() >= deadlineAt) expire();
+      return timedOut || reservation.released;
+    };
+    const completeDelivery = (): void => {
+      if (deadlineExpired()) return;
+      delivered = true;
+      cancelDeadline();
+      detachRequest();
+    };
+    const isEventStream = (): boolean => String(res.getHeader("content-type") ?? "").toLowerCase().startsWith("text/event-stream");
     const responseClosed = (): void => {
+      if (delivered) return;
       if (!res.writableFinished || !reservation.activeId || res.statusCode >= 400) abort();
     };
     const responseFinished = (): void => {
       if (!reservation.activeId || res.statusCode >= 400) abort();
       // A successfully delivered initialize response no longer owns the session.
-      else detachRequest();
+      // The configured transport sends SSE. An absent cached header must not
+      // substitute response finish for the pending SDK send fulfillment.
+      else if (res.getHeader("content-type") && !isEventStream()) completeDelivery();
     };
     req.once("aborted", abort);
     res.once("close", responseClosed);
     res.once("finish", responseFinished);
+    reservation.onRelease = cancelDeadline;
+    deadlineTimer = setTimeout(expire, initializeTimeoutMs);
+    deadlineTimer.unref();
     try {
       mcpServer = createMcpServer();
+      if (deadlineExpired()) { await cleanup(); return; }
       transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: reservation.activate,
@@ -481,12 +534,21 @@ export async function createHttpServer(
       });
       reservation.session = { transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal };
       transport.onclose = reservation.release;
+      const originalSend = transport.send;
+      restoreSend = () => { if (transport) transport.send = originalSend; };
+      transport.send = async (message, options) => {
+        await originalSend.call(transport!, message, options);
+        if ("id" in message && message.id === objectRecord(req.body)?.id
+          && ("result" in message || "error" in message)
+          && (!res.getHeader("content-type") || isEventStream())) completeDelivery();
+      };
       await mcpServer.connect(transport);
-      if (reservation.released || res.destroyed) { await cleanup(); return; }
+      if (deadlineExpired() || res.destroyed) { await cleanup(); return; }
       await handleTransportRequest(transport, req, res);
       if (!reservation.activeId || res.statusCode >= 400) await cleanup();
     } catch (error) {
       await cleanup();
+      if (timedOut) return;
       throw error;
     }
   }

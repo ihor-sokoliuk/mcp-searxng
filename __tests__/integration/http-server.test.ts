@@ -23,6 +23,7 @@ import {
   missingModernProtocolHeaderError,
   resolveStatelessHttpConfig,
   resolveHttpMaxSessions,
+  resolveHttpInitializeTimeoutMs,
 } from '../../src/http-server.js';
 import { createMcpServer, ToolAdmissionController } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -230,6 +231,224 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('initialize timeout has strict boundaries and private invalid-value warnings', async () => {
+    try {
+      for (const [raw, expected] of [['', 30000], [' ', 30000], ['1000', 1000], ['2147483647', 2147483647]] as const) {
+        envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', raw);
+        assert.equal(resolveHttpInitializeTimeoutMs(), expected);
+      }
+      const messages = await captureConsoleOutput(async () => {
+        for (const raw of ['0', '999', '2147483648', '1e3', '0x1000', '1.5', 'private-deadline-marker']) {
+          envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', raw);
+          assert.equal(resolveHttpInitializeTimeoutMs(), 30000);
+        }
+      });
+      assert.equal(messages.length, 7);
+      assert.doesNotMatch(messages.join('\n'), /private-deadline-marker/);
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('initialize deadline includes synchronous construction and ignores wall-clock changes', async () => {
+    envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
+    const originalNow = Date.now;
+    let closed = 0;
+    const app = await createHttpServer(() => {
+      const server = createTestMcpServer();
+      const close = server.close.bind(server);
+      server.close = async () => { closed++; await close(); };
+      Date.now = () => 1;
+      const end = performance.now() + 1050;
+      while (performance.now() < end) { /* synchronous factory delay */ }
+      return server;
+    });
+    try {
+      const response = await postStatelessMcp(app, {
+        jsonrpc: '2.0', id: 42, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'sync', version: '1' } },
+      });
+      assert.equal(response.status, 504);
+      assert.equal(response.body.id, 42);
+      assert.equal(closed, 1);
+    } finally { Date.now = originalNow; envManager.restore(); }
+  }, results);
+
+  await testFunction('delivered initialize response cancels the deadline even while its SSE stream stays open', async () => {
+    envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
+    let finishResponse: (() => void) | undefined;
+    const app = await createHttpServer(() => {
+      const server = createTestMcpServer();
+      const connect = server.connect.bind(server);
+      server.connect = async transport => {
+        const nodeTransport = transport as NodeStreamableHTTPServerTransport;
+        const send = nodeTransport.send.bind(nodeTransport);
+        nodeTransport.send = async (message, options) => {
+          // Ensure the HTTP adapter starts streaming instead of buffering a
+          // complete response and adding Content-Length before end is held.
+          await new Promise(resolve => setTimeout(resolve, 50));
+          await send(message, options);
+        };
+        const handle = nodeTransport.handleRequest.bind(nodeTransport);
+        nodeTransport.handleRequest = async (req, res, body) => {
+          const end = res.end;
+          res.end = ((...args: Parameters<typeof res.end>) => {
+            finishResponse = () => { res.end = end; end.apply(res, args); };
+            return res;
+          }) as typeof res.end;
+          await handle(req, res, body);
+        };
+        await connect(transport);
+      };
+      return server;
+    });
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const port = (listener.address() as { port: number }).port;
+    const body = { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'stream', version: '1' },
+    } };
+    let incoming: http.IncomingMessage | undefined;
+    const delivered = createDeferred();
+    const pending = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: {
+      'content-type': 'application/json', accept: 'application/json, text/event-stream',
+    } }, response => {
+      incoming = response;
+      let text = '';
+      response.on('data', chunk => { text += chunk.toString(); if (text.includes('"result"')) delivered.resolve(); });
+    });
+    pending.on('error', () => {});
+    pending.end(JSON.stringify(body));
+    try {
+      await Promise.race([delivered.promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('initialize event missing')), 2200))]);
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      assert.equal(incoming?.destroyed, false, 'initialize deadline must not govern the later stream lifetime');
+      assert.equal(incoming?.complete, false);
+      finishResponse?.();
+      const sessionId = incoming!.headers['mcp-session-id'] as string;
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', sessionId)).status, 204);
+    } finally {
+      finishResponse?.(); pending.destroy(); incoming?.destroy();
+      listener.closeAllConnections();
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('initialize deadline returns scalar-id 504 and restores capacity during a stalled connect', async () => {
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
+    const resume = createDeferred();
+    let first = true;
+    let firstCloseCount = 0;
+    const app = await createHttpServer(() => {
+      const server = createTestMcpServer();
+      if (first) {
+        first = false;
+        const connect = server.connect.bind(server);
+        server.connect = async transport => { await resume.promise; await connect(transport); };
+        const close = server.close.bind(server);
+        server.close = async () => { firstCloseCount++; await close(); };
+      }
+      return server;
+    });
+    const initialize = () => postStatelessMcp(app, {
+      jsonrpc: '2.0', id: 'slow-init', method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'deadline', version: '1' } },
+    }).timeout(2200);
+    try {
+      const expired = await initialize();
+      assert.equal(expired.status, 504);
+      assert.deepEqual(expired.body, { jsonrpc: '2.0', error: { code: -32000, message: 'Initialization timed out' }, id: 'slow-init' });
+      assert.equal(firstCloseCount, 1);
+      const replacement = await initialize();
+      assert.equal(replacement.status, 200);
+      resume.resolve();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal((await initialize()).status, 503);
+      assert.equal(firstCloseCount, 1);
+      await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
+    } finally { resume.resolve(); envManager.restore(); }
+  }, results);
+
+  await testFunction('initialize response-event timeout destroys started SSE and invalidates its exposed session', async () => {
+    envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    const resume = createDeferred();
+    const aborted = createDeferred();
+    let first = true;
+    const app = await createHttpServer(() => {
+      const server = createTestMcpServer();
+      if (first) {
+        first = false;
+        const connect = server.connect.bind(server);
+        server.connect = async transport => {
+          const send = transport.send.bind(transport);
+          transport.send = async (message, options) => { await resume.promise; await send(message, options); };
+          await connect(transport);
+        };
+      }
+      return server;
+    });
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const port = (listener.address() as { port: number }).port;
+    const body = { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'send-timeout', version: '1' },
+    } };
+    let incoming: http.IncomingMessage | undefined;
+    const pending = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: {
+      'content-type': 'application/json', accept: 'application/json, text/event-stream',
+    } }, response => {
+      incoming = response;
+      response.resume();
+      response.once('aborted', aborted.resolve);
+    });
+    pending.on('error', () => {});
+    pending.end(JSON.stringify(body));
+    try {
+      await Promise.race([aborted.promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('started response was not destroyed')), 2200))]);
+      assert.equal(incoming?.statusCode, 200, 'headers were already sent before timeout');
+      const staleId = incoming!.headers['mcp-session-id'] as string;
+      assert.ok(staleId);
+      assert.equal((await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', staleId)).status, 404);
+      const replacement = await postStatelessMcp(app, body);
+      assert.equal(replacement.status, 200);
+      resume.resolve();
+      await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
+    } finally {
+      resume.resolve(); pending.destroy(); incoming?.destroy();
+      listener.closeAllConnections();
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('SSE response finish does not cancel a still-pending SDK send deadline', async () => {
+    envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
+    const resume = createDeferred();
+    const originalSend = NodeStreamableHTTPServerTransport.prototype.send;
+    NodeStreamableHTTPServerTransport.prototype.send = async function (message, options) {
+      await originalSend.call(this, message, options);
+      await resume.promise;
+    };
+    try {
+      const app = await createHttpServer(createTestMcpServer);
+      const initialized = await postStatelessMcp(app, {
+        jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+          protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'pending-send', version: '1' },
+        },
+      });
+      assert.equal(initialized.status, 200);
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      const stale = await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })
+        .set('mcp-session-id', initialized.headers['mcp-session-id']);
+      assert.equal(stale.status, 404);
+    } finally {
+      resume.resolve();
+      NodeStreamableHTTPServerTransport.prototype.send = originalSend;
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('stateful session capacity configuration is strict and warning values stay private', async () => {
     try {
       for (const [raw, expected] of [['', 1000], ['  ', 1000], ['1', 1], ['10000', 10000], ['+2', 2]] as const) {
