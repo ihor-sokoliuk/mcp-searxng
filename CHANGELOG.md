@@ -5,6 +5,30 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.4.0] - 2026-09-22
+
+### Added
+
+- Bound retained and concurrently initializing legacy HTTP sessions with `MCP_HTTP_MAX_SESSIONS` (default 1000). At capacity, initialization returns HTTP 503 with `Retry-After: 1`; existing sessions and DELETE remain available. ([#297](https://github.com/ihor-sokoliuk/mcp-searxng/pull/297))
+- Add `MCP_HTTP_INITIALIZE_TIMEOUT_MS` (default 30000 ms) to bound legacy stateful initialization through response delivery. Expiry releases capacity, invalidates the session, and returns 504 before headers or closes an already-started response. Successful SSE response delivery cancels the deadline without limiting the subsequent stream lifetime. ([#298](https://github.com/ihor-sokoliuk/mcp-searxng/pull/298))
+
+### Security
+
+- Protect configured credentials across diagnostics, cached content, and tool-response boundaries, including overlapping credentials and ambiguous proxy URLs. ([#291](https://github.com/ihor-sokoliuk/mcp-searxng/pull/291), [#292](https://github.com/ihor-sokoliuk/mcp-searxng/pull/292))
+
+### Fixed
+
+- Use rendered browser-solver content, preserve terminal read outcomes, replay non-HTML wrappers, and recheck destination DNS before returning solver results. Improve eligible read failover and timeout diagnostics. ([#293](https://github.com/ihor-sokoliuk/mcp-searxng/pull/293))
+
+### Dependencies and CI
+
+- Update supported development tools and pinned GitHub Actions. Refresh both Docker stages to a tested Node 24.21.0 Alpine base; the minimum supported Node version remains 22. ([#296](https://github.com/ihor-sokoliuk/mcp-searxng/pull/296))
+- Retire the independent Docker rebuild schedule; version-tag releases continue publishing signed multi-architecture images. ([#290](https://github.com/ihor-sokoliuk/mcp-searxng/pull/290))
+
+### Contributors
+
+- @ihor-sokoliuk — credential protection, browser-solver recovery, HTTP session bounds, dependency maintenance, and release work.
+
 ## [2.3.0] - 2026-09-15
 
 ### Added
