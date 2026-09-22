@@ -22,6 +22,7 @@ import {
   createHttpServer,
   missingModernProtocolHeaderError,
   resolveStatelessHttpConfig,
+  resolveHttpMaxSessions,
 } from '../../src/http-server.js';
 import { createMcpServer, ToolAdmissionController } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -229,6 +230,161 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('stateful session capacity configuration is strict and warning values stay private', async () => {
+    try {
+      for (const [raw, expected] of [['', 1000], ['  ', 1000], ['1', 1], ['10000', 10000], ['+2', 2]] as const) {
+        envManager.set('MCP_HTTP_MAX_SESSIONS', raw);
+        assert.equal(resolveHttpMaxSessions(), expected);
+      }
+      const messages = await captureConsoleOutput(async () => {
+        for (const raw of ['0', '-1', '10001', '1e3', '1.2', '0x10', 'private-invalid-marker']) {
+          envManager.set('MCP_HTTP_MAX_SESSIONS', raw);
+          assert.equal(resolveHttpMaxSessions(), 1000);
+        }
+      });
+      assert.equal(messages.length, 7);
+      assert.doesNotMatch(messages.join('\n'), /private-invalid-marker/);
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('stateful capacity reserves initializing sessions and leaves existing sessions usable', async () => {
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    envManager.set('MCP_RATE_INIT_MAX', '100');
+    const entered = createDeferred();
+    const resume = createDeferred();
+    let constructions = 0;
+    const app = await createHttpServer(() => {
+      constructions++;
+      const server = createTestMcpServer();
+      const connect = server.connect.bind(server);
+      server.connect = async transport => {
+        entered.resolve();
+        await resume.promise;
+        await connect(transport);
+      };
+      return server;
+    });
+    const initialize = () => postStatelessMcp(app, {
+      jsonrpc: '2.0', id: 1, method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'capacity', version: '1' } },
+    });
+    const first = initialize().then(value => value);
+    try {
+      await entered.promise;
+      const rejected = await Promise.all(Array.from({ length: 4 }, () => initialize().timeout(1500)));
+      for (const response of rejected) {
+        assert.equal(response.status, 503);
+        assert.equal(response.headers['retry-after'], '1');
+        assert.deepEqual(response.body, { jsonrpc: '2.0', error: { code: -32000, message: 'Server busy' }, id: null });
+      }
+      assert.equal(constructions, 1);
+      resume.resolve();
+      const active = await first;
+      const sessionId = active.headers['mcp-session-id'];
+      assert.equal(active.status, 200);
+      assert.equal((await initialize()).status, 503);
+      const existing = await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', sessionId);
+      assert.equal(existing.status, 200);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', sessionId)).status, 204);
+      const replacement = await initialize();
+      assert.equal(replacement.status, 200);
+      assert.equal(constructions, 2);
+      await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
+    } finally {
+      resume.resolve();
+      await first;
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('failed stateful construction, connection, and handling release capacity', async () => {
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    const originalHandle = NodeStreamableHTTPServerTransport.prototype.handleRequest;
+    try {
+      for (const failure of ['construction', 'connection', 'handler']) {
+        let first = true;
+        const app = await createHttpServer(() => {
+          const fail = first;
+          first = false;
+          if (fail && failure === 'construction') throw new Error('controlled construction failure');
+          const server = createTestMcpServer();
+          if (fail && failure === 'connection') server.connect = async () => { throw new Error('controlled connection failure'); };
+          return server;
+        });
+        let failHandler = failure === 'handler';
+        NodeStreamableHTTPServerTransport.prototype.handleRequest = async function (...args) {
+          if (failHandler) { failHandler = false; throw new Error('controlled handler failure'); }
+          return originalHandle.apply(this, args);
+        };
+        const initialize = () => postStatelessMcp(app, {
+          jsonrpc: '2.0', id: 1, method: 'initialize',
+          params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'failure', version: '1' } },
+        });
+        assert.equal((await initialize()).status, 500, failure);
+        const recovered = await initialize();
+        assert.equal(recovered.status, 200, failure);
+        assert.equal((await initialize()).status, 503, 'one released reservation must not release a second slot');
+        await request(app).delete('/mcp').set('mcp-session-id', recovered.headers['mcp-session-id']);
+      }
+    } finally {
+      NodeStreamableHTTPServerTransport.prototype.handleRequest = originalHandle;
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('aborted initialize releases capacity before a delayed connection settles', async () => {
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    const entered = createDeferred();
+    const resume = createDeferred();
+    let first = true;
+    let abandonedTransport: NodeStreamableHTTPServerTransport | undefined;
+    const app = await createHttpServer(() => {
+      const server = createTestMcpServer();
+      if (first) {
+        first = false;
+        const connect = server.connect.bind(server);
+        server.connect = async transport => {
+          abandonedTransport = transport as NodeStreamableHTTPServerTransport;
+          await connect(transport);
+          entered.resolve();
+          await resume.promise;
+        };
+      }
+      return server;
+    });
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const port = (listener.address() as { port: number }).port;
+    const body = { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'abort', version: '1' },
+    } };
+    const pending = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: {
+      'content-type': 'application/json', accept: 'application/json, text/event-stream',
+    } });
+    pending.on('error', () => {});
+    pending.end(JSON.stringify(body));
+    try {
+      await entered.promise;
+      const closed = createDeferred();
+      const originalClose = abandonedTransport!.close.bind(abandonedTransport);
+      abandonedTransport!.close = async () => { await originalClose(); closed.resolve(); };
+      pending.destroy();
+      await closed.promise;
+      const replacement = await postStatelessMcp(app, body);
+      assert.equal(replacement.status, 200);
+      resume.resolve();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal((await postStatelessMcp(app, body)).status, 503);
+      await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
+    } finally {
+      pending.destroy();
+      resume.resolve();
+      listener.closeAllConnections();
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('modern Lite calls honor explicit search and URL read options', async () => {
     envManager.set('SEARXNG_LITE_TOOLS', 'true');
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
