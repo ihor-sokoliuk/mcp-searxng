@@ -215,6 +215,31 @@ export function resolveHttpMaxSessions(): number {
   return parseBoundedStatelessEnv("MCP_HTTP_MAX_SESSIONS", DEFAULT_HTTP_MAX_SESSIONS, 1, MAX_HTTP_MAX_SESSIONS);
 }
 
+function scalarRequestId(body: unknown): string | number | null {
+  const request = objectRecord(body);
+  return request ? echoableRequestId(request) ?? null : null;
+}
+
+function observeInitializeSend(
+  transport: NodeStreamableHTTPServerTransport,
+  id: string | number | null,
+  onResponse: () => void,
+): () => void {
+  let observer: (() => void) | undefined = onResponse;
+  const originalSend = transport.send;
+  const trackedSend: typeof transport.send = async (message, options) => {
+    await originalSend.call(transport, message, options);
+    if ("id" in message && message.id === id && ("result" in message || "error" in message)) observer?.();
+  };
+  transport.send = trackedSend;
+  return () => {
+    // A wrapper installed later may retain trackedSend: clear the request-local
+    // observer even when that newer wrapper must remain installed.
+    observer = undefined;
+    if (transport.send === trackedSend) transport.send = originalSend;
+  };
+}
+
 export function resolveHttpInitializeTimeoutMs(): number {
   return parseBoundedStatelessEnv("MCP_HTTP_INITIALIZE_TIMEOUT_MS", DEFAULT_HTTP_INITIALIZE_TIMEOUT_MS, 1000, 2147483647);
 }
@@ -415,9 +440,12 @@ export async function createHttpServer(
   function reserveStatefulSession() {
     if (retainedSessions >= maxSessions) return undefined;
     retainedSessions++;
+    let signalRelease!: () => void;
+    const releasedSignal = new Promise<void>(resolve => { signalRelease = resolve; });
     // These long-lived callbacks capture only session state, never an HTTP request.
     const reservation = {
       released: false,
+      releasedSignal,
       activeId: undefined as string | undefined,
       session: undefined as Session | undefined,
       onRelease: undefined as (() => void) | undefined,
@@ -430,6 +458,7 @@ export async function createHttpServer(
       release(): void {
         if (reservation.released) return;
         reservation.released = true;
+        signalRelease();
         retainedSessions--;
         if (reservation.activeId) sessions.delete(reservation.activeId);
         reservation.session = undefined;
@@ -486,10 +515,9 @@ export async function createHttpServer(
       // Invalidate the identifier/capacity before writing a terminal response.
       reservation.release();
       if (!res.headersSent && !res.destroyed) {
-        const id = objectRecord(req.body)?.id;
         res.status(504).json({
           jsonrpc: "2.0", error: { code: -32000, message: "Initialization timed out" },
-          id: typeof id === "string" || (typeof id === "number" && Number.isFinite(id)) ? id : null,
+          id: scalarRequestId(req.body),
         });
       } else if (!res.destroyed) res.destroy();
       void cleanup();
@@ -526,6 +554,7 @@ export async function createHttpServer(
       mcpServer = createMcpServer();
       if (deadlineExpired()) { await cleanup(); return; }
       transport = new NodeStreamableHTTPServerTransport({
+        enableJsonResponse: false,
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: reservation.activate,
         enableDnsRebindingProtection: security.enableDnsRebindingProtection,
@@ -534,17 +563,16 @@ export async function createHttpServer(
       });
       reservation.session = { transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal };
       transport.onclose = reservation.release;
-      const originalSend = transport.send;
-      restoreSend = () => { if (transport) transport.send = originalSend; };
-      transport.send = async (message, options) => {
-        await originalSend.call(transport!, message, options);
-        if ("id" in message && message.id === objectRecord(req.body)?.id
-          && ("result" in message || "error" in message)
-          && (!res.getHeader("content-type") || isEventStream())) completeDelivery();
-      };
-      await mcpServer.connect(transport);
-      if (deadlineExpired() || res.destroyed) { await cleanup(); return; }
-      await handleTransportRequest(transport, req, res);
+      restoreSend = observeInitializeSend(transport, scalarRequestId(req.body), () => {
+        // This transport is explicitly SSE; adapters may not cache writeHead headers.
+        if (!res.getHeader("content-type") || isEventStream()) completeDelivery();
+      });
+      // Promise.race observes late rejection too, without retaining this handler
+      // until an uncooperative connect or request promise eventually settles.
+      await Promise.race([mcpServer.connect(transport), reservation.releasedSignal]);
+      if (deadlineExpired() || res.destroyed) { void cleanup(); return; }
+      await Promise.race([handleTransportRequest(transport, req, res), reservation.releasedSignal]);
+      if (reservation.released) return;
       if (!reservation.activeId || res.statusCode >= 400) await cleanup();
     } catch (error) {
       await cleanup();
