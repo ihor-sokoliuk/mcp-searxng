@@ -131,13 +131,24 @@ constraints one at a time. An explicit engine combined with `time_range`
 requires verified support from every configured instance; inspect
 `searxng_instance_info` or omit that filter.
 
-When search engines fail (CAPTCHA, rate limit, timeout) but SearXNG responds, unresponsive engines are surfaced:
-- **SearXNG returned no results and at least one engine failed:** The search tool returns an error (`🔍 Search Degraded: No results for "{query}", and these engines failed: {list}. Results may be incomplete — retry later or with other engines.`). This is distinct from a genuine empty result.
-- **Some results, some engines failed:** Results are returned with a one-line note (`⚠️ Some search engines were unavailable: ...`) indicating partial degradation. Both full and compact output include this note.
-- **Results filtered by agent settings (min_score, num_results) while engines failed:** Filter message is shown with the unresponsive engines note appended, so agents know both why results are empty and that engines were down.
-- **JSON output** includes the `unresponsive_engines` field when present, containing engine names and failure reasons.
+SearXNG lists engines that failed (CAPTCHA, rate limit, timeout) in
+`unresponsive_engines`, and `searxng_web_search` reports them:
 
-Use `result_detail="full"` for complete diagnostic metadata (answers, corrections, infoboxes, etc). Compact output omits those signals but still shows degradation notes, since knowing engines failed is critical for agents using compact mode.
+- **No results and at least one engine failed:** the tool returns an error
+  naming each failed engine and its reason. This holds even when the other
+  engines answered with nothing, because the result may be incomplete.
+- **Results, and some engines failed:** the results plus one line naming the
+  failed engines, in full and compact output. A search emptied by `min_score`
+  or `num_results` gets the same line, not the error.
+- **JSON:** `unresponsive_engines` is included in full and compact output.
+
+The HTML fallback carries no engine status, so an empty fallback result is not
+proof that nothing exists. Even full output is not a complete engine-health
+assessment: it reports only the engines SearXNG queried for this search.
+
+Use `result_detail="full"` for diagnostic metadata. Compact output deliberately
+omits warnings, provenance, cache markers and HTML-fallback markers, but keeps
+the failed-engines line.
 
 Search and URL caches live in each MCP process; see the
 [search TTL](../CONFIGURATION.md#search-result-controls) and

@@ -31,13 +31,10 @@ it returns headings without applying the other extraction controls.
 PDF reading extracts text, not OCR.
 
 Start without engine/time filters, then refine only when needed. Use full
-output while troubleshooting; compact output intentionally omits metadata but
-includes degradation notes.
-When search engines are unavailable (CAPTCHA, rate limit, timeout):
-- SearXNG returned no results and at least one engine failed → tool returns an error indicating degradation
-- Some results, some engines unavailable → results included with a one-line
-  degradation note (shown in both full and compact formats)
-See [result quality and cache](troubleshooting.md#result-quality-and-cache).
+output while troubleshooting; compact output intentionally omits metadata.
+Failed engines are reported in both; an empty response from the HTML fallback
+is still not proof that every engine was healthy. See
+[result quality and cache](troubleshooting.md#result-quality-and-cache).
 
 ## searxng_web_search
   - Execute web searches with pagination
