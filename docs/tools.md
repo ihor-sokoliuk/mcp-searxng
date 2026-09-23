@@ -32,7 +32,8 @@ PDF reading extracts text, not OCR.
 
 Start without engine/time filters, then refine only when needed. Use full
 output while troubleshooting; compact output intentionally omits metadata.
-An empty response is not proof that every engine was healthy. See
+Failed engines are reported in both; an empty response from the HTML fallback
+is still not proof that every engine was healthy. See
 [result quality and cache](troubleshooting.md#result-quality-and-cache).
 
 ## searxng_web_search

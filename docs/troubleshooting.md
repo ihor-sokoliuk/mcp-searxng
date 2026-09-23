@@ -131,15 +131,24 @@ constraints one at a time. An explicit engine combined with `time_range`
 requires verified support from every configured instance; inspect
 `searxng_instance_info` or omit that filter.
 
-**Current limitation:** upstream engine failures can appear as ordinary empty
-search output ([issue #262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262)).
-An empty result is not proof that nothing exists or that every engine failed.
-Compare the direct SearXNG JSON, including `unresponsive_engines`, when available.
-This guide does not assume the proposed fix has shipped.
+SearXNG lists engines that failed (CAPTCHA, rate limit, timeout) in
+`unresponsive_engines`, and `searxng_web_search` reports them:
+
+- **No results and at least one engine failed:** the tool returns an error
+  naming each failed engine and its reason. This holds even when the other
+  engines answered with nothing, because the result may be incomplete.
+- **Results, and some engines failed:** the results plus one line naming the
+  failed engines, in full and compact output. A search emptied by `min_score`
+  or `num_results` gets the same line, not the error.
+- **JSON:** `unresponsive_engines` is included in full and compact output.
+
+The HTML fallback carries no engine status, so an empty fallback result is not
+proof that nothing exists. Even full output is not a complete engine-health
+assessment: it reports only the engines SearXNG queried for this search.
 
 Use `result_detail="full"` for diagnostic metadata. Compact output deliberately
-omits warnings, provenance, cache markers and HTML-fallback markers. Even full
-output is not a complete engine-health assessment.
+omits warnings, provenance, cache markers and HTML-fallback markers, but keeps
+the failed-engines line.
 
 Search and URL caches live in each MCP process; see the
 [search TTL](../CONFIGURATION.md#search-result-controls) and

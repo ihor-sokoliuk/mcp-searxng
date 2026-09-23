@@ -30,6 +30,7 @@ import {
   createJSONError,
   createDataError,
   createNoResultsMessage,
+  createDegradedSearchError,
   type ErrorContext
 } from "./error-handler.js";
 
@@ -523,6 +524,24 @@ function formatInfoboxes(infoboxes: SearXNGWeb["infoboxes"]): string {
     .join("\n\n");
 }
 
+function formatUnresponsiveEnginesList(unresponsive: Array<[string, string]>): string {
+  return unresponsive
+    .map(([name, reason]) => {
+      const safeName = asTextLineString(name);
+      const safeReason = asTextLineString(reason);
+      return safeReason ? `${safeName} (${safeReason})` : safeName;
+    })
+    .join(", ");
+}
+
+function formatUnresponsiveEngines(unresponsive: SearXNGWeb["unresponsive_engines"]): string {
+  if (!hasItems(unresponsive)) {
+    return "";
+  }
+
+  return `⚠️ Some search engines were unavailable: ${formatUnresponsiveEnginesList(unresponsive)}`;
+}
+
 function formatSearchMetadata(data: SearXNGWeb): string {
   return [
     formatMetadataSection(data.answers, (lines) =>
@@ -1014,7 +1033,11 @@ export async function performWebSearch(
   if (effectiveResponseFormat === "json") {
     if (result_detail === "full") assertSafeOutput(JSON.stringify({ ...data, results: slicedResults }));
     const result = result_detail === "compact"
-      ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars) }, null, 2)
+      ? JSON.stringify({
+        results: compactJsonResults(slicedResults, maxResultChars),
+        // Full output spreads `data`, which already carries this; compact rebuilds the payload.
+        ...(hasItems(data.unresponsive_engines) ? { unresponsive_engines: data.unresponsive_engines } : {}),
+      }, null, 2)
       : JSON.stringify({
         ...data,
         results: truncateSearchResults(slicedResults, maxResultChars),
@@ -1029,6 +1052,7 @@ export async function performWebSearch(
   }
 
   const metadata = result_detail === "full" ? formatSearchMetadata(data) : "";
+  const unresponsiveNote = formatUnresponsiveEngines(data.unresponsive_engines);
   const leadingSections = [
     includeProvenance
       ? `Served by SearXNG ${redactedServedBy.length === 1 ? "instance" : "instances"}: ${redactedServedBy.join(", ")}`
@@ -1036,9 +1060,16 @@ export async function performWebSearch(
     filters.validationNote ?? null,
     data.sourceFormat === "html" ? "Note: Results parsed from SearXNG HTML fallback; metadata is limited." : null,
     metadata || null,
+    result_detail === "full" ? (unresponsiveNote || null) : null,
   ].filter(Boolean).join("\n\n");
 
   if (slicedResults.length === 0) {
+    // Check if SearXNG returned no raw results AND there are unresponsive engines
+    // This indicates all engines failed, not just filtering removed results
+    if (data.results.length === 0 && hasItems(data.unresponsive_engines)) {
+      throw createDegradedSearchError(query, formatUnresponsiveEnginesList(data.unresponsive_engines));
+    }
+
     const appliedFilters = [
       min_score === undefined ? null : `min_score=${min_score}`,
       effectiveMax === undefined ? null : `num_results=${effectiveMax}`,
@@ -1046,7 +1077,10 @@ export async function performWebSearch(
     const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
-    const result = result_detail === "compact" ? noResultsMessage : (leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage);
+
+    // Full output already carries the note in leadingSections; compact needs it here.
+    const finalMessage = result_detail === "compact" && unresponsiveNote ? `${noResultsMessage}\n\n${unresponsiveNote}` : noResultsMessage;
+    const result = result_detail === "compact" ? finalMessage : (leadingSections ? `${leadingSections}\n\n---\n\n${finalMessage}` : finalMessage);
     return result;
   }
 
@@ -1087,7 +1121,9 @@ export async function performWebSearch(
     })
     .join("\n\n");
 
-  const result = result_detail === "compact" ? formattedResults : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
+  // Include unresponsive note in compact output too (it's only one line and critical info)
+  const compactWithDegradation = unresponsiveNote ? `${formattedResults}\n\n${unresponsiveNote}` : formattedResults;
+  const result = result_detail === "compact" ? compactWithDegradation : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
   assertSafeOutput(result);
   searchCache.set("searxng_web_search", cacheArgs, result);
   return result;
