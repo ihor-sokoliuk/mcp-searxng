@@ -125,6 +125,13 @@ export function createNoResultsMessage(query: string): string {
   return `🔍 No results found for "${query}". Try different search terms or check if SearXNG search engines are working.`;
 }
 
+export function createDegradedSearchError(query: string, engineList: string): MCPSearXNGError {
+  return new MCPSearXNGError(
+    `🔍 Search Degraded: No results for "${query}", and these engines failed: ${engineList}. ` +
+    "Results may be incomplete — retry later or with other engines."
+  );
+}
+
 export function createURLFormatError(url: string): MCPSearXNGError {
   return new MCPSearXNGError(`🔧 URL Format Error: Invalid URL "${url}"`);
 }

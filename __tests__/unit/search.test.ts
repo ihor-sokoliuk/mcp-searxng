@@ -2350,7 +2350,7 @@ async function runTests() {
   }, results);
 
 
-  await testFunction('text output prepends infoboxes but omits unresponsive engines', async () => {
+  await testFunction('text output includes unresponsive engines note when some results exist', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
     const mockServer = createMockServer();
@@ -2379,9 +2379,83 @@ async function runTests() {
     assert.ok(result.includes('Infobox: Ada Lovelace'), result);
     assert.ok(result.includes('English mathematician and writer'), result);
     assert.ok(result.split('\n').some((line) => line === 'Biography: https://example.com/ada'), result);
-    assert.ok(!result.includes('Unresponsive engines:'), result);
+    assert.ok(result.includes('Some search engines were unavailable:'), result);
+    assert.ok(result.includes('brave (timeout)'), result);
 
     fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  const NOTE = 'Some search engines were unavailable';
+  const lowScoreResult = { title: 'Result', content: 'Content', url: 'https://example.com/r', score: 0.1 };
+
+  await testFunction('unresponsive engines are reported once in text output', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    // [case, unresponsive_engines, min_score, result_detail, notes expected, text that must appear]
+    const cases: Array<[string, Array<[string, string]>, number | undefined, 'full' | 'compact', number, string]> = [
+      ['partial failure, full', [['brave', 'timeout']], undefined, 'full', 1, 'Title: Result'],
+      ['partial failure, compact', [['brave', 'timeout']], undefined, 'compact', 1, 'Title: Result'],
+      ['filtered to zero, full', [['brave', 'timeout']], 0.9, 'full', 1, 'No results found'],
+      ['filtered to zero, compact', [['brave', 'timeout']], 0.9, 'compact', 1, 'No results found'],
+      ['no failures', [], undefined, 'full', 0, 'Title: Result'],
+    ];
+
+    for (const [name, unresponsive, minScore, detail, notes, mustContain] of cases) {
+      fetchMocker.mock(createMockFetch({
+        json: { query: name, number_of_results: 1, results: [lowScoreResult], unresponsive_engines: unresponsive },
+      }));
+      const result = await performWebSearch(mockServer as any, name, 1, undefined, undefined, undefined, minScore, undefined, undefined, undefined, 'text', detail);
+      assert.equal(result.split(NOTE).length - 1, notes, `${name}: ${result}`);
+      assert.ok(result.includes(mustContain), `${name}: ${result}`);
+      fetchMocker.restore();
+    }
+
+    envManager.restore();
+  }, results);
+
+  await testFunction('zero results with failed engines throw a degraded-search error', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({
+      json: {
+        query: 'q',
+        number_of_results: 0,
+        results: [],
+        unresponsive_engines: [['google', 'CAPTCHA'], ['bing', ''], ['ddg', 'rate\nlimit']],
+      },
+    }));
+
+    await assert.rejects(performWebSearch(createMockServer() as any, 'q'), {
+      name: 'MCPSearXNGError',
+      message: '🔍 Search Degraded: No results for "q", and these engines failed: google (CAPTCHA), bing, ddg (rate limit). ' +
+        'Results may be incomplete — retry later or with other engines.',
+    });
+
+    fetchMocker.restore();
+    envManager.restore();
+  }, results);
+
+  await testFunction('JSON output carries unresponsive_engines in full and compact detail', async () => {
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const mockServer = createMockServer();
+    // [result_detail, unresponsive_engines sent, field expected]; distinct queries keep the search cache out of it
+    const cases: Array<['full' | 'compact', Array<[string, string]> | undefined, Array<[string, string]> | undefined]> = [
+      ['full', [['brave', 'timeout']], [['brave', 'timeout']]],
+      ['compact', [['brave', 'timeout']], [['brave', 'timeout']]],
+      ['compact', [], undefined],
+      ['compact', undefined, undefined],
+    ];
+
+    for (const [index, [detail, sent, expected]] of cases.entries()) {
+      const query = `json case ${index}`;
+      fetchMocker.mock(createMockFetch({
+        json: { query, number_of_results: 1, results: [lowScoreResult], ...(sent ? { unresponsive_engines: sent } : {}) },
+      }));
+      const payload = JSON.parse(await performWebSearch(mockServer as any, query, 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', detail));
+      assert.deepEqual(payload.unresponsive_engines, expected, `${detail} ${JSON.stringify(sent)}`);
+      fetchMocker.restore();
+    }
+
     envManager.restore();
   }, results);
 

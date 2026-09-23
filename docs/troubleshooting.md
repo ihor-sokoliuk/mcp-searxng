@@ -131,15 +131,13 @@ constraints one at a time. An explicit engine combined with `time_range`
 requires verified support from every configured instance; inspect
 `searxng_instance_info` or omit that filter.
 
-**Current limitation:** upstream engine failures can appear as ordinary empty
-search output ([issue #262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262)).
-An empty result is not proof that nothing exists or that every engine failed.
-Compare the direct SearXNG JSON, including `unresponsive_engines`, when available.
-This guide does not assume the proposed fix has shipped.
+When search engines fail (CAPTCHA, rate limit, timeout) but SearXNG responds, unresponsive engines are surfaced:
+- **SearXNG returned no results and at least one engine failed:** The search tool returns an error (`🔍 Search Degraded: No results for "{query}", and these engines failed: {list}. Results may be incomplete — retry later or with other engines.`). This is distinct from a genuine empty result.
+- **Some results, some engines failed:** Results are returned with a one-line note (`⚠️ Some search engines were unavailable: ...`) indicating partial degradation. Both full and compact output include this note.
+- **Results filtered by agent settings (min_score, num_results) while engines failed:** Filter message is shown with the unresponsive engines note appended, so agents know both why results are empty and that engines were down.
+- **JSON output** includes the `unresponsive_engines` field when present, containing engine names and failure reasons.
 
-Use `result_detail="full"` for diagnostic metadata. Compact output deliberately
-omits warnings, provenance, cache markers and HTML-fallback markers. Even full
-output is not a complete engine-health assessment.
+Use `result_detail="full"` for complete diagnostic metadata (answers, corrections, infoboxes, etc). Compact output omits those signals but still shows degradation notes, since knowing engines failed is critical for agents using compact mode.
 
 Search and URL caches live in each MCP process; see the
 [search TTL](../CONFIGURATION.md#search-result-controls) and
