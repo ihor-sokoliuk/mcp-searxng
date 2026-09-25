@@ -257,7 +257,12 @@ async function runTests() {
   await testFunction('isSearXNGWebSearchArgs accepts exact result_detail values and rejects non-exact values', () => {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: 'compact' }), true);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: 'full' }), true);
-    for (const invalid of ['Compact', ' full', 'full ', '', null, 1, true, [], {}]) {
+    // '' is treated as "not provided" (same as omitting the field), matching
+    // every other optional string field in this schema (language, categories,
+    // engines). Callers — especially LLM tool-callers — routinely send ''
+    // instead of omitting an unused optional field.
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: '' }), true);
+    for (const invalid of ['Compact', ' full', 'full ', null, 1, true, [], {}]) {
       assert.equal(isSearXNGWebSearchArgs({ query: 'test', result_detail: invalid }), false, String(invalid));
     }
   }, results);

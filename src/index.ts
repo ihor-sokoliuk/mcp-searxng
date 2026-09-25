@@ -19,6 +19,7 @@ import {
   LITE_INSTANCE_INFO_TOOL,
   LITE_READ_URL_TOOL,
   isSearXNGWebSearchArgs,
+  validateSearXNGWebSearchArgs,
   isSearXNGSearchSuggestionsArgs,
   isSearXNGInstanceInfoArgs,
 } from "./types.js";
@@ -219,6 +220,11 @@ function errorToolResult(text: string): ToolCallResult {
 type ToolDefinition = {
   validate: (args: unknown) => boolean;
   invalidArguments: string;
+  // Optional: when present, called on validation failure to produce a
+  // reason that names the offending field, instead of the generic
+  // `invalidArguments` message. Keeps error text specific without
+  // duplicating each tool's validation logic.
+  describeInvalidArguments?: (args: unknown) => string | undefined;
   execute: (
     mcpServer: McpServer,
     args: unknown,
@@ -229,10 +235,16 @@ type ToolDefinition = {
 function invalidToolArguments(name: string, args: unknown): string | undefined {
   const definition = TOOL_DEFINITIONS[name];
   if (!definition) throw new ProtocolError(ProtocolErrorCode.InvalidParams, sanitizeDiagnosticText(`Unknown tool: ${name}`));
-  return definition.validate(args) ? undefined : definition.invalidArguments;
+  if (definition.validate(args)) return undefined;
+  return definition.describeInvalidArguments?.(args) ?? definition.invalidArguments;
 }
 
 async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<ToolCallResult> {
+  const invalidReason = validateSearXNGWebSearchArgs(args);
+  if (invalidReason) throw new Error(`Invalid arguments for web search: ${invalidReason}`);
+  // validateSearXNGWebSearchArgs already normalized "" -> undefined for the
+  // enum fields and confirmed validity above; this re-check is cheap (no
+  // I/O) and narrows `args` to the typed shape for the call below.
   if (!isSearXNGWebSearchArgs(args)) throw new Error("Invalid arguments for web search");
   return textToolResult(await performWebSearch(
     mcpServer,
@@ -293,6 +305,10 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
   searxng_web_search: {
     validate: isSearXNGWebSearchArgs,
     invalidArguments: "Invalid arguments for web search",
+    describeInvalidArguments: (args) => {
+      const reason = validateSearXNGWebSearchArgs(args);
+      return reason ? `Invalid arguments for web search: ${reason}` : undefined;
+    },
     execute: executeWebSearch,
   },
   searxng_search_suggestions: {

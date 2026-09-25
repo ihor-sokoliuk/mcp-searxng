@@ -38,26 +38,23 @@ const VALID_SAFESEARCH_VALUES = [0, 1, 2, "0", "1", "2"] as const;
 const VALID_RESPONSE_FORMATS = ["text", "json"] as const;
 const VALID_RESULT_DETAILS = ["compact", "full"] as const;
 
-export function isSearXNGWebSearchArgs(args: unknown): args is {
-  query: string;
-  pageno?: number;
-  time_range?: string;
-  language?: string;
-  safesearch?: number | string;
-  min_score?: number;
-  num_results?: number;
-  categories?: string;
-  engines?: string;
-  response_format?: "text" | "json";
-  result_detail?: ResultDetail;
-} {
+/**
+ * Validates searxng_web_search arguments and returns the specific reason a
+ * call was rejected, or undefined if the call is valid. Also normalizes
+ * empty-string values for enum-restricted optional fields to undefined
+ * in-place, since LLM tool-callers routinely send "" for an optional field
+ * instead of omitting it — every other optional field in this schema
+ * already tolerates "" (plain `typeof === "string"` check), so enum fields
+ * shouldn't hard-reject the whole call for the same input shape.
+ */
+export function validateSearXNGWebSearchArgs(args: unknown): string | undefined {
   if (
     typeof args !== "object" ||
     args === null ||
     !("query" in args) ||
     typeof (args as { query: string }).query !== "string"
   ) {
-    return false;
+    return "`query` is required and must be a string";
   }
 
   const searchArgs = args as {
@@ -73,33 +70,39 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     result_detail?: unknown;
   };
 
+  for (const field of ["time_range", "safesearch", "response_format", "result_detail"] as const) {
+    if (searchArgs[field] === "") {
+      searchArgs[field] = undefined;
+    }
+  }
+
   if (
     searchArgs.pageno !== undefined &&
     (typeof searchArgs.pageno !== "number" || !Number.isInteger(searchArgs.pageno) || searchArgs.pageno < 1)
   ) {
-    return false;
+    return "`pageno` must be an integer >= 1";
   }
   if (
     searchArgs.result_detail !== undefined &&
     (typeof searchArgs.result_detail !== "string" || !VALID_RESULT_DETAILS.includes(searchArgs.result_detail as any))
   ) {
-    return false;
+    return `\`result_detail\` must be one of: ${VALID_RESULT_DETAILS.join(", ")} (or omitted)`;
   }
   if (
     searchArgs.time_range !== undefined &&
     (typeof searchArgs.time_range !== "string" || !VALID_TIME_RANGES.includes(searchArgs.time_range as any))
   ) {
-    return false;
+    return `\`time_range\` must be one of: ${VALID_TIME_RANGES.join(", ")} (or omitted)`;
   }
   if (searchArgs.language !== undefined && typeof searchArgs.language !== "string") {
-    return false;
+    return "`language` must be a string";
   }
   if (
     searchArgs.safesearch !== undefined &&
     ((typeof searchArgs.safesearch !== "number" && typeof searchArgs.safesearch !== "string") ||
       !VALID_SAFESEARCH_VALUES.includes(searchArgs.safesearch as any))
   ) {
-    return false;
+    return "`safesearch` must be one of: 0, 1, 2 (or omitted)";
   }
   if (
     searchArgs.min_score !== undefined &&
@@ -108,7 +111,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
       searchArgs.min_score < 0 ||
       searchArgs.min_score > 1)
   ) {
-    return false;
+    return "`min_score` must be a number between 0 and 1";
   }
   if (
     searchArgs.num_results !== undefined &&
@@ -118,22 +121,38 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
       searchArgs.num_results < 1 ||
       searchArgs.num_results > 20)
   ) {
-    return false;
+    return "`num_results` must be an integer between 1 and 20";
   }
   if (searchArgs.categories !== undefined && typeof searchArgs.categories !== "string") {
-    return false;
+    return "`categories` must be a string";
   }
   if (searchArgs.engines !== undefined && typeof searchArgs.engines !== "string") {
-    return false;
+    return "`engines` must be a string";
   }
   if (
     searchArgs.response_format !== undefined &&
     (typeof searchArgs.response_format !== "string" || !VALID_RESPONSE_FORMATS.includes(searchArgs.response_format as any))
   ) {
-    return false;
+    return `\`response_format\` must be one of: ${VALID_RESPONSE_FORMATS.join(", ")} (or omitted)`;
   }
 
-  return true;
+  return undefined;
+}
+
+export function isSearXNGWebSearchArgs(args: unknown): args is {
+  query: string;
+  pageno?: number;
+  time_range?: string;
+  language?: string;
+  safesearch?: number | string;
+  min_score?: number;
+  num_results?: number;
+  categories?: string;
+  engines?: string;
+  response_format?: "text" | "json";
+  result_detail?: ResultDetail;
+} {
+  return validateSearXNGWebSearchArgs(args) === undefined;
 }
 
 export function isSearXNGSearchSuggestionsArgs(args: unknown): args is {
