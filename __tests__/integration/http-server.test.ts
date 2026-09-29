@@ -24,6 +24,7 @@ import {
   resolveStatelessHttpConfig,
   resolveHttpMaxSessions,
   resolveHttpInitializeTimeoutMs,
+  resolveHttpSessionIdleTtlMs,
 } from '../../src/http-server.js';
 import { createMcpServer, ToolAdmissionController } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -35,6 +36,54 @@ import {
 
 const results = createTestResults();
 const envManager = new EnvManager();
+
+async function withIdleClock(action: (clock: {
+  advance: (ms: number) => void;
+  timers: NodeJS.Timeout[];
+  sweep: () => Promise<void>;
+}) => Promise<void>): Promise<void> {
+  const originalNow = Object.getOwnPropertyDescriptor(performance, 'now');
+  const originalInterval = globalThis.setInterval;
+  const timers: NodeJS.Timeout[] = [];
+  const allTimers: NodeJS.Timeout[] = [];
+  const callbacks: Array<() => unknown> = [];
+  let now = 0;
+  Object.defineProperty(performance, 'now', { configurable: true, value: () => now });
+  globalThis.setInterval = ((callback: () => unknown, delay?: number) => {
+    const timer = originalInterval(callback, delay);
+    allTimers.push(timer);
+    if (delay === 60000) { timers.push(timer); callbacks.push(callback); }
+    return timer;
+  }) as typeof setInterval;
+  try {
+    await action({ advance: ms => { now += ms; }, timers, sweep: async () => { await callbacks.at(-1)!(); } });
+  } finally {
+    for (const timer of allTimers) clearInterval(timer);
+    globalThis.setInterval = originalInterval;
+    if (originalNow) Object.defineProperty(performance, 'now', originalNow);
+    else Reflect.deleteProperty(performance, 'now');
+  }
+}
+
+function initializeIdleSession(app: Awaited<ReturnType<typeof createHttpServer>>) {
+  return postStatelessMcp(app, { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+    protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'idle-test', version: '1' },
+  } });
+}
+
+async function createIdleHarness() {
+  const transports: NodeStreamableHTTPServerTransport[] = [];
+  const app = await createHttpServer(() => {
+    const server = createTestMcpServer();
+    const connect = server.connect.bind(server);
+    server.connect = async transport => {
+      transports.push(transport as NodeStreamableHTTPServerTransport);
+      await connect(transport);
+    };
+    return server;
+  });
+  return { app, transports };
+}
 
 function createDeferred() {
   let resolve!: () => void;
@@ -231,6 +280,233 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('idle TTL configuration has strict bounds and value-free warnings', async () => {
+    const warnings = await captureConsoleOutput(async () => {
+      for (const [raw, value] of [['', 0], ['0', 0], ['1000', 1000], [' +001000 ', 1000], ['2147483647', 2147483647]] as const) {
+        envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', raw);
+        assert.equal(resolveHttpSessionIdleTtlMs(), value);
+      }
+      for (const raw of ['1', '999', '-1', '1.5', '1e3', '1000ms', '2147483648', 'private-ttl-fixture']) {
+        envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', raw);
+        assert.equal(resolveHttpSessionIdleTtlMs(), 0);
+      }
+    });
+    assert.equal(warnings.length, 8);
+    assert.ok(warnings.every(warning => warning.includes('MCP_HTTP_SESSION_IDLE_TTL_MS')));
+    assert.ok(warnings.every(warning => !warning.includes('private-ttl-fixture')));
+  }, results);
+
+  await testFunction('disabled idle expiry creates no sweep and never reclaims sessions at capacity', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '0');
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    await withIdleClock(async clock => {
+      const app = await createHttpServer(createTestMcpServer);
+      const baselineTimers = clock.timers.length;
+      const first = await initializeIdleSession(app);
+      assert.equal(clock.timers.length, baselineTimers);
+      clock.advance(100000);
+      assert.equal((await initializeIdleSession(app)).status, 503);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', first.headers['mcp-session-id'])).status, 204);
+    });
+  }, results);
+
+  await testFunction('idle expiry uses one unref sweep and monotonic activity from admitted POSTs', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    await withIdleClock(async clock => {
+      const app = await createHttpServer(createTestMcpServer);
+      const baselineTimers = clock.timers.length;
+      const first = await initializeIdleSession(app);
+      const id = first.headers['mcp-session-id'];
+      assert.equal(clock.timers.length, baselineTimers + 1);
+      assert.equal(clock.timers.at(-1)!.hasRef(), false);
+      clock.advance(900);
+      assert.equal((await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id)).status, 200);
+      clock.advance(900);
+      await clock.sweep();
+      const realDateNow = Date.now;
+      try { Date.now = () => realDateNow() + 1e9; await clock.sweep(); }
+      finally { Date.now = realDateNow; }
+      clock.advance(101);
+      await clock.sweep();
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
+      await clock.sweep();
+    });
+  }, results);
+
+  await testFunction('capacity expiry never evicts fresh sessions and runs at most once per second', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    await withIdleClock(async clock => {
+      const app = await createHttpServer(createTestMcpServer);
+      const first = await initializeIdleSession(app);
+      clock.advance(500);
+      assert.equal((await initializeIdleSession(app)).status, 503);
+      clock.advance(501);
+      assert.equal((await initializeIdleSession(app)).status, 503, 'throttled classification must not run again');
+      clock.advance(500);
+      const replacement = await initializeIdleSession(app);
+      assert.equal(replacement.status, 200);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', first.headers['mcp-session-id'])).status, 404);
+      await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
+    });
+  }, results);
+
+  await testFunction('only fulfilled sends refresh idle activity and expiry finalizes once', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    const originalSend = NodeStreamableHTTPServerTransport.prototype.send;
+    NodeStreamableHTTPServerTransport.prototype.send = async function (message, options) {
+      if ('method' in message && message.method === 'notifications/reject') throw new Error('controlled rejected send');
+      await originalSend.call(this, message, options);
+    };
+    try {
+      await withIdleClock(async clock => {
+        const { app, transports } = await createIdleHarness();
+        const first = await initializeIdleSession(app);
+        const transport = transports[0];
+        const originalClose = transport.close.bind(transport);
+        let closes = 0;
+        transport.close = async () => { closes++; await originalClose(); };
+        clock.advance(900);
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'activity' } });
+        clock.advance(900);
+        await clock.sweep();
+        assert.equal(closes, 0);
+        await assert.rejects(transport.send({ jsonrpc: '2.0', method: 'notifications/reject' }));
+        clock.advance(101);
+        await clock.sweep();
+        await clock.sweep();
+        assert.equal(closes, 1);
+        assert.equal((await request(app).delete('/mcp').set('mcp-session-id', first.headers['mcp-session-id'])).status, 404);
+      });
+    } finally { NodeStreamableHTTPServerTransport.prototype.send = originalSend; }
+  }, results);
+
+  await testFunction('idle sweeps protect pending POSTs and release duplicate completion signals once', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    await withIdleClock(async clock => {
+      const { app, transports } = await createIdleHarness();
+      const initialized = await initializeIdleSession(app);
+      const id = initialized.headers['mcp-session-id'];
+      const entered = createDeferred();
+      const resume = createDeferred();
+      const handle = transports[0].handleRequest.bind(transports[0]);
+      transports[0].handleRequest = async (req, res) => {
+        entered.resolve();
+        await resume.promise;
+        res.statusCode = 202;
+        res.end();
+      };
+      const pending = postStatelessMcp(app, { jsonrpc: '2.0', method: 'notifications/initialized' }).set('mcp-session-id', id).then(response => response);
+      try {
+        await entered.promise;
+        clock.advance(2000);
+        await clock.sweep();
+        resume.resolve();
+        assert.equal((await pending).status, 202);
+        transports[0].handleRequest = handle;
+        await clock.sweep();
+        assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
+      } finally { resume.resolve(); await pending; }
+    });
+  }, results);
+
+  await testFunction('idle sweeps exclude initializing and closing sessions and never overlap', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    await withIdleClock(async clock => {
+      const entered = createDeferred();
+      const resume = createDeferred();
+      const app = await createHttpServer(() => {
+        const server = createTestMcpServer();
+        const connect = server.connect.bind(server);
+        server.connect = async transport => { entered.resolve(); await resume.promise; await connect(transport); };
+        return server;
+      });
+      const pending = initializeIdleSession(app).then(response => response);
+      await entered.promise;
+      clock.advance(2000);
+      await clock.sweep();
+      resume.resolve();
+      const initialized = await pending;
+      assert.equal(initialized.status, 200);
+      await request(app).delete('/mcp').set('mcp-session-id', initialized.headers['mcp-session-id']);
+    });
+    await withIdleClock(async clock => {
+      const { app, transports } = await createIdleHarness();
+      const first = await initializeIdleSession(app);
+      const close = transports[0].close.bind(transports[0]);
+      const resumeClose = createDeferred();
+      let closes = 0;
+      transports[0].close = async () => { closes++; await resumeClose.promise; await close(); };
+      clock.advance(2000);
+      const sweeping = clock.sweep();
+      await clock.sweep();
+      assert.equal(closes, 1);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', first.headers['mcp-session-id'])).status, 404);
+      resumeClose.resolve();
+      await sweeping;
+    });
+  }, results);
+
+  await testFunction('established GET refreshes activity but expires with a bare stream close', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    await withIdleClock(async clock => {
+      const app = await createHttpServer(createTestMcpServer);
+      const first = await initializeIdleSession(app);
+      const id = first.headers['mcp-session-id'];
+      const listener = app.listen(0, '127.0.0.1');
+      await new Promise<void>(resolve => listener.once('listening', resolve));
+      clock.advance(900);
+      const ended = createDeferred();
+      const chunks: string[] = [];
+      const incoming = await new Promise<http.IncomingMessage>((resolve, reject) => {
+        const pending = http.get({ host: '127.0.0.1', port: (listener.address() as { port: number }).port, path: '/mcp', headers: {
+          accept: 'text/event-stream', 'mcp-session-id': id,
+        } }, response => {
+          response.on('data', chunk => chunks.push(chunk.toString()));
+          response.on('end', ended.resolve);
+          resolve(response);
+        });
+        pending.setTimeout(3000, () => pending.destroy(new Error('GET stream did not close')));
+        pending.on('error', reject);
+      });
+      try {
+        assert.equal(incoming.statusCode, 200);
+        clock.advance(900);
+        await clock.sweep();
+        assert.equal(incoming.complete, false);
+        const before = chunks.join('');
+        clock.advance(101);
+        await clock.sweep();
+        await ended.promise;
+        assert.equal(chunks.join(''), before, 'expiry must not inject a terminal event');
+        assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
+      } finally { incoming.destroy(); listener.closeAllConnections(); await new Promise<void>(resolve => listener.close(() => resolve())); }
+    });
+  }, results);
+
+  await testFunction('DELETE activity and failed idle close preserve retryable sessions', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    await withIdleClock(async clock => {
+      const { app, transports } = await createIdleHarness();
+      const first = await initializeIdleSession(app);
+      const id = first.headers['mcp-session-id'];
+      const close = transports[0].close.bind(transports[0]);
+      let attempts = 0;
+      transports[0].close = async () => { attempts++; throw new Error('controlled close failure'); };
+      clock.advance(900);
+      await captureConsoleOutput(async () => {
+        assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 500);
+        clock.advance(900);
+        await clock.sweep();
+        assert.equal(attempts, 1, 'DELETE start must refresh activity');
+        clock.advance(101);
+        await clock.sweep();
+        assert.equal(attempts, 2);
+      });
+      transports[0].close = close;
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 204);
+    });
+  }, results);
   await testFunction('initialize timeout has strict boundaries and private invalid-value warnings', async () => {
     try {
       for (const [raw, expected] of [['', 30000], [' ', 30000], ['1000', 1000], ['2147483647', 2147483647]] as const) {

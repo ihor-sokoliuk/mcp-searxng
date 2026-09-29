@@ -364,11 +364,23 @@ The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-
 | `MCP_HTTP_HOST` | No | `127.0.0.1` | Interface address to bind to. Defaults to localhost-only for security. Set `0.0.0.0` for all interfaces (required for Docker and remote deployments), or a specific IP. Works in pair with `MCP_HTTP_PORT` only. **Breaking change from v1.2.1:** previous default was `0.0.0.0`. |
 | `MCP_HTTP_TRUST_PROXY` | No | `false` | Express `trust proxy` setting for deployments behind a trusted reverse proxy. Use `true`, a trusted hop count such as `1`, or a proxy subnet/preset such as `loopback` or `10.0.0.0/8`. Unset, `false`, or `0` disables it (the secure default). |
 | `MCP_HTTP_STATELESS` | No | `false` | Set to the exact value `true` to create an isolated MCP server and transport for every retained legacy `POST /mcp`; modern POSTs are always isolated. `false`, blank, or unset retains legacy stateful mode; any other nonblank value warns and uses `false`. Intended for deployments that cannot preserve process-local legacy sessions. |
-| `MCP_HTTP_MAX_SESSIONS` | No | `1000` (range `1`-`10000`) | Maximum retained plus initializing legacy stateful sessions per process. At capacity, new initialization consumes its rate-limit token and returns HTTP 503 `Server busy` with `Retry-After: 1`, without constructing a server or evicting a session. Existing sessions and DELETE remain available. Blank values use the default; invalid integers warn without echoing the value and use the default. Modern HTTP, legacy stateless HTTP, and STDIO are unaffected. |
+| `MCP_HTTP_MAX_SESSIONS` | No | `1000` (range `1`-`10000`) | Maximum retained plus initializing legacy stateful sessions per process. At capacity, new initialization consumes its rate-limit token and returns HTTP 503 `Server busy` with `Retry-After: 1`, without constructing a server or evicting a non-expired session. Existing sessions and DELETE remain available. Blank values use the default; invalid integers warn without echoing the value and use the default. Modern HTTP, legacy stateless HTTP, and STDIO are unaffected. |
+| `MCP_HTTP_SESSION_IDLE_TTL_MS` | No | `0` (disabled) | Opt-in idle expiry for legacy stateful HTTP sessions. Accepts `0` or a strict integer from `1000` through `2147483647` ms. Blank uses `0`; invalid values warn without echoing the value and use `0`. Activity uses a monotonic clock and refreshes on admitted POST, an established GET, DELETE start, and a fulfilled SDK send (including notifications). |
 | `MCP_HTTP_INITIALIZE_TIMEOUT_MS` | No | `30000` (range `1000`-`2147483647`) | Monotonic deadline for admitted legacy stateful initialization, from capacity reservation through delivery of the initialize response. A fulfilled SDK send cancels the deadline for SSE, even if the stream remains open; non-SSE delivery completes at response finish. Expiry returns HTTP 504 `Initialization timed out` with the scalar request ID before headers, or destroys an already-started response. Partial resources and session capacity are released, and exposed session IDs become invalid. Zero and invalid values warn without echoing the value and use the default; blank values silently use the default. This does not limit established-session requests or GET streams. |
 | `MCP_HTTP_STATELESS_MAX_IN_FLIGHT` | No | `16` (range `1`-`256`) | Global maximum number of admitted modern or legacy-stateless POST requests in flight. Invalid values use the default. |
 | `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP` | No | `8` (range `1`-global cap) | Per-client-IP in-flight maximum for modern or legacy-stateless POSTs. Values above the normalized global cap are reduced to that cap. |
 | `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` | No | `900000` (range `1000`-`2147483647`) | Maximum lifetime of an admitted modern or legacy-stateless POST, including server construction, MCP handling, and an active response stream. |
+
+When idle expiry is enabled, one unref'ed sweep runs every 60000 ms while sessions
+are retained. At session capacity, the same classification can run at most once
+per 1000 monotonic ms. Only expired active sessions with no admitted POST work
+are reclaimed; initializing, closing, busy and non-expired sessions are spared.
+Capacity stays reserved until transport closure, and a failed close remains
+retryable. An open standalone GET does not prevent expiry: it closes without a
+terminal event, and later requests using that session ID receive 404 and must
+initialize again. TTL `0` adds no expiry timer or capacity scan. This setting
+does not impose a request timeout and does not affect modern HTTP, legacy
+stateless HTTP or STDIO.
 
 **HTTP endpoints (when HTTP mode is active):**
 - Modern: `POST /mcp` — sessionless MCP protocol
