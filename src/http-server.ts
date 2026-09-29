@@ -37,6 +37,7 @@ interface Session {
 
 interface SessionIdleActivity {
   phase: "initializing" | "active" | "closing" | "closed";
+  initializeDelivered: boolean;
   lastActivity: number;
   posts: number;
   releases: Set<() => void>;
@@ -653,8 +654,10 @@ export async function createHttpServer(
       if (deadlineExpired()) return;
       delivered = true;
       if (reservation.session?.idle) {
-        reservation.session.idle.phase = "active";
-        touchSession(reservation.session.idle);
+        const idle = reservation.session.idle;
+        idle.initializeDelivered = true;
+        if (idle.phase === "initializing") idle.phase = "active";
+        touchSession(idle);
       }
       cancelDeadline();
       detachRequest();
@@ -690,7 +693,7 @@ export async function createHttpServer(
       });
       reservation.session = {
         transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal,
-        ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
+        ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, initializeDelivered: false, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
       };
       observeSessionSends(reservation.session);
       transport.onclose = reservation.release;
@@ -1114,13 +1117,16 @@ export async function createHttpServer(
     if (rejectSessionPrincipal(session, res)) return;
     if (rejectUnsupportedProtocolVersion(req, res)) return;
     touchSession(session.idle);
+    const previousPhase = session.idle?.phase;
     if (session.idle) session.idle.phase = "closing";
     try {
       await session.transport.close();
       sessions.delete(sessionId);
       if (!res.headersSent) res.status(204).end();
     } catch (error) {
-      if (session.idle?.phase === "closing") session.idle.phase = "active";
+      if (session.idle?.phase === "closing" && previousPhase) {
+        session.idle.phase = previousPhase === "initializing" && session.idle.initializeDelivered ? "active" : previousPhase;
+      }
       warnDiagnostic(`⚠️  DELETE request failed:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId,

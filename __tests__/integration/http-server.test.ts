@@ -492,6 +492,61 @@ async function runTests() {
     });
   }, results);
 
+  await testFunction('registered initialization stays protected across failed DELETE and late delivery', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    const entered = createDeferred();
+    const resume = createDeferred();
+    const originalSend = NodeStreamableHTTPServerTransport.prototype.send;
+    NodeStreamableHTTPServerTransport.prototype.send = async function (message, options) {
+      entered.resolve();
+      await resume.promise;
+      await originalSend.call(this, message, options);
+    };
+    try {
+      await withIdleClock(async clock => {
+        const { app, transports } = await createIdleHarness();
+        const pending = initializeIdleSession(app).then(response => response);
+        await entered.promise;
+        const id = transports[0].sessionId!;
+        assert.ok(id);
+        const close = transports[0].close.bind(transports[0]);
+        const closing = createDeferred();
+        const failClose = createDeferred();
+        let attempts = 0;
+        let holdClose = false;
+        transports[0].close = async () => {
+          attempts++;
+          if (holdClose) { closing.resolve(); await failClose.promise; }
+          throw new Error('controlled DELETE failure');
+        };
+        try {
+          await captureConsoleOutput(async () => {
+            clock.advance(2000);
+            await clock.sweep();
+            assert.equal(attempts, 0);
+            assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 500);
+            clock.advance(2000);
+            await clock.sweep();
+            assert.equal(attempts, 1, 'failed DELETE must restore initializing state');
+            holdClose = true;
+            const deletion = request(app).delete('/mcp').set('mcp-session-id', id).then(response => response);
+            await closing.promise;
+            resume.resolve();
+            assert.equal((await pending).status, 200);
+            clock.advance(2000);
+            await clock.sweep();
+            assert.equal(attempts, 2, 'delivery must not reactivate a closing session');
+            failClose.resolve();
+            assert.equal((await deletion).status, 500);
+          });
+          transports[0].close = close;
+          await clock.sweep();
+          assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
+        } finally { resume.resolve(); failClose.resolve(); transports[0].close = close; await pending; await close(); }
+      });
+    } finally { resume.resolve(); NodeStreamableHTTPServerTransport.prototype.send = originalSend; }
+  }, results);
+
   await testFunction('established GET refreshes activity but expires with a bare stream close', async () => {
     envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
     await withIdleClock(async clock => {
