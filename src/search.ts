@@ -30,6 +30,7 @@ import {
   createJSONError,
   createDataError,
   createNoResultsMessage,
+  createDegradedSearchError,
   type ErrorContext
 } from "./error-handler.js";
 
@@ -347,6 +348,7 @@ type InstanceSearchResult = {
 type MultiInstanceSearchResult = {
   data: SearXNGWeb;
   servedBy: string[];
+  hasCleanEmptyResponse?: boolean;
 };
 
 type FailedInstanceResult = {
@@ -534,6 +536,38 @@ function formatSearchMetadata(data: SearXNGWeb): string {
   ]
     .filter((section) => section !== "")
     .join("\n\n");
+}
+
+function normalizeEngineFailures(value: unknown): Array<[string, string]> {
+  if (!Array.isArray(value)) return [];
+  const failures = new Map<string, [string, string]>();
+  for (const entry of value) {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string" ||
+        (entry[1] !== undefined && typeof entry[1] !== "string")) continue;
+    const engine = asTextLineString(entry[0]).trim();
+    const reason = asTextLineString(entry[1]).trim();
+    if (engine) failures.set(JSON.stringify([engine, reason]), [engine, reason]);
+  }
+  return [...failures.values()];
+}
+
+function mergeSearchDiagnostics(results: InstanceSearchResult[]): Partial<SearXNGWeb> {
+  const metadata: Partial<SearXNGWeb> = {};
+  for (const field of ["answers", "corrections", "suggestions", "infoboxes"] as const) {
+    const values = results.flatMap(({ data }) => Array.isArray(data[field]) ? data[field] as unknown[] : []);
+    if (values.length) Object.assign(metadata, { [field]: values });
+  }
+  const failures = normalizeEngineFailures(results.flatMap(({ data }) => normalizeEngineFailures(data.unresponsive_engines)));
+  if (failures.length) metadata.unresponsive_engines = failures;
+  return metadata;
+}
+
+function combineEmptyResponses(results: InstanceSearchResult[]): MultiInstanceSearchResult {
+  return {
+    data: { ...results[0].data, ...mergeSearchDiagnostics(results) },
+    servedBy: results.map(result => result.instanceUrl),
+    hasCleanEmptyResponse: results.some(({ data }) => normalizeEngineFailures(data.unresponsive_engines).length === 0),
+  };
 }
 
 function getDefaultLanguage(): string {
@@ -797,7 +831,7 @@ async function performFailoverSearch(
 
       if (hasSearchResults(result.data)) {
         return {
-          data: result.data,
+          data: { ...result.data, ...mergeSearchDiagnostics([...emptyResults, result]) },
           servedBy: [instanceUrl],
         };
       }
@@ -810,10 +844,7 @@ async function performFailoverSearch(
   }
 
   if (emptyResults.length > 0) {
-    return {
-      data: emptyResults[0].data,
-      servedBy: emptyResults.map((result) => result.instanceUrl),
-    };
+    return combineEmptyResponses(emptyResults);
   }
 
   throw createAllInstancesFailedError(failures, skippedInstances);
@@ -891,14 +922,11 @@ async function performFanoutSearch(
 
   const contributing = successes.filter((result) => hasSearchResults(result.data));
   if (contributing.length === 0) {
-    return {
-      data: successes[0].data,
-      servedBy: successes.map((result) => result.instanceUrl),
-    };
+    return combineEmptyResponses(successes);
   }
 
   return {
-    data: mergeFanoutResults(contributing),
+    data: { ...mergeFanoutResults(contributing), ...mergeSearchDiagnostics(successes) },
     servedBy: contributing.map((result) => result.instanceUrl),
   };
 }
@@ -988,6 +1016,7 @@ export async function performWebSearch(
 
   let data: SearXNGWeb;
   let servedBy: string[] = [];
+  let hasCleanEmptyResponse = false;
 
   if (instances.length === 1) {
     const result = await fetchSearchFromInstance(mcpServer, instances[0], request);
@@ -998,8 +1027,19 @@ export async function performWebSearch(
       : await performFailoverSearch(mcpServer, instances, request);
     data = multiResult.data;
     servedBy = multiResult.servedBy;
+    hasCleanEmptyResponse = multiResult.hasCleanEmptyResponse === true;
   }
   const redactedServedBy = servedBy.map(redactSearxngInstanceUrl);
+  const engineFailures = normalizeEngineFailures(data.unresponsive_engines);
+  if (data.unresponsive_engines !== undefined) data = { ...data, unresponsive_engines: engineFailures };
+  const metadata = result_detail === "full" ? formatSearchMetadata(data) : "";
+  const failureDetails = engineFailures.map(([engine, reason]) => reason ? `${engine} (${reason})` : engine).join(", ");
+  if (data.results.length === 0 && engineFailures.length > 0 && !hasCleanEmptyResponse && !metadata) {
+    const error = createDegradedSearchError(query, failureDetails);
+    assertSafeOutput(error.message);
+    throw error;
+  }
+  const failureNote = failureDetails ? `⚠️ Some search engines were unavailable: ${failureDetails}. Results may be incomplete.` : "";
 
   const results = data.results
     .filter((result) => min_score === undefined || (result.score || 0) >= min_score);
@@ -1014,7 +1054,7 @@ export async function performWebSearch(
   if (effectiveResponseFormat === "json") {
     if (result_detail === "full") assertSafeOutput(JSON.stringify({ ...data, results: slicedResults }));
     const result = result_detail === "compact"
-      ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars) }, null, 2)
+      ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars), ...(engineFailures.length ? { unresponsive_engines: engineFailures } : {}) }, null, 2)
       : JSON.stringify({
         ...data,
         results: truncateSearchResults(slicedResults, maxResultChars),
@@ -1028,7 +1068,6 @@ export async function performWebSearch(
     return result;
   }
 
-  const metadata = result_detail === "full" ? formatSearchMetadata(data) : "";
   const leadingSections = [
     includeProvenance
       ? `Served by SearXNG ${redactedServedBy.length === 1 ? "instance" : "instances"}: ${redactedServedBy.join(", ")}`
@@ -1046,7 +1085,9 @@ export async function performWebSearch(
     const filterNote = appliedFilters ? ` after applying ${appliedFilters}` : "";
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
-    const result = result_detail === "compact" ? noResultsMessage : (leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage);
+    const emptyOutput = result_detail === "compact" ? noResultsMessage : (leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage);
+    const result = [emptyOutput, failureNote].filter(Boolean).join("\n\n");
+    assertSafeOutput(result);
     return result;
   }
 
@@ -1087,7 +1128,8 @@ export async function performWebSearch(
     })
     .join("\n\n");
 
-  const result = result_detail === "compact" ? formattedResults : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
+  const textOutput = result_detail === "compact" ? formattedResults : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
+  const result = [textOutput, failureNote].filter(Boolean).join("\n\n");
   assertSafeOutput(result);
   searchCache.set("searxng_web_search", cacheArgs, result);
   return result;

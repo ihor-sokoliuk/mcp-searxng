@@ -131,14 +131,25 @@ constraints one at a time. An explicit engine combined with `time_range`
 requires verified support from every configured instance; inspect
 `searxng_instance_info` or omit that filter.
 
-**Current limitation:** upstream engine failures can appear as ordinary empty
-search output ([issue #262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262)).
-An empty result is not proof that nothing exists or that every engine failed.
-Compare the direct SearXNG JSON, including `unresponsive_engines`, when available.
-This guide does not assume the proposed fix has shipped.
+When SearXNG returns no result rows and reports engine failures, the tool returns
+`Search Degraded` with MCP `isError: true` in both text and JSON formats. This
+means results may be incomplete; it does not claim every engine failed. Retry
+later or select other engines. Full output remains successful when usable
+answers, infoboxes, corrections or suggestions are available. Compact output
+retains its metadata omission and therefore reports the degraded error in that case.
+
+Results removed by score/count filters remain a successful filtering outcome.
+Successful text responses report unavailable engines, and JSON exposes normalized
+`unresponsive_engines`, including in compact mode. Invalid failure entries are
+ignored safely. For all-empty failover or fan-out, completed responses contribute
+metadata and failure information; one empty response without reported failures
+keeps the result successful regardless of instance order. Failed HTTP requests
+do not count as clean empty responses. HTML fallback cannot report engine failures
+because SearXNG HTML does not carry this field.
 
 Use `result_detail="full"` for diagnostic metadata. Compact output deliberately
-omits warnings, provenance, cache markers and HTML-fallback markers. Even full
+omits configuration warnings, provenance, cache markers and HTML-fallback markers;
+engine-failure diagnostics are retained. Even full
 output is not a complete engine-health assessment.
 
 Search and URL caches live in each MCP process; see the

@@ -677,7 +677,8 @@ export async function runTests(): Promise<TestResult> {
     assert.ok(readme.includes('explicitly supplied optional overrides'));
     assert.ok(guide.includes('Lite schema stays query-only'));
     assert.ok(configuration.includes('both compact and full text/JSON responses'));
-    assert.ok(readme.includes('suppresses warnings, provenance, and every other search signal'));
+    assert.ok(readme.includes('retaining engine-failure diagnostics'));
+    assert.ok(readme.includes('top-level `unresponsive_engines` field'));
     assert.ok(readme.includes('score, engines, category, published date, thumbnail, image source'));
     assert.ok(changelog.includes('full JSON content'));
     assert.ok(guide.includes('invalid optional metadata is omitted'));
