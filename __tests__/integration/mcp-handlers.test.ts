@@ -233,6 +233,80 @@ async function withPrivateUrlReadsAllowed(test: () => Promise<void>) {
   }
 }
 
+interface DiagnosticScenario {
+  name: string;
+  responses: Array<Record<string, unknown>>;
+  degraded: boolean;
+  metadata?: boolean;
+  min_score?: number;
+}
+
+function diagnosticCases(scenario: DiagnosticScenario) {
+  return [false, true].flatMap(fanout => [false, true].flatMap(reverse =>
+    ['text', 'json'].flatMap(format => ['compact', 'full'].map(detail => ({
+      scenario, fanout, reverse, format, detail,
+    })))));
+}
+
+type DiagnosticCase = ReturnType<typeof diagnosticCases>[number];
+
+function assertDiagnosticJson(text: string, scenario: DiagnosticScenario, detail: string): void {
+  const data = JSON.parse(text);
+  if (scenario.name === 'filtered') assert.deepEqual(data.results, []);
+  if (scenario.name === 'malformed') assert.deepEqual(data.unresponsive_engines, [['bing', ''], ['google engine', 'rate limited']]);
+  if (scenario.name === 'metadata' && detail === 'full') {
+    for (const field of ['answers', 'infoboxes', 'corrections', 'suggestions']) assert.ok(data[field].length);
+  }
+}
+
+function expectsDegraded(scenario: DiagnosticScenario, detail: string): boolean {
+  return scenario.degraded && !(scenario.metadata && detail === 'full');
+}
+
+function assertSuccessfulDiagnostics(text: string, { scenario, format, detail }: DiagnosticCase): void {
+  if (scenario.metadata && detail === 'full') assert.match(text, /Useful answer/);
+  if (format === 'json') assertDiagnosticJson(text, scenario, detail);
+  if (scenario.name === 'duplicate metadata') assert.equal(text.split('Useful answer').length - 1, 1);
+}
+
+function assertDiagnosticOutcome(result: Awaited<ReturnType<Client['callTool']>>, testCase: DiagnosticCase): void {
+  const { scenario, fanout, reverse, format, detail } = testCase;
+  const text = (result.content as Array<{ text: string }>)[0].text;
+  const degraded = expectsDegraded(scenario, detail);
+  const label = `${scenario.name}/${fanout}/${reverse}/${format}/${detail}`;
+  assert.equal(result.isError === true, degraded, label);
+  if (degraded) {
+    assert.match(text, /Search Degraded/, label);
+    assert.doesNotMatch(text, /every engine failed|all engines failed/i);
+  } else assertSuccessfulDiagnostics(text, testCase);
+  if (scenario.name !== 'clean') assert.match(text, /google|bing/, label);
+  if (scenario.responses.length > 1 && scenario.degraded) {
+    assert.match(text, /google/, label);
+    assert.match(text, /bing/, label);
+  }
+}
+
+async function runDiagnosticCase(testCase: DiagnosticCase): Promise<void> {
+  const { scenario, fanout, reverse, format, detail } = testCase;
+  const payloads = reverse ? [...scenario.responses].reverse() : scenario.responses;
+  const instances = payloads.map((_, index) => `https://diagnostics-${index}.example.com`);
+  process.env.SEARXNG_URL = instances.join(';');
+  process.env.SEARXNG_FANOUT = String(fanout);
+  fetchMocker.mock(async url => {
+    const index = instances.indexOf(new URL(url.toString()).origin);
+    assert.ok(index >= 0);
+    return new Response(JSON.stringify({ query: 'test', number_of_results: 0, ...payloads[index] }));
+  });
+  const { client } = await connect();
+  try {
+    const result = await client.callTool({ name: 'searxng_web_search', arguments: {
+      query: `${scenario.name}/${fanout}/${reverse}/${format}/${detail}`, response_format: format, result_detail: detail,
+      ...(scenario.min_score ? { min_score: scenario.min_score } : {}),
+    } });
+    assertDiagnosticOutcome(result, testCase);
+  } finally { await client.close(); fetchMocker.restore(); }
+}
+
 async function runTests() {
   await testFunction('engine diagnostics preserve MCP error and metadata semantics across formats and replicas', async () => {
     const row = { title: 'Useful row', url: 'https://example.com/row', content: 'Row content', score: 0.5 };
@@ -248,51 +322,31 @@ async function runTests() {
       { name: 'clean replica', responses: [{ results: [], unresponsive_engines: failure }, { results: [] }], degraded: false },
       { name: 'failing replicas', responses: [{ results: [], unresponsive_engines: failure }, { results: [], unresponsive_engines: [['bing', 'timeout']] }], degraded: true },
       { name: 'metadata replica', responses: [{ results: [], unresponsive_engines: failure }, { results: [], unresponsive_engines: [['bing', 'timeout']], answers: ['Useful answer'] }], degraded: true, metadata: true },
+      { name: 'duplicate metadata', responses: [{ results: [], unresponsive_engines: failure, answers: ['Useful answer'] }, { results: [], unresponsive_engines: [['bing', 'timeout']], answers: ['Useful answer'] }], degraded: true, metadata: true },
     ];
-    let serial = 0;
     try {
-      for (const scenario of scenarios) for (const fanout of [false, true]) for (const reverse of [false, true]) {
-        const payloads = reverse ? [...scenario.responses].reverse() : scenario.responses;
-        const instances = payloads.map((_, index) => `https://diagnostics-${index}.example.com`);
-        process.env.SEARXNG_URL = instances.join(';');
-        process.env.SEARXNG_FANOUT = String(fanout);
-        for (const format of ['text', 'json']) for (const detail of ['compact', 'full']) {
-          fetchMocker.mock(async url => {
-            const index = instances.indexOf(new URL(url.toString()).origin);
-            assert.ok(index >= 0);
-            return new Response(JSON.stringify({ query: 'test', number_of_results: 0, ...payloads[index] }));
-          });
-          const { client } = await connect();
-          try {
-            const result = await client.callTool({ name: 'searxng_web_search', arguments: {
-              query: `engine-case-${serial++}`, response_format: format, result_detail: detail,
-              ...(scenario.min_score ? { min_score: scenario.min_score } : {}),
-            } });
-            const text = (result.content as Array<{ text: string }>)[0].text;
-            const degraded = scenario.degraded && !(scenario.metadata && detail === 'full');
-            const label = `${scenario.name}/${fanout}/${reverse}/${format}/${detail}`;
-            assert.equal(result.isError === true, degraded, label);
-            if (degraded) {
-              assert.match(text, /Search Degraded/, label);
-              assert.doesNotMatch(text, /every engine failed|all engines failed/i);
-            } else if (scenario.metadata && detail === 'full') {
-              assert.match(text, /Useful answer/, label);
-            }
-            if (scenario.name !== 'clean') {
-              assert.match(text, scenario.name === 'malformed' ? /google engine/ : /google|bing/, label);
-            }
-            if (!degraded && format === 'json') {
-              const data = JSON.parse(text);
-              if (scenario.name === 'filtered') assert.deepEqual(data.results, []);
-              if (scenario.name === 'malformed') assert.deepEqual(data.unresponsive_engines, [['bing', ''], ['google engine', 'rate limited']]);
-              if (scenario.name === 'metadata' && detail === 'full') {
-                for (const field of ['answers', 'infoboxes', 'corrections', 'suggestions']) assert.ok(data[field].length);
-              }
-            }
-          } finally { await client.close(); fetchMocker.restore(); }
-        }
-      }
+      for (const testCase of scenarios.flatMap(diagnosticCases)) await runDiagnosticCase(testCase);
     } finally { fetchMocker.restore(); }
+  }, results);
+
+  await testFunction('degraded retries recover without caching errors and cache successful diagnostics', async () => {
+    process.env.SEARXNG_URL = 'https://retry-diagnostics.example.com';
+    let recovered = false;
+    let fetches = 0;
+    fetchMocker.mock(async () => {
+      fetches++;
+      return new Response(JSON.stringify({ results: recovered ? [{ title: 'Recovered', url: 'https://example.com', content: 'Success' }] : [], unresponsive_engines: [['google', 'CAPTCHA']] }));
+    });
+    const { client } = await connect();
+    const call = () => client.callTool({ name: 'searxng_web_search', arguments: { query: 'same diagnostic query', response_format: 'json', result_detail: 'compact' } });
+    try {
+      assert.equal((await call()).isError, true);
+      recovered = true;
+      const success = await call();
+      assert.notEqual(success.isError, true);
+      assert.deepEqual((await call()).content, success.content);
+      assert.equal(fetches, 2);
+    } finally { await client.close(); fetchMocker.restore(); }
   }, results);
 
   await testFunction('metadata-only upstream HTTP responses remain usable on the MCP wire', async () => {

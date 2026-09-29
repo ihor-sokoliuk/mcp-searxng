@@ -107,7 +107,7 @@ async function runTests() {
     assert.ok(help.includes('Lite schema stays query-only'), 'missing Lite query-only boundary');
     assert.ok(help.includes('explicitly supplied optional overrides'), 'missing Lite override behavior');
     assert.ok(help.includes('all four text/JSON and compact/full combinations'), 'missing result-content cap scope');
-    assert.ok(help.includes('suppresses warnings, provenance, and every other search signal'), 'missing compact suppression boundary');
+    assert.ok(help.includes('retaining engine-failure diagnostics'), 'missing compact suppression boundary');
     assert.ok(help.includes('full text optional lines'), 'missing full metadata ordering guidance');
     assert.ok(help.includes('text fields are normalized to single lines'), 'missing text line-normalization guidance');
     assert.ok(help.includes('JSON caps the original string value'), 'missing compact truncation-order guidance');

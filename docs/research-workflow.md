@@ -77,7 +77,7 @@ When `SEARXNG_LITE_TOOLS=true`, the Lite schema stays query-only, but explicitly
 supplied optional overrides such as `response_format` and `result_detail` remain
 validated and honored.
 
-Compact suppresses warnings, provenance, and every other search signal. Use
+Compact suppresses configuration warnings and provenance while retaining engine-failure diagnostics. Use
 `full` when those signals matter: full text adds valid optional metadata in the
 fixed score, engines, category, published-date, thumbnail, image-source order;
 invalid optional metadata is omitted, and text fields are normalized to single

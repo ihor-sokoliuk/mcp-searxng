@@ -555,7 +555,7 @@ function mergeSearchDiagnostics(results: InstanceSearchResult[]): Partial<SearXN
   const metadata: Partial<SearXNGWeb> = {};
   for (const field of ["answers", "corrections", "suggestions", "infoboxes"] as const) {
     const values = results.flatMap(({ data }) => Array.isArray(data[field]) ? data[field] as unknown[] : []);
-    if (values.length) Object.assign(metadata, { [field]: values });
+    if (values.length) Object.assign(metadata, { [field]: [...new Map(values.map(value => [JSON.stringify(value), value] as const)).values()] });
   }
   const failures = normalizeEngineFailures(results.flatMap(({ data }) => normalizeEngineFailures(data.unresponsive_engines)));
   if (failures.length) metadata.unresponsive_engines = failures;
