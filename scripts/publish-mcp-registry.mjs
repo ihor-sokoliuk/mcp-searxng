@@ -8,6 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 const execute = promisify(execFile);
 export const RECOVERY_MS = 15 * 60 * 1000;
 export const FINAL_CHECK_MS = 5000;
+const FINAL_READBACK = Symbol('final registry readback');
 const PACKAGE = 'mcp-searxng';
 const SERVER = 'io.github.ihor-sokoliuk/mcp-searxng';
 const REPOSITORY = 'ihor-sokoliuk/mcp-searxng';
@@ -146,7 +147,12 @@ function createRecovery({ now, wait, log, budgetMs }) {
     delay = Math.min(delay * 2, 60_000);
     return wait(duration);
   }
-  return { remaining, retry, finalReserve, elapsed: () => now() - start };
+  function timeout(limit) {
+    const available = remaining() - finalReserve;
+    if (available <= 0) throw FINAL_READBACK;
+    return Math.min(limit, available);
+  }
+  return { remaining, retry, timeout, finalReserve, elapsed: () => now() - start };
 }
 
 function publicationResult(context, manifest, log) {
@@ -155,12 +161,12 @@ function publicationResult(context, manifest, log) {
 }
 
 async function finalRegistryCheck(context, manifest, log) {
-  if (await inspectRegistry(context, manifest) === 'done') return publicationResult(context, manifest, log);
+  if (await inspectRegistry(context, manifest, Math.min(30_000, context.remaining())) === 'done') return publicationResult(context, manifest, log);
   throw new Error('MCP Registry publication was not verified within the recovery window. npm remains published; rerun only this registry workflow.');
 }
 
-async function inspectRegistry(context, manifest) {
-  const record = await context.request('registry', context.version, Math.min(30_000, context.remaining()));
+async function inspectRegistry(context, manifest, timeout = context.timeout(30_000)) {
+  const record = await context.request('registry', context.version, timeout);
   if (record.status === 200) { assertRegistryRecord(record.data, manifest); return 'done'; }
   if (record.status === 404) return context.published ? 'waiting' : 'missing';
   if (transientStatus(record.status)) return 'waiting';
@@ -175,11 +181,11 @@ function assertNpmMetadata(data, entry, manifest) {
 }
 
 async function preparePublish(context, entry, manifest) {
-  const npm = await context.request('npm', context.version, Math.min(30_000, context.remaining()));
+  const npm = await context.request('npm', context.version, context.timeout(30_000));
   if (npm.status === 404 || transientStatus(npm.status)) return 'exact npm version is not yet available';
   if (npm.status !== 200) throw new Error(`npm readiness check returned HTTP ${npm.status}.`);
   assertNpmMetadata(npm.data, entry, manifest);
-  const login = await context.run(['login', 'github-oidc'], Math.min(60_000, context.remaining()));
+  const login = await context.run(['login', 'github-oidc'], context.timeout(60_000));
   return loginFailure(login, entry);
 }
 
@@ -191,8 +197,9 @@ function loginFailure(login, entry) {
 }
 
 async function publishAttempt(context, entry) {
+  const timeout = context.timeout(60_000);
   context.attempts++;
-  const result = await context.run(['publish', context.manifestPath], Math.min(60_000, context.remaining()));
+  const result = await context.run(['publish', context.manifestPath], timeout);
   if (result.ok) { context.published = true; return null; }
   const reason = result.timedOut ? 'publisher timed out; checking whether publication succeeded' : classifyPublishFailure(result.output, entry);
   if (!reason) throw new Error(`MCP Registry rejected publication: ${result.output.trim().slice(-4000)}`);
@@ -222,6 +229,7 @@ export async function publishRegistry(manifest, pkg, options = {}) {
     // Reserve time for readback instead of sleeping through the last deadline.
     return await finalRegistryCheck(context, manifest, log);
   } catch (error) {
+    if (error === FINAL_READBACK) return finalRegistryCheck(context, manifest, log);
     throw new Error(`Registry recovery stopped after ${context.elapsed()}ms: ${String(error)}`, { cause: error });
   }
 }

@@ -225,6 +225,41 @@ test('final reserved readback detects publication becoming visible during the la
   assert.match(messages.at(-1), /Verified active/);
 });
 
+test('slow reads, login, and publish preserve time for final readback', async () => {
+  for (const slowStage of ['registry', 'npm', 'login', 'publish']) {
+    let time = 0;
+    const calls = [];
+    const result = await publishRegistry(manifest, pkg, {
+      releaseVersion: '2.5.0', budgetMs: 20_000, now: () => time,
+      wait: async ms => { time += ms; }, log: message => assert.equal(typeof message, 'string'),
+      request: async (service, version, timeout) => {
+        calls.push(service);
+        assert.equal(version, '2.5.0');
+        if (time === 15_000) {
+          assert.equal(service, 'registry');
+          assert.equal(timeout, FINAL_CHECK_MS);
+          time += timeout;
+          return record;
+        }
+        if (service === slowStage) { assert.equal(timeout, 15_000); time += timeout; }
+        return service === 'npm' ? npm : missing;
+      },
+      run: async (args, timeout) => {
+        calls.push(args[0]);
+        if (args[0] === slowStage) {
+          assert.equal(timeout, 15_000);
+          time += timeout;
+          return { ok: false, timedOut: true, output: '' };
+        }
+        return success;
+      },
+    });
+    assert.equal(result.elapsedMs, 20_000);
+    assert.equal(result.attempts, slowStage === 'publish' ? 1 : 0);
+    assert.equal(calls.at(-1), 'registry');
+  }
+});
+
 test('HTTP adapter uses fixed destinations, rejects redirects, and preserves HTTP failures', async t => {
   const requests = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => { requests.push({ url, options }); return new Response('{}', { status: 429 }); });
