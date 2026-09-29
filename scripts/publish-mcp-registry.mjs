@@ -207,13 +207,7 @@ async function publishAttempt(context, entry) {
   return reason;
 }
 
-export async function publishRegistry(manifest, pkg, options = {}) {
-  const entry = validateManifest(manifest, pkg);
-  const version = validateVersion(options.releaseVersion);
-  if (manifest.version !== version) throw new Error('Release tag version does not match release metadata.');
-  const { now = Date.now, wait = sleep, request = getJson, run = command, log = console.log, budgetMs = RECOVERY_MS, manifestPath = '.mcp/server.json' } = options;
-  const recovery = createRecovery({ now, wait, log, budgetMs });
-  const context = { ...recovery, request, run, version, manifestPath, attempts: 0, published: false };
+async function recoverPublication(context, manifest, entry, log) {
   try {
     while (context.remaining() > context.finalReserve) {
       // Always reconcile before writing, including after a timeout or rerun.
@@ -226,10 +220,23 @@ export async function publishRegistry(manifest, pkg, options = {}) {
       const failure = await publishAttempt(context, entry);
       if (failure) await context.retry(failure);
     }
-    // Reserve time for readback instead of sleeping through the last deadline.
-    return await finalRegistryCheck(context, manifest, log);
   } catch (error) {
-    if (error === FINAL_READBACK) return finalRegistryCheck(context, manifest, log);
+    if (error !== FINAL_READBACK) throw error;
+  }
+  // Reserve time for readback instead of sleeping through the last deadline.
+  return finalRegistryCheck(context, manifest, log);
+}
+
+export async function publishRegistry(manifest, pkg, options = {}) {
+  const entry = validateManifest(manifest, pkg);
+  const version = validateVersion(options.releaseVersion);
+  if (manifest.version !== version) throw new Error('Release tag version does not match release metadata.');
+  const { now = Date.now, wait = sleep, request = getJson, run = command, log = console.log, budgetMs = RECOVERY_MS, manifestPath = '.mcp/server.json' } = options;
+  const recovery = createRecovery({ now, wait, log, budgetMs });
+  const context = { ...recovery, request, run, version, manifestPath, attempts: 0, published: false };
+  try {
+    return await recoverPublication(context, manifest, entry, log);
+  } catch (error) {
     throw new Error(`Registry recovery stopped after ${context.elapsed()}ms: ${String(error)}`, { cause: error });
   }
 }

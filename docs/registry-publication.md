@@ -15,8 +15,9 @@ The registry workflow checks immediately for an existing matching, active entry
 and for the exact npm version. There is no fixed startup delay. Temporary npm
 visibility and registry errors are retried after 10, 20, 40, then 60 seconds,
 with subsequent waits capped at 60 seconds. Readiness, publishing, and final
-verification share a **15-minute maximum recovery window**. The last retry wait
-reserves up to five seconds for a final registry check. A successful run
+verification share a **15-minute maximum recovery window**. Retry waits and
+timeouts for npm/registry reads, OIDC login, and publish commands preserve up
+to five seconds for a final registry check. A successful run
 finishes immediately after verification; the 20-minute Actions job timeout
 also allows time for checkout and publisher installation.
 
