@@ -71,10 +71,10 @@ function initializeIdleSession(app: Awaited<ReturnType<typeof createHttpServer>>
   } });
 }
 
-async function createIdleHarness() {
+async function createIdleHarness(factory = createTestMcpServer) {
   const transports: NodeStreamableHTTPServerTransport[] = [];
   const app = await createHttpServer(() => {
-    const server = createTestMcpServer();
+    const server = factory();
     const connect = server.connect.bind(server);
     server.connect = async transport => {
       transports.push(transport as NodeStreamableHTTPServerTransport);
@@ -313,10 +313,13 @@ async function runTests() {
   await testFunction('idle expiry uses one unref sweep and monotonic activity from admitted POSTs', async () => {
     envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
     await withIdleClock(async clock => {
-      const app = await createHttpServer(createTestMcpServer);
+      const { app, transports } = await createIdleHarness();
       const baselineTimers = clock.timers.length;
       const first = await initializeIdleSession(app);
       const id = first.headers['mcp-session-id'];
+      const close = transports[0].close.bind(transports[0]);
+      let closes = 0;
+      transports[0].close = async () => { closes++; await close(); };
       assert.equal(clock.timers.length, baselineTimers + 1);
       assert.equal(clock.timers.at(-1)!.hasRef(), false);
       clock.advance(900);
@@ -326,8 +329,10 @@ async function runTests() {
       const realDateNow = Date.now;
       try { Date.now = () => realDateNow() + 1e9; await clock.sweep(); }
       finally { Date.now = realDateNow; }
+      assert.equal(closes, 0, 'wall-clock jumps must not expire a monotonic fresh session');
       clock.advance(101);
       await clock.sweep();
+      assert.equal(closes, 1);
       assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
       await clock.sweep();
     });
@@ -405,6 +410,46 @@ async function runTests() {
         assert.equal((await pending).status, 202);
         transports[0].handleRequest = handle;
         await clock.sweep();
+        assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
+      } finally { resume.resolve(); await pending; }
+    });
+  }, results);
+
+  await testFunction('idle expiry protects a real SDK tool call until its response completes', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    await withIdleClock(async clock => {
+      const entered = createDeferred();
+      const resume = createDeferred();
+      const { app, transports } = await createIdleHarness(() => {
+        const server = createTestMcpServer();
+        server.registerTool('slow', {}, async () => {
+          entered.resolve();
+          await resume.promise;
+          return { content: [{ type: 'text', text: 'slow-complete' }] };
+        });
+        return server;
+      });
+      const initialized = await initializeIdleSession(app);
+      const id = initialized.headers['mcp-session-id'];
+      const close = transports[0].close.bind(transports[0]);
+      let closes = 0;
+      transports[0].close = async () => { closes++; await close(); };
+      const pending = postStatelessMcp(app, {
+        jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'slow', arguments: {} },
+      }).set('mcp-session-id', id).timeout(3000).then(response => response);
+      try {
+        await entered.promise;
+        await new Promise<void>(resolve => setImmediate(resolve));
+        clock.advance(2000);
+        await clock.sweep();
+        assert.equal(closes, 0, 'pending SDK work must remain protected past the idle TTL');
+        resume.resolve();
+        const response = await pending;
+        assert.equal(response.status, 200);
+        assert.match(response.text, /slow-complete/);
+        clock.advance(1001);
+        await clock.sweep();
+        assert.equal(closes, 1);
         assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
       } finally { resume.resolve(); await pending; }
     });

@@ -1035,7 +1035,7 @@ export async function createHttpServer(
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: NodeStreamableHTTPServerTransport;
     let mcpServer: McpServer;
-    let releasePost = (): void => {};
+    let releasePost: () => void;
 
     if (sessionId && sessions.has(sessionId)) {
       // Reuse existing session
