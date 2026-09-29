@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { classifyPublishFailure, publishRegistry, RECOVERY_MS, validateRelease } from './publish-mcp-registry.mjs';
+import { classifyPublishFailure, getJson, publishRegistry, RECOVERY_MS, validateRelease, validateVersion } from './publish-mcp-registry.mjs';
 
-const pkg = { name: 'mcp-example', version: '2.5.0', mcpName: 'io.github.owner/example', repository: { url: 'https://github.com/owner/example' } };
+const pkg = { name: 'mcp-searxng', version: '2.5.0', mcpName: 'io.github.ihor-sokoliuk/mcp-searxng', repository: { url: 'https://github.com/ihor-sokoliuk/mcp-searxng' } };
 const manifest = { name: pkg.mcpName, version: pkg.version, repository: pkg.repository, packages: [{ registryType: 'npm', identifier: pkg.name, version: pkg.version, transport: { type: 'stdio' } }] };
-const npm = { status: 200, data: { ...pkg, dist: { integrity: 'sha512-fixture', tarball: 'https://registry.npmjs.org/mcp-example/-/mcp-example-2.5.0.tgz' } } };
+const npm = { status: 200, data: { ...pkg, dist: { integrity: 'sha512-fixture', tarball: 'https://registry.npmjs.org/mcp-searxng/-/mcp-searxng-2.5.0.tgz' } } };
 const record = { status: 200, data: { server: manifest, _meta: { 'io.modelcontextprotocol.registry/official': { status: 'active' } } } };
 const missing = { status: 404 };
 const success = { ok: true, output: '' };
-const propagation = { ok: false, output: `Error: publish failed: server returned status 400: {"errors":[{"message":"registry validation failed for package 0 (mcp-example): NPM package 'mcp-example' exists, but version '2.5.0' was not found (status: 404)."}]}` };
-const event = { workflow_run: { conclusion: 'success', event: 'push', path: '.github/workflows/npm-publish.yml', head_repository: { full_name: 'owner/example' }, head_branch: 'v2.5.0', head_sha: 'a'.repeat(40) } };
+const propagation = { ok: false, output: `Error: publish failed: server returned status 400: {"errors":[{"message":"registry validation failed for package 0 (mcp-searxng): NPM package 'mcp-searxng' exists, but version '2.5.0' was not found (status: 404)."}]}` };
+const event = { workflow_run: { conclusion: 'success', event: 'push', path: '.github/workflows/npm-publish.yml', head_repository: { full_name: 'ihor-sokoliuk/mcp-searxng' }, head_branch: 'v2.5.0', head_sha: 'a'.repeat(40) } };
 
 function harness({ records = [missing, record], packages = [npm], results = [success], login = success, budgetMs = RECOVERY_MS } = {}) {
   let time = 0;
@@ -19,8 +23,8 @@ function harness({ records = [missing, record], packages = [npm], results = [suc
   return {
     waits, calls, logs, timeouts,
     run: () => publishRegistry(manifest, pkg, {
-      budgetMs, now: () => time, wait: async ms => { waits.push(ms); time += ms; }, log: line => logs.push(line),
-      request: async (url, timeout) => { calls.push(url); timeouts.push(timeout); return next(url.startsWith('https://registry.npmjs.org/') ? packages : records); },
+      releaseVersion: '2.5.0', budgetMs, now: () => time, wait: async ms => { waits.push(ms); time += ms; }, log: line => logs.push(line),
+      request: async (service, version, timeout) => { assert.equal(version, '2.5.0'); calls.push(service); timeouts.push(timeout); return next(service === 'npm' ? packages : records); },
       run: async (args, timeout) => { calls.push(args[0]); timeouts.push(timeout); return args[0] === 'login' ? (Array.isArray(login) ? next(login) : login) : next(results); },
     }),
   };
@@ -30,9 +34,7 @@ test('fast success has no mandatory wait and verifies after publishing', async (
   const h = harness();
   assert.deepEqual(await h.run(), { attempts: 1, elapsedMs: 0 });
   assert.deepEqual(h.waits, []);
-  assert.deepEqual(h.calls.map(c => c.startsWith('https:') ? new URL(c).hostname : c), [
-    'registry.modelcontextprotocol.io', 'registry.npmjs.org', 'login', 'publish', 'registry.modelcontextprotocol.io',
-  ]);
+  assert.deepEqual(h.calls, ['registry', 'npm', 'login', 'publish', 'registry']);
 });
 
 test('npm propagation waits before obtaining credentials or publishing', async () => {
@@ -91,7 +93,7 @@ test('registry omission of false environment defaults preserves semantic equalit
   const serialized = structuredClone(record);
   serialized.data.server = structuredClone(source);
   serialized.data.server.packages[0].environmentVariables = [{ name: 'OPTIONAL' }];
-  const options = { request: async () => serialized, run: async () => assert.fail('Must not publish an existing entry'), log: () => {} };
+  const options = { releaseVersion: '2.5.0', request: async () => serialized, run: async () => assert.fail('Must not publish an existing entry'), log: message => assert.match(message, /Verified active/) };
   assert.equal((await publishRegistry(source, pkg, options)).attempts, 0);
   serialized.data.server.packages[0].environmentVariables[0].isRequired = true;
   await assert.rejects(publishRegistry(source, pkg, options), /does not match/);
@@ -163,7 +165,7 @@ test('publisher classifies only specific propagation and transient failures', ()
 });
 
 test('only the successful same-repository tag release is accepted', () => {
-  assert.doesNotThrow(() => validateRelease(event, 'owner/example', manifest, pkg));
+  assert.doesNotThrow(() => validateRelease(event, 'ihor-sokoliuk/mcp-searxng', manifest, pkg));
   for (const change of [
     run => { run.event = 'pull_request'; },
     run => { run.conclusion = 'failure'; },
@@ -174,22 +176,83 @@ test('only the successful same-repository tag release is accepted', () => {
     run => { run.path = '.github/workflows/ci.yml'; },
   ]) {
     const changed = structuredClone(event); change(changed.workflow_run);
-    assert.throws(() => validateRelease(changed, 'owner/example', manifest, pkg), /requires a successful npm release/);
+    assert.throws(() => validateRelease(changed, 'ihor-sokoliuk/mcp-searxng', manifest, pkg), /requires a successful npm release/);
   }
-  assert.throws(() => validateRelease(event, 'owner/example', { ...manifest, version: '2.4.0' }, pkg), /metadata/);
+  assert.throws(() => validateRelease(event, 'ihor-sokoliuk/mcp-searxng', { ...manifest, version: '2.4.0' }, pkg), /metadata/);
 });
 
-test('workflow wiring keeps publication isolated and checks out the triggering commit', () => {
+test('workflow wiring executes trusted tooling and reads release metadata as data', () => {
   // Both URLs are constant paths relative to this test file.
   // eslint-disable-next-line security/detect-non-literal-fs-filename
   const source = readFileSync(new URL('../.github/workflows/mcp-registry-publish.yml', import.meta.url), 'utf8');
   // eslint-disable-next-line security/detect-non-literal-fs-filename
   const upstream = readFileSync(new URL('../.github/workflows/npm-publish.yml', import.meta.url), 'utf8');
   assert.match(source, /workflow_run:\s+workflows: \[Publish NPM Package\]\s+types: \[completed\]/);
-  assert.match(source, /ref: \$\{\{ github.event.workflow_run.head_sha \}\}/);
+  assert.match(source, /ref: \$\{\{ github.sha \}\}/);
+  assert.doesNotMatch(source, /ref: \$\{\{ github.event.workflow_run.head_sha \}\}/);
+  assert.ok(source.includes('git show "$RELEASE_SHA:package.json"'));
+  assert.ok(source.includes('git show "$RELEASE_SHA:.mcp/server.json"'));
   assert.match(source, /conclusion == 'success'/);
   assert.match(source, /head_repository.full_name == github.repository/);
   assert.match(source, /node scripts\/publish-mcp-registry.mjs --validate/);
   assert.doesNotMatch(source, /workflow_dispatch:|npm publish|continue-on-error/);
   assert.doesNotMatch(upstream, /publish-mcp-registry:|mcp-publisher publish/);
+});
+
+test('HTTP adapter uses fixed destinations, rejects redirects, and preserves HTTP failures', async t => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => { requests.push({ url, options }); return new Response('{}', { status: 429 }); });
+  assert.deepEqual(await getJson('npm', '2.5.0', 1000), { status: 429 });
+  assert.deepEqual(await getJson('registry', '2.5.0', 1000), { status: 429 });
+  assert.deepEqual(requests.map(x => x.url), [
+    'https://registry.npmjs.org/mcp-searxng/2.5.0',
+    'https://registry.modelcontextprotocol.io/v0.1/servers/io.github.ihor-sokoliuk%2Fmcp-searxng/versions/2.5.0',
+  ]);
+  assert.ok(requests.every(x => x.options.redirect === 'error' && x.options.signal instanceof AbortSignal));
+  for (const value of ['https://other.example', '../secrets', '2.5.0?token=value', '2.5.0\nheader', '2.5.0-' + 'a'.repeat(100)]) {
+    assert.throws(() => validateVersion(value), /Invalid release version/);
+  }
+});
+
+test('HTTP adapter retries recognized DNS/transport errors but preserves certificate and JSON failures', async t => {
+  for (const code of ['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ETIMEDOUT']) {
+    t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('fetch failed', { cause: { code } }); });
+    assert.deepEqual(await getJson('npm', '2.5.0', 1000), { status: 503 });
+  }
+  t.mock.method(globalThis, 'fetch', async () => { throw new DOMException('timeout', 'TimeoutError'); });
+  assert.deepEqual(await getJson('registry', '2.5.0', 1000), { status: 503 });
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('invalid certificate', { cause: { code: 'CERT_HAS_EXPIRED' } }); });
+  await assert.rejects(getJson('npm', '2.5.0', 1000), /invalid certificate/);
+  t.mock.method(globalThis, 'fetch', async () => new Response('not json', { status: 200 }));
+  await assert.rejects(getJson('npm', '2.5.0', 1000), SyntaxError);
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ version: '2.5.0' }));
+  assert.deepEqual(await getJson('npm', '2.5.0', 1000), { status: 200, data: { version: '2.5.0' } });
+});
+
+test('command-line validation reads only supplied release metadata and rejects the wrong tag', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'registry-validation-'));
+  try {
+    // All paths are confined to this test-owned temporary directory.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    writeFileSync(join(directory, 'package.json'), JSON.stringify(pkg));
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    writeFileSync(join(directory, 'server.json'), JSON.stringify(manifest));
+    const eventPath = join(directory, 'event.json');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    writeFileSync(eventPath, JSON.stringify(event));
+    const executable = fileURLToPath(new URL('./publish-mcp-registry.mjs', import.meta.url));
+    const env = { ...process.env, GITHUB_EVENT_PATH: eventPath, GITHUB_REPOSITORY: 'ihor-sokoliuk/mcp-searxng', RELEASE_TAG: 'v2.5.0', RELEASE_METADATA_DIRECTORY: directory };
+    const invoke = () => spawnSync(process.execPath, [executable, '--validate'], { env, encoding: 'utf8', timeout: 5000, windowsHide: true });
+    const good = invoke();
+    assert.equal(good.status, 0, good.stderr);
+    const invalid = structuredClone(event);
+    invalid.workflow_run.head_branch = 'v2.4.0';
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    writeFileSync(eventPath, JSON.stringify(invalid));
+    const bad = invoke();
+    assert.equal(bad.status, 1);
+    assert.match(bad.stderr, /exact version tag/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
