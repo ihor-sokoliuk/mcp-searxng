@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const execute = promisify(execFile);
 export const RECOVERY_MS = 15 * 60 * 1000;
+export const FINAL_CHECK_MS = 5000;
 const PACKAGE = 'mcp-searxng';
 const SERVER = 'io.github.ihor-sokoliuk/mcp-searxng';
 const REPOSITORY = 'ihor-sokoliuk/mcp-searxng';
@@ -132,6 +133,7 @@ function assertRegistryRecord(data, manifest) {
 function createRecovery({ now, wait, log, budgetMs }) {
   const start = now();
   const deadline = start + budgetMs;
+  const finalReserve = Math.min(FINAL_CHECK_MS, Math.floor(budgetMs / 2));
   let delay = 10_000;
   function remaining() {
     const value = deadline - now();
@@ -139,12 +141,22 @@ function createRecovery({ now, wait, log, budgetMs }) {
     return value;
   }
   function retry(reason) {
-    const duration = Math.min(delay, remaining());
+    const duration = Math.min(delay, Math.max(0, remaining() - finalReserve));
     log(`Waiting: ${reason}. Checking again in ${Math.ceil(duration / 1000)} seconds.`);
     delay = Math.min(delay * 2, 60_000);
     return wait(duration);
   }
-  return { remaining, retry, elapsed: () => now() - start };
+  return { remaining, retry, finalReserve, elapsed: () => now() - start };
+}
+
+function publicationResult(context, manifest, log) {
+  log(`Verified active MCP Registry entry for ${manifest.name}@${manifest.version}.`);
+  return { attempts: context.attempts, elapsedMs: context.elapsed() };
+}
+
+async function finalRegistryCheck(context, manifest, log) {
+  if (await inspectRegistry(context, manifest) === 'done') return publicationResult(context, manifest, log);
+  throw new Error('MCP Registry publication was not verified within the recovery window. npm remains published; rerun only this registry workflow.');
 }
 
 async function inspectRegistry(context, manifest) {
@@ -196,18 +208,19 @@ export async function publishRegistry(manifest, pkg, options = {}) {
   const recovery = createRecovery({ now, wait, log, budgetMs });
   const context = { ...recovery, request, run, version, manifestPath, attempts: 0, published: false };
   try {
-    while (context.remaining() > 0) {
+    while (context.remaining() > context.finalReserve) {
       // Always reconcile before writing, including after a timeout or rerun.
       const status = await inspectRegistry(context, manifest);
       if (status === 'done') {
-        log(`Verified active MCP Registry entry for ${manifest.name}@${manifest.version}.`);
-        return { attempts: context.attempts, elapsedMs: context.elapsed() };
+        return publicationResult(context, manifest, log);
       }
       const reason = status === 'waiting' ? 'registry entry is not yet readable' : await preparePublish(context, entry, manifest);
       if (reason) { await context.retry(reason); continue; }
       const failure = await publishAttempt(context, entry);
       if (failure) await context.retry(failure);
     }
+    // Reserve time for readback instead of sleeping through the last deadline.
+    return await finalRegistryCheck(context, manifest, log);
   } catch (error) {
     throw new Error(`Registry recovery stopped after ${context.elapsed()}ms: ${String(error)}`, { cause: error });
   }

@@ -8,13 +8,15 @@ from that commit is never checked out or executed by the privileged workflow.
 The registry workflow must be present on the default branch before the release.
 It does not build or republish the npm package.
 Completed reruns of older releases that still contain the registry job inside
-their npm workflow are detected and skipped by the new workflow.
+their npm workflow, or predate the registry manifest, are detected and skipped
+before attempting to load release metadata.
 
 The registry workflow checks immediately for an existing matching, active entry
 and for the exact npm version. There is no fixed startup delay. Temporary npm
 visibility and registry errors are retried after 10, 20, 40, then 60 seconds,
 with subsequent waits capped at 60 seconds. Readiness, publishing, and final
-verification share a **15-minute maximum recovery window**. A successful run
+verification share a **15-minute maximum recovery window**. The last retry wait
+reserves up to five seconds for a final registry check. A successful run
 finishes immediately after verification; the 20-minute Actions job timeout
 also allows time for checkout and publisher installation.
 
