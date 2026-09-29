@@ -32,6 +32,14 @@ interface Session {
   transport: NodeStreamableHTTPServerTransport;
   mcpServer: McpServer;
   oauthPrincipal?: string;
+  idle?: SessionIdleActivity;
+}
+
+interface SessionIdleActivity {
+  phase: "initializing" | "active" | "closing" | "closed";
+  lastActivity: number;
+  posts: number;
+  releases: Set<() => void>;
 }
 
 export const DEFAULT_STATELESS_MAX_IN_FLIGHT = 16;
@@ -215,6 +223,69 @@ export function resolveHttpMaxSessions(): number {
   return parseBoundedStatelessEnv("MCP_HTTP_MAX_SESSIONS", DEFAULT_HTTP_MAX_SESSIONS, 1, MAX_HTTP_MAX_SESSIONS);
 }
 
+export function resolveHttpSessionIdleTtlMs(): number {
+  const raw = process.env.MCP_HTTP_SESSION_IDLE_TTL_MS;
+  if (raw === undefined || raw.trim() === "") return 0;
+  const parsed = parseStrictInteger(raw);
+  if (parsed === 0 || (parsed !== undefined && parsed >= 1000 && parsed <= 2147483647)) return parsed;
+  warnDiagnostic("⚠️  Ignoring invalid MCP_HTTP_SESSION_IDLE_TTL_MS. Expected 0 or an integer from 1000 through 2147483647. Using default 0.");
+  return 0;
+}
+
+function touchSession(idle: SessionIdleActivity | undefined): void {
+  if (idle && idle.phase !== "closed") idle.lastActivity = performance.now();
+}
+
+function releaseSessionActivity(idle: SessionIdleActivity | undefined): void {
+  if (!idle) return;
+  idle.phase = "closed";
+  for (const release of idle.releases) release();
+}
+
+function observeSessionSends(session: Session): void {
+  const { transport, idle } = session;
+  if (!idle) return;
+  const send = transport.send;
+  transport.send = async (message, options) => {
+    await send.call(transport, message, options);
+    touchSession(idle);
+  };
+}
+
+function trackSessionPost(idle: SessionIdleActivity | undefined, req: express.Request, res: express.Response): () => void {
+  if (!idle) return () => {};
+  touchSession(idle);
+  idle.posts++;
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    idle.posts--;
+    idle.releases.delete(release);
+    req.off("aborted", release);
+    res.off("finish", release);
+    res.off("close", release);
+  };
+  idle.releases.add(release);
+  req.once("aborted", release);
+  res.once("finish", release);
+  res.once("close", release);
+  return release;
+}
+
+function observeEstablishedGet(idle: SessionIdleActivity | undefined, res: express.Response): () => void {
+  if (!idle) return () => {};
+  const original = res.writeHead;
+  const restore = (): void => { res.writeHead = original; };
+  res.writeHead = function (this: express.Response, ...args: Parameters<typeof original>) {
+    const result = original.apply(this, args);
+    restore();
+    if (this.statusCode === 200) touchSession(idle);
+    return result;
+  } as typeof original;
+  return restore;
+}
+
 function scalarRequestId(body: unknown): string | number | null {
   const request = objectRecord(body);
   return request ? echoableRequestId(request) ?? null : null;
@@ -291,6 +362,7 @@ export async function createHttpServer(
   const stateless = resolveStatelessHttpConfig();
   const maxSessions = resolveHttpMaxSessions();
   const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
+  const sessionIdleTtlMs = resolveHttpSessionIdleTtlMs();
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
@@ -436,10 +508,59 @@ export async function createHttpServer(
   // Map to store sessions by session ID
   const sessions = new Map<string, Session>();
   let retainedSessions = 0;
+  let idleTimer: NodeJS.Timeout | undefined;
+  let sweepingIdle = false;
+  let lastCapacitySweep = -Infinity;
+
+  function stopUnusedIdleTimer(): void {
+    if (retainedSessions === 0 && idleTimer) {
+      clearInterval(idleTimer);
+      idleTimer = undefined;
+    }
+  }
+
+  async function sweepIdleSessions(): Promise<void> {
+    if (sweepingIdle) return;
+    sweepingIdle = true;
+    try {
+      const now = performance.now();
+      const expired: Array<{ id: string; session: Session }> = [];
+      for (const [id, session] of sessions) {
+        const idle = session.idle;
+        if (!idle || idle.phase !== "active" || idle.posts !== 0 || now - idle.lastActivity < sessionIdleTtlMs) continue;
+        idle.phase = "closing";
+        sessions.delete(id);
+        expired.push({ id, session });
+      }
+      await Promise.all(expired.map(async ({ id, session }) => {
+        try { await session.transport.close(); }
+        catch (error) {
+          if (session.idle?.phase === "closing") {
+            session.idle.phase = "active";
+            sessions.set(id, session);
+          }
+          warnDiagnostic("Idle session cleanup failed.", error);
+        }
+      }));
+    } finally { sweepingIdle = false; }
+  }
+
+  function reclaimIdleCapacity(): void {
+    if (!sessionIdleTtlMs || retainedSessions < maxSessions) return;
+    const now = performance.now();
+    if (now - lastCapacitySweep < 1000) return;
+    lastCapacitySweep = now;
+    void sweepIdleSessions();
+  }
 
   function reserveStatefulSession() {
+    reclaimIdleCapacity();
     if (retainedSessions >= maxSessions) return undefined;
     retainedSessions++;
+    if (sessionIdleTtlMs && !idleTimer) {
+      idleTimer = setInterval(sweepIdleSessions, 60000);
+      idleTimer.unref();
+    }
     let signalRelease!: () => void;
     const releasedSignal = new Promise<void>(resolve => { signalRelease = resolve; });
     // These long-lived callbacks capture only session state, never an HTTP request.
@@ -460,6 +581,8 @@ export async function createHttpServer(
         reservation.released = true;
         signalRelease();
         retainedSessions--;
+        releaseSessionActivity(reservation.session?.idle);
+        stopUnusedIdleTimer();
         if (reservation.activeId) sessions.delete(reservation.activeId);
         reservation.session = undefined;
         const onRelease = reservation.onRelease;
@@ -529,6 +652,10 @@ export async function createHttpServer(
     const completeDelivery = (): void => {
       if (deadlineExpired()) return;
       delivered = true;
+      if (reservation.session?.idle) {
+        reservation.session.idle.phase = "active";
+        touchSession(reservation.session.idle);
+      }
       cancelDeadline();
       detachRequest();
     };
@@ -561,7 +688,11 @@ export async function createHttpServer(
         allowedHosts: security.allowedHosts,
         allowedOrigins: security.allowedOrigins,
       });
-      reservation.session = { transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal };
+      reservation.session = {
+        transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal,
+        ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
+      };
+      observeSessionSends(reservation.session);
       transport.onclose = reservation.release;
       restoreSend = observeInitializeSend(transport, scalarRequestId(req.body), () => {
         // This transport is explicitly SSE; adapters may not cache writeHead headers.
@@ -904,11 +1035,13 @@ export async function createHttpServer(
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: NodeStreamableHTTPServerTransport;
     let mcpServer: McpServer;
+    let releasePost = (): void => {};
 
     if (sessionId && sessions.has(sessionId)) {
       // Reuse existing session
       const session = sessions.get(sessionId)!;
       if (rejectSessionPrincipal(session, res)) return;
+      releasePost = trackSessionPost(session.idle, req, res);
       transport = session.transport;
       mcpServer = session.mcpServer;
       logMessage(mcpServer, "debug", `Reusing session: ${sessionId}`);
@@ -920,7 +1053,8 @@ export async function createHttpServer(
       return;
     }
 
-    await handleTransportRequest(transport, req, res);
+    try { await handleTransportRequest(transport, req, res); }
+    finally { releasePost(); }
   });
 
   // Handle GET requests for server-to-client notifications via SSE
@@ -944,6 +1078,7 @@ export async function createHttpServer(
     if (!session) return;
     const sessionId = req.headers['mcp-session-id'] as string;
     if (rejectSessionPrincipal(session, res)) return;
+    const restoreGet = observeEstablishedGet(session.idle, res);
     try {
       await session.transport.handleRequest(req, res);
     } catch (error) {
@@ -953,7 +1088,7 @@ export async function createHttpServer(
         error: error instanceof Error ? error.message : String(error)
       });
       throw sanitizeErrorForTransport(error);
-    }
+    } finally { restoreGet(); }
   });
 
   // Handle DELETE requests for session termination
@@ -978,11 +1113,14 @@ export async function createHttpServer(
     const sessionId = req.headers['mcp-session-id'] as string;
     if (rejectSessionPrincipal(session, res)) return;
     if (rejectUnsupportedProtocolVersion(req, res)) return;
+    touchSession(session.idle);
+    if (session.idle) session.idle.phase = "closing";
     try {
       await session.transport.close();
       sessions.delete(sessionId);
       if (!res.headersSent) res.status(204).end();
     } catch (error) {
+      if (session.idle?.phase === "closing") session.idle.phase = "active";
       warnDiagnostic(`⚠️  DELETE request failed:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId,
