@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { classifyPublishFailure, getJson, publishRegistry, RECOVERY_MS, validateRelease, validateVersion } from './publish-mcp-registry.mjs';
+import { classifyPublishFailure, FINAL_CHECK_MS, getJson, publishRegistry, RECOVERY_MS, validateRelease, validateVersion } from './publish-mcp-registry.mjs';
 
 const pkg = { name: 'mcp-searxng', version: '2.5.0', mcpName: 'io.github.ihor-sokoliuk/mcp-searxng', repository: { url: 'https://github.com/ihor-sokoliuk/mcp-searxng' } };
 const manifest = { name: pkg.mcpName, version: pkg.version, repository: pkg.repository, packages: [{ registryType: 'npm', identifier: pkg.name, version: pkg.version, transport: { type: 'stdio' } }] };
@@ -144,7 +144,7 @@ test('temporary login failure recovers without premature publication', async () 
 test('one bounded budget covers all waits; failed propagation never publishes', async () => {
   const h = harness({ records: [missing], packages: [missing] });
   await assert.rejects(h.run(), /within the recovery window/);
-  assert.equal(h.waits.reduce((a, b) => a + b, 0), RECOVERY_MS);
+  assert.equal(h.waits.reduce((a, b) => a + b, 0), RECOVERY_MS - FINAL_CHECK_MS);
   assert.ok(h.waits.every(ms => ms <= 60_000));
   assert.equal(h.calls.includes('publish'), false);
   assert.ok(h.timeouts.every(ms => ms > 0 && ms <= 30_000));
@@ -153,9 +153,9 @@ test('one bounded budget covers all waits; failed propagation never publishes', 
 test('mixed readiness and publishing failures share the same budget', async () => {
   const h = harness({ records: [missing], packages: [missing, npm], results: [propagation], budgetMs: 25_000 });
   await assert.rejects(h.run(), /within the recovery window/);
-  assert.deepEqual(h.waits, [10_000, 15_000]);
+  assert.deepEqual(h.waits, [10_000, 10_000]);
   assert.equal(h.calls.filter(x => x === 'publish').length, 1);
-  assert.ok(h.timeouts.at(-1) <= 15_000);
+  assert.equal(h.timeouts.at(-1), FINAL_CHECK_MS);
 });
 
 test('publisher classifies only specific propagation and transient failures', () => {
@@ -188,15 +188,41 @@ test('workflow wiring executes trusted tooling and reads release metadata as dat
   // eslint-disable-next-line security/detect-non-literal-fs-filename
   const upstream = readFileSync(new URL('../.github/workflows/npm-publish.yml', import.meta.url), 'utf8');
   assert.match(source, /workflow_run:\s+workflows: \[Publish NPM Package\]\s+types: \[completed\]/);
+  assert.match(upstream, /^name: Publish NPM Package\r?$/m);
   assert.match(source, /ref: \$\{\{ github.sha \}\}/);
   assert.doesNotMatch(source, /ref: \$\{\{ github.event.workflow_run.head_sha \}\}/);
   assert.ok(source.includes('git show "$RELEASE_SHA:package.json"'));
   assert.ok(source.includes('git show "$RELEASE_SHA:.mcp/server.json"'));
+  const readManifest = source.indexOf('git show "$RELEASE_SHA:.mcp/server.json"');
+  assert.ok(source.indexOf("if grep -q '^  publish-mcp-registry:'") < readManifest);
+  assert.ok(source.indexOf('elif ! git cat-file -e "$RELEASE_SHA:.mcp/server.json"') < readManifest);
+  assert.ok(source.includes('Release using the independent registry workflow is missing its required manifest.'));
   assert.match(source, /conclusion == 'success'/);
   assert.match(source, /head_repository.full_name == github.repository/);
   assert.match(source, /node scripts\/publish-mcp-registry.mjs --validate/);
   assert.doesNotMatch(source, /workflow_dispatch:|npm publish|continue-on-error/);
   assert.doesNotMatch(upstream, /publish-mcp-registry:|mcp-publisher publish/);
+});
+
+test('final reserved readback detects publication becoming visible during the last wait', async () => {
+  let time = 0;
+  let publishes = 0;
+  const messages = [];
+  const checks = [];
+  const result = await publishRegistry(manifest, pkg, {
+    releaseVersion: '2.5.0', now: () => time, wait: async ms => { time += ms; }, log: message => messages.push(message),
+    request: async (service, version, timeout) => {
+      assert.equal(version, '2.5.0');
+      if (service === 'npm') return npm;
+      checks.push({ time, timeout });
+      return time >= RECOVERY_MS - FINAL_CHECK_MS ? record : missing;
+    },
+    run: async args => { if (args[0] === 'publish') publishes++; return success; },
+  });
+  assert.equal(publishes, 1);
+  assert.equal(result.elapsedMs, RECOVERY_MS - FINAL_CHECK_MS);
+  assert.equal(checks.at(-1).timeout, FINAL_CHECK_MS);
+  assert.match(messages.at(-1), /Verified active/);
 });
 
 test('HTTP adapter uses fixed destinations, rejects redirects, and preserves HTTP failures', async t => {

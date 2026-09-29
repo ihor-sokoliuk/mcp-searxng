@@ -45,13 +45,20 @@ jobs:
           [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
           git fetch --no-tags origin "$RELEASE_SHA"
           mkdir -p "$RELEASE_METADATA_DIRECTORY"
-          git show "$RELEASE_SHA:package.json" > "$RELEASE_METADATA_DIRECTORY/package.json"
-          git show "$RELEASE_SHA:.mcp/server.json" > "$RELEASE_METADATA_DIRECTORY/server.json"
           git show "$RELEASE_SHA:.github/workflows/npm-publish.yml" > "$RELEASE_METADATA_DIRECTORY/npm-publish.yml"
           if grep -q '^  publish-mcp-registry:' "$RELEASE_METADATA_DIRECTORY/npm-publish.yml"; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "This older release manages registry publication inside its npm workflow; no separate publication is needed." >> "$GITHUB_STEP_SUMMARY"
+          elif ! git cat-file -e "$RELEASE_SHA:.mcp/server.json"; then
+            if git cat-file -e "$RELEASE_SHA:.github/workflows/mcp-registry-publish.yml"; then
+              echo "::error::Release using the independent registry workflow is missing its required manifest."
+              exit 1
+            fi
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "This historical release has no MCP Registry manifest; skipping registry publication." >> "$GITHUB_STEP_SUMMARY"
           else
+            git show "$RELEASE_SHA:package.json" > "$RELEASE_METADATA_DIRECTORY/package.json"
+            git show "$RELEASE_SHA:.mcp/server.json" > "$RELEASE_METADATA_DIRECTORY/server.json"
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
