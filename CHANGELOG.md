@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.5.0] - 2026-09-29
+
+### Added
+
+- Add opt-in idle expiry for legacy stateful HTTP sessions with `MCP_HTTP_SESSION_IDLE_TTL_MS` (default `0`, disabled). Expiry uses monotonic activity, protects initialization and active POST work, counts successful notification sends, and closes an idle GET stream without a terminal event. Clients using an expired session receive 404 and must initialize again. Classification runs every 60 seconds and at most once per second when session capacity is reached. [#309](https://github.com/ihor-sokoliuk/mcp-searxng/pull/309)
+
+### Fixed
+
+- Distinguish degraded empty searches from genuine empty results in both text and JSON MCP responses. Empty responses with engine failures return `Search Degraded` and `isError: true`, while usable full-detail metadata, filtered-empty results, and a completed empty replica without reported failures remain successful. Normalize malformed failure entries, retain diagnostics in compact output, and merge/deduplicate metadata across completed replicas. [#308](https://github.com/ihor-sokoliuk/mcp-searxng/pull/308)
+- Engine diagnostics can cover all completed replicas; `servedBy` retains its result-provider meaning. HTML fallback cannot supply engine-failure metadata. Compact JSON may now include top-level `unresponsive_engines`, and compact text may append a failure note after its result records.
+
+### Dependencies and CI
+
+- Refresh TypeScript ESLint, the security lint plugin, Supertest and pinned CodeQL actions. Update transitive `ip-address` to 10.7.2; the final dependency audit reports zero vulnerabilities. [#306](https://github.com/ihor-sokoliuk/mcp-searxng/pull/306)
+
+### Contributors
+
+- @tdhooghe — reported degraded-search behavior and contributed the prior implementation discussion in [#262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262) and [#299](https://github.com/ihor-sokoliuk/mcp-searxng/pull/299).
+- @ihor-sokoliuk — implementation, verification, dependency maintenance and release.
+
 ## [2.4.0] - 2026-09-22
 
 ### Added
