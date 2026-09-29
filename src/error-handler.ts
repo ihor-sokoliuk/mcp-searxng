@@ -175,6 +175,10 @@ export function handleUnhandledRejection(reason: unknown, promise: Promise<unkno
   process.exit(1);
 }
 
+export function createDegradedSearchError(query: string, failures: string): MCPSearXNGError {
+  return new MCPSearXNGError(`🔍 Search Degraded: No results for "${query}", and these engines failed: ${failures}. Results may be incomplete — retry later or with other engines.`);
+}
+
 export function validateEnvironment(): string | null {
   const issues: string[] = [];
   

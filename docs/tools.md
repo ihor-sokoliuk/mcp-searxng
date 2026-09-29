@@ -32,7 +32,9 @@ PDF reading extracts text, not OCR.
 
 Start without engine/time filters, then refine only when needed. Use full
 output while troubleshooting; compact output intentionally omits metadata.
-An empty response is not proof that every engine was healthy. See
+Reported engine failures appear in both output formats and detail levels. A raw
+empty response with failures can return `Search Degraded` with `isError: true`;
+usable full metadata and clean empty replicas remain successful. See
 [result quality and cache](troubleshooting.md#result-quality-and-cache).
 
 ## searxng_web_search
@@ -52,9 +54,9 @@ An empty response is not proof that every engine was healthy. See
     - `result_detail` (string, optional): `"full"` (the default) preserves SearXNG metadata, warnings, provenance, answers, infoboxes, corrections, and suggestions. `"compact"` returns only title, URL, and the description/content snippet for every result; compact JSON uses exactly the `title`, `url`, and `content` keys. Use full when those research signals matter.
     - Clients that explicitly send or auto-inject `response_format=text` continue to override the operator default. If omitted calls still return text after configuring JSON, inspect the arguments emitted by the MCP client.
 
-  Migration: compact text has exactly three lines per result and no cache annotation or preamble. Update line parsers that expect relevance scores or search metadata to request `result_detail="full"` (or accept compact's three-line records).
+  Compact text has three lines per result and no cache annotation or preamble. An engine-failure note may follow the results. Compact JSON may include a top-level `unresponsive_engines` field; each result still has exactly three keys. Update line parsers that expect relevance scores or search metadata to request `result_detail="full"` (or accept compact's three-line records and optional diagnostic note).
 
-  Compact deliberately suppresses warnings, provenance, and every other search signal. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
+  Compact suppresses configuration warnings and provenance while retaining engine-failure diagnostics. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
 
   With `SEARXNG_LITE_TOOLS=true`, the Lite schema stays query-only, but explicitly supplied optional overrides such as `response_format` and `result_detail` are still validated and honored.
 

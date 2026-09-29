@@ -234,6 +234,90 @@ async function withPrivateUrlReadsAllowed(test: () => Promise<void>) {
 }
 
 async function runTests() {
+  await testFunction('engine diagnostics preserve MCP error and metadata semantics across formats and replicas', async () => {
+    const row = { title: 'Useful row', url: 'https://example.com/row', content: 'Row content', score: 0.5 };
+    const failure = [['google', 'CAPTCHA']];
+    const scenarios = [
+      { name: 'clean', responses: [{ results: [] }], degraded: false },
+      { name: 'degraded', responses: [{ results: [], unresponsive_engines: failure }], degraded: true },
+      { name: 'empty metadata', responses: [{ results: [], unresponsive_engines: failure, answers: ['', null], infoboxes: [{ infobox: '', content: '' }] }], degraded: true },
+      { name: 'malformed', responses: [{ results: [row], unresponsive_engines: [null, 42, {}, [], [''], ['bad', {}], ['bing', ''], ['google\nengine', 'rate\nlimited']] }], degraded: false },
+      { name: 'partial', responses: [{ results: [row], unresponsive_engines: failure }], degraded: false },
+      { name: 'filtered', responses: [{ results: [row], unresponsive_engines: failure }], degraded: false, min_score: 0.9 },
+      { name: 'metadata', responses: [{ results: [], unresponsive_engines: failure, answers: ['Useful answer'], infoboxes: [{ infobox: 'Useful infobox', content: 'Useful detail' }], corrections: ['Useful correction'], suggestions: ['Useful suggestion'] }], degraded: true, metadata: true },
+      { name: 'clean replica', responses: [{ results: [], unresponsive_engines: failure }, { results: [] }], degraded: false },
+      { name: 'failing replicas', responses: [{ results: [], unresponsive_engines: failure }, { results: [], unresponsive_engines: [['bing', 'timeout']] }], degraded: true },
+      { name: 'metadata replica', responses: [{ results: [], unresponsive_engines: failure }, { results: [], unresponsive_engines: [['bing', 'timeout']], answers: ['Useful answer'] }], degraded: true, metadata: true },
+    ];
+    let serial = 0;
+    try {
+      for (const scenario of scenarios) for (const fanout of [false, true]) for (const reverse of [false, true]) {
+        const payloads = reverse ? [...scenario.responses].reverse() : scenario.responses;
+        const instances = payloads.map((_, index) => `https://diagnostics-${index}.example.com`);
+        process.env.SEARXNG_URL = instances.join(';');
+        process.env.SEARXNG_FANOUT = String(fanout);
+        for (const format of ['text', 'json']) for (const detail of ['compact', 'full']) {
+          fetchMocker.mock(async url => {
+            const index = instances.indexOf(new URL(url.toString()).origin);
+            assert.ok(index >= 0);
+            return new Response(JSON.stringify({ query: 'test', number_of_results: 0, ...payloads[index] }));
+          });
+          const { client } = await connect();
+          try {
+            const result = await client.callTool({ name: 'searxng_web_search', arguments: {
+              query: `engine-case-${serial++}`, response_format: format, result_detail: detail,
+              ...(scenario.min_score ? { min_score: scenario.min_score } : {}),
+            } });
+            const text = (result.content as Array<{ text: string }>)[0].text;
+            const degraded = scenario.degraded && !(scenario.metadata && detail === 'full');
+            const label = `${scenario.name}/${fanout}/${reverse}/${format}/${detail}`;
+            assert.equal(result.isError === true, degraded, label);
+            if (degraded) {
+              assert.match(text, /Search Degraded/, label);
+              assert.doesNotMatch(text, /every engine failed|all engines failed/i);
+            } else if (scenario.metadata && detail === 'full') {
+              assert.match(text, /Useful answer/, label);
+            }
+            if (scenario.name !== 'clean') {
+              assert.match(text, scenario.name === 'malformed' ? /google engine/ : /google|bing/, label);
+            }
+            if (!degraded && format === 'json') {
+              const data = JSON.parse(text);
+              if (scenario.name === 'filtered') assert.deepEqual(data.results, []);
+              if (scenario.name === 'malformed') assert.deepEqual(data.unresponsive_engines, [['bing', ''], ['google engine', 'rate limited']]);
+              if (scenario.name === 'metadata' && detail === 'full') {
+                for (const field of ['answers', 'infoboxes', 'corrections', 'suggestions']) assert.ok(data[field].length);
+              }
+            }
+          } finally { await client.close(); fetchMocker.restore(); }
+        }
+      }
+    } finally { fetchMocker.restore(); }
+  }, results);
+
+  await testFunction('metadata-only upstream HTTP responses remain usable on the MCP wire', async () => {
+    // Controlled HTTP fixture: proves the consumer network/wire path, not a live SearXNG engine.
+    const upstream = http.createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ results: [], answers: ['Controlled upstream answer'], unresponsive_engines: [['google', 'CAPTCHA']] }));
+    });
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+    process.env.SEARXNG_URL = `http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`;
+    const { client } = await connect();
+    try {
+      for (const format of ['text', 'json']) {
+        const result = await client.callTool({ name: 'searxng_web_search', arguments: {
+          query: `controlled metadata ${format}`, response_format: format, result_detail: 'full',
+        } });
+        assert.notEqual(result.isError, true);
+        assert.match((result.content as Array<{ text: string }>)[0].text, /Controlled upstream answer/);
+        assert.match((result.content as Array<{ text: string }>)[0].text, /google/);
+      }
+    } finally {
+      await client.close();
+      await new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+    }
+  }, results);
   console.log('🧪 Integration Testing: MCP handler dispatch (InMemoryTransport)\n');
 
   await testFunction('createMcpServer fails fast without the required admission controller', () => {
