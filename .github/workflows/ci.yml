@@ -37,6 +37,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Registry publication regression tests (offline)
+        run: node --test scripts/publish-mcp-registry.test.mjs
+
       - name: Build
         run: npm run build
 
