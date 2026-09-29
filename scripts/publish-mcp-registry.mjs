@@ -59,14 +59,22 @@ function npmPropagationFailure(output, entry) {
     && output.includes(`NPM package '${entry.identifier}' exists, but version '${entry.version}' was not found (status: 404)`);
 }
 
+function publisherHttpStatus(output) {
+  return Number(output.match(/server returned status (\d{3})\b/)?.[1]);
+}
+
+function networkFailure(output) {
+  const message = output.toLowerCase();
+  return NETWORK_MESSAGES.some(fragment => message.includes(fragment)) ? 'temporary network failure' : null;
+}
+
 export function classifyPublishFailure(output, entry) {
-  const status = Number(output.match(/server returned status (\d{3})\b/)?.[1]);
+  const status = publisherHttpStatus(output);
   if (status === 409) return 'conflict';
   if (transientStatus(status)) return 'temporary registry response';
   if (status === 400 && npmPropagationFailure(output, entry)) return 'npm version is not yet visible to MCP Registry';
   if (status) return null;
-  const message = output.toLowerCase();
-  return NETWORK_MESSAGES.some(fragment => message.includes(fragment)) ? 'temporary network failure' : null;
+  return networkFailure(output);
 }
 
 export async function getJson(service, version, timeoutMs) {
@@ -187,17 +195,21 @@ export async function publishRegistry(manifest, pkg, options = {}) {
   const { now = Date.now, wait = sleep, request = getJson, run = command, log = console.log, budgetMs = RECOVERY_MS, manifestPath = '.mcp/server.json' } = options;
   const recovery = createRecovery({ now, wait, log, budgetMs });
   const context = { ...recovery, request, run, version, manifestPath, attempts: 0, published: false };
-  while (context.remaining() > 0) {
-    // Always reconcile before writing, including after a timeout or rerun.
-    const status = await inspectRegistry(context, manifest);
-    if (status === 'done') {
-      log(`Verified active MCP Registry entry for ${manifest.name}@${manifest.version}.`);
-      return { attempts: context.attempts, elapsedMs: context.elapsed() };
+  try {
+    while (context.remaining() > 0) {
+      // Always reconcile before writing, including after a timeout or rerun.
+      const status = await inspectRegistry(context, manifest);
+      if (status === 'done') {
+        log(`Verified active MCP Registry entry for ${manifest.name}@${manifest.version}.`);
+        return { attempts: context.attempts, elapsedMs: context.elapsed() };
+      }
+      const reason = status === 'waiting' ? 'registry entry is not yet readable' : await preparePublish(context, entry, manifest);
+      if (reason) { await context.retry(reason); continue; }
+      const failure = await publishAttempt(context, entry);
+      if (failure) await context.retry(failure);
     }
-    const reason = status === 'waiting' ? 'registry entry is not yet readable' : await preparePublish(context, entry, manifest);
-    if (reason) { await context.retry(reason); continue; }
-    const failure = await publishAttempt(context, entry);
-    if (failure) await context.retry(failure);
+  } catch (error) {
+    throw new Error(`Registry recovery stopped after ${context.elapsed()}ms: ${String(error)}`, { cause: error });
   }
 }
 
