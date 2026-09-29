@@ -2,6 +2,9 @@
 
 Release tags trigger **Publish NPM Package**. Once that workflow succeeds,
 **Publish MCP Registry** starts independently for the same tag and commit.
+It executes trusted publication tooling from the workflow's default-branch
+revision. Only release metadata is read from the originating npm commit; code
+from that commit is never checked out or executed by the privileged workflow.
 The registry workflow must be present on the default branch before the release.
 It does not build or republish the npm package.
 Completed reruns of older releases that still contain the registry job inside
@@ -33,8 +36,8 @@ fails without overwriting it.
 Inspect **Publish MCP Registry** for the affected release. If npm publication
 succeeded but registry publication failed, rerun only that registry workflow's
 failed job. Do not rerun npm publication or recreate the release tag. The rerun
-uses the original npm run's commit and checks that its version tag still points
-to that commit. A later change on `main` is not substituted for the release.
+uses the original npm run's metadata and checks that its version tag still points
+to that commit. A later package version on `main` is not substituted for the release.
 
 ## Offline verification
 

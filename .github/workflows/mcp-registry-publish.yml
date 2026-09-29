@@ -27,17 +27,28 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - name: Checkout the published commit
+      - name: Checkout trusted publication tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Detect legacy release workflow
+      - name: Read release metadata without executing release code
         id: release
         run: |
-          if grep -q '^  publish-mcp-registry:' .github/workflows/npm-publish.yml; then
+          RELEASE_METADATA_DIRECTORY="$RUNNER_TEMP/registry-release"
+          echo "RELEASE_METADATA_DIRECTORY=$RELEASE_METADATA_DIRECTORY" >> "$GITHUB_ENV"
+          [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          git fetch --no-tags origin "$RELEASE_SHA"
+          mkdir -p "$RELEASE_METADATA_DIRECTORY"
+          git show "$RELEASE_SHA:package.json" > "$RELEASE_METADATA_DIRECTORY/package.json"
+          git show "$RELEASE_SHA:.mcp/server.json" > "$RELEASE_METADATA_DIRECTORY/server.json"
+          git show "$RELEASE_SHA:.github/workflows/npm-publish.yml" > "$RELEASE_METADATA_DIRECTORY/npm-publish.yml"
+          if grep -q '^  publish-mcp-registry:' "$RELEASE_METADATA_DIRECTORY/npm-publish.yml"; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "This older release manages registry publication inside its npm workflow; no separate publication is needed." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -52,14 +63,10 @@ jobs:
 
       - name: Verify release identity
         if: steps.release.outputs.enabled == 'true'
-        env:
-          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
-          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           node scripts/publish-mcp-registry.mjs --validate
           git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$RELEASE_SHA"
-          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - name: Install and verify mcp-publisher
         if: steps.release.outputs.enabled == 'true'
