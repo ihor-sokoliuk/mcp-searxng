@@ -37,6 +37,9 @@ npm test                  # Run all tests
 npm run test:coverage     # Generate coverage report
 ```
 
+For release workflow changes, see [MCP Registry publication](docs/registry-publication.md)
+for the independent registry workflow, retry behavior, recovery, and offline tests.
+
 ## Submitting a PR
 
 ```bash
