@@ -50,7 +50,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/core": "2.0.0",
-        "@modelcontextprotocol/node": "2.0.0",
+        "@modelcontextprotocol/node": "2.1.0",
         "@modelcontextprotocol/server": "2.0.0",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
