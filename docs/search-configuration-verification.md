@@ -153,6 +153,12 @@ were parsed again with this layout and their startup/health checks repeated.
 The documented dual-to-base stop/remove/recreate sequence removed both provider
 containers and left a healthy MCP process without provider endpoints.
 
+The final pasted initialization function passed a real Compose model check
+without starting containers. Its source-directory guard returned an error while
+leaving the invoking shell alive. Both success and rejection paths were exercised;
+generated private files were removed afterward. Candidate initialization is
+separate from startup so its project, ports and image tag can be chosen first.
+
 Mojeek stays disabled by default in the final inventory. The explicit
 `yahoo,bing,mojeek` route with `en-US` / safe-search `1` was rerun through MCP on
 all ten queries: 203/198 URLs, no engine errors, median 0.696s. This avoids
@@ -198,7 +204,8 @@ The final supplied Flare-only mode returned protected HTML after a direct 403
 at 21:04:31Z in 18.5 seconds and clean PDF text in 21.8 seconds. Byparr-only
 returned protected HTML after a direct 403 at 21:06:11Z in 16.3 seconds; its PDF
 read reproduced the viewer-UI problem. With both endpoints configured and the
-task's FlareSolverr stopped, a fresh direct GET returned 403 at 21:08:35Z; MCP
+dual-mode project's FlareSolverr container stopped, a fresh direct GET returned
+403 at 21:08:35Z; MCP
 then returned the successful marker through Byparr in 12.5 seconds. The primary
 was restarted afterward. Byparr also returned ordinary documentation HTML.
 
