@@ -6,6 +6,11 @@ configuration. The examples below use non-secret placeholders. Adapt them to
 your deployment and apply changes with the normal reload, restart, or rollout
 procedure for your packaging or orchestrator.
 
+For a dated, tested engine profile and result-coverage comparison, use
+[Configure search for useful coverage](search-configuration.md). Its
+[private Compose recipe](browser-solver-deployment.md) also exercises the
+upstream container, MCP and optional browser providers together.
+
 ## Responsibility boundary
 
 | Concern | SearXNG | mcp-searxng | Shared boundary |

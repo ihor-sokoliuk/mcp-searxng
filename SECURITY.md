@@ -84,6 +84,10 @@ To allow private URL reads and private DNS-resolved targets (e.g. for internal d
 
 ### Delegated Browser Service
 
+The [private deployment recipe](docs/browser-solver-deployment.md) keeps solver
+APIs unpublished and links to dated end-to-end verification. Apply the trust
+boundary below when adapting its network or egress policy.
+
 Setting `FLARESOLVERR_URL` or `BYPARR_URL` delegates challenge-page navigation
 to a trusted browser service. FlareSolverr 3.5.2 and Byparr 3.0.4 were verified
 on 2026-09-18. When both endpoints are configured, this release uses

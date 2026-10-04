@@ -4,6 +4,10 @@ These profiles are starting points for the **mcp-searxng process only**. They
 do not size SearXNG, Redis, a reverse proxy, or any upstream search engine.
 Measure your own workload before enforcing a production limit.
 
+For the current tested SearXNG/MCP/browser stack and its separate resource
+ceilings, see the [deployment recipe](browser-solver-deployment.md) and
+[dated configuration results](search-configuration-verification.md).
+
 ## Measurement snapshot
 
 The baseline below was captured on 2026-07-29 from source commit
@@ -197,7 +201,7 @@ authentication, Host/Origin validation, TLS, or rate limiting.
 | Results per call | `SEARXNG_MAX_RESULTS` | A lower 1-20 ceiling reduces response processing and agent context. |
 | URL timeout | `FETCH_TIMEOUT_MS` | Bounds how long a page read can occupy an in-flight request. |
 | Solver timeout | `FLARESOLVERR_TIMEOUT_MS` or `BYPARR_TIMEOUT_SECONDS` | Bounds browser-session acquisition separately from the target replay fetch; use only the selected provider's variable. |
-| Solver concurrency | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` or `BYPARR_MAX_CONCURRENT_REQUESTS` | Bounds acquisitions per provider per MCP process; excess requests use the direct path instead of queuing. |
+| Solver concurrency | `FLARESOLVERR_MAX_CONCURRENT_REQUESTS` or `BYPARR_MAX_CONCURRENT_REQUESTS` | Bounds acquisitions per provider per MCP process; a full provider waits at most one second with a bounded queue, then follows the configured fallback path. |
 | Search cache | `SEARCH_CACHE_TTL_MS`, `SEARCH_CACHE_MAX_ENTRIES` | Larger or longer-lived caches trade memory for fewer upstream searches. |
 | URL output | `URL_READ_MAX_CHARS` | Sets the default returned window when the caller omits `maxLength`. |
 | URL body cap | `URL_READ_MAX_CONTENT_LENGTH_BYTES` | Bounds decompressed bytes read before conversion; the default is 5 MiB. |

@@ -308,6 +308,12 @@ For a bug report, [collect a minimal reproduction and relevant errors](https://g
 
 ## Documentation
 
+[Configure search for useful coverage](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/search-configuration.md)
+with tested upstream settings, specialist engine routes and MCP output controls.
+The [deployment recipe](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/browser-solver-deployment.md)
+includes a private Compose stack and optional browser providers, with dated
+results and known failures.
+
 [Find a guide by task](https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/docs/index.md). These links open current main-branch
 documentation. Unreleased behavior is labeled; consult the matching Git tag
 when investigating an older version.

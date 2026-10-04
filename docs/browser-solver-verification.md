@@ -1,5 +1,11 @@
 # Browser solver verification
 
+For the newer 2026-10-04 run, including an observed Byparr PDF-viewer limitation,
+see [configuration verification](search-configuration-verification.md). The
+[deployment recipe](browser-solver-deployment.md) contains the current tested
+Compose examples. Historical successful reads below do not override newer
+target-specific failures.
+
 ## Rendered-content verification — 2026-09-18 UTC
 
 Both providers were tested on `linux/amd64` using disposable, resource-limited

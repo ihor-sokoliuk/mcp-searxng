@@ -10,12 +10,15 @@ you are connecting mcp-searxng for the first time.
 | Diagnose a failure | [Troubleshooting](troubleshooting.md) |
 | Run a shared HTTP service | [HTTP server setup](http-server.md) |
 | Configure my SearXNG service | [Self-hosted SearXNG](self-hosted-searxng.md) |
+| Get more useful search results | [Tested search configuration](search-configuration.md) |
+| Deploy search with optional browsers | [SearXNG and solver deployment](browser-solver-deployment.md) |
 | Use someone else's SearXNG instance | [Public-instance guidance](public-searxng-instances.md) |
 | Look up a setting or default | [Configuration reference](../CONFIGURATION.md) |
 | Understand security boundaries | [Security](../SECURITY.md) |
 | Research and cite evidence | [Research workflow](research-workflow.md) |
 | Assess resource needs | [Historical deployment measurements](deployment-profiles.md) |
 | Check previously exercised solver versions | [Browser solver verification](browser-solver-verification.md) |
+| Inspect the current configuration test results | [Dated configuration evidence](search-configuration-verification.md) |
 
 ## Installation
 

@@ -1,0 +1,18 @@
+services:
+  mcp:
+    environment:
+      BYPARR_URL: http://byparr:8191
+      BYPARR_TIMEOUT_SECONDS: "60"
+      BYPARR_MAX_CONCURRENT_REQUESTS: "1"
+  byparr:
+    image: ghcr.io/thephaseless/byparr:3.0.4@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6
+    restart: unless-stopped
+    shm_size: 512m
+    mem_limit: 1536m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--location", "--max-time", "3", "http://127.0.0.1:8191/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

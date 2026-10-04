@@ -1,0 +1,2434 @@
+{
+  "date": "2026-10-04",
+  "architecture": "linux/amd64",
+  "mcp_version": "2.5.0",
+  "mcp_source": "bfe400fd0c0be20fea156713217ea87d3f3942c6",
+  "comparison": {
+    "baseline-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 291,
+        "normalized_urls": 290,
+        "responses_with_engine_errors": 2,
+        "median_seconds": 0.9335,
+        "keyword_matches_top20": 134
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T20:41:40.224628+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 11,
+          "errors": [
+            [
+              "duckduckgo web",
+              "timeout"
+            ],
+            [
+              "google cse",
+              "timeout"
+            ],
+            [
+              "wiby",
+              "timeout"
+            ],
+            [
+              "wikidata",
+              "timeout"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "yahoo"
+          ],
+          "seconds": 6.019,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:41:51.243786+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 10,
+          "errors": [
+            [
+              "duckduckgo web",
+              "Suspended: timeout"
+            ],
+            [
+              "google cse",
+              "Suspended: timeout"
+            ],
+            [
+              "wiby",
+              "Suspended: timeout"
+            ],
+            [
+              "wikidata",
+              "Suspended: timeout"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "yahoo"
+          ],
+          "seconds": 0.78,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:41:57.024511+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 44,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "wiby",
+            "yahoo"
+          ],
+          "seconds": 1.182,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:03.207096+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 35,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "wiby",
+            "yahoo"
+          ],
+          "seconds": 0.814,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:09.021447+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 31,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 1.043,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:15.064978+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 32,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "wiby",
+            "yahoo"
+          ],
+          "seconds": 0.78,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:20.846082+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 27,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "wiby",
+            "yahoo"
+          ],
+          "seconds": 1.051,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:26.898032+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 42,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "wiby",
+            "yahoo"
+          ],
+          "seconds": 0.824,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:32.722613+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 31,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.823,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:42:38.546275+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "duckduckgo",
+            "duckduckgo web",
+            "google cse",
+            "wiby",
+            "yahoo"
+          ],
+          "seconds": 1.676,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "upstream-defaults-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 263,
+        "normalized_urls": 262,
+        "responses_with_engine_errors": 10,
+        "median_seconds": 0.638,
+        "keyword_matches_top20": 170
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T20:45:20.812551+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 27,
+          "errors": [
+            [
+              "brave",
+              "too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.899,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:45:26.712154+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 26,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.639,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:45:32.351543+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 26,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.602,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:45:37.953501+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 27,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.592,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:45:43.545215+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 28,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.637,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:45:49.182698+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 26,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.613,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:45:54.796399+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 24,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 1.165,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:46:00.961861+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 27,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.675,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:46:06.636660+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 29,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.634,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:46:12.270583+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 23,
+          "errors": [
+            [
+              "brave",
+              "Suspended: too many requests"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo",
+            "google cse"
+          ],
+          "seconds": 0.725,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "candidate-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 295,
+        "normalized_urls": 287,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.7165,
+        "keyword_matches_top20": 171
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T20:47:40.017166+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.927,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:47:45.944425+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 26,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.802,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:47:51.746432+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 30,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.655,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:47:57.401689+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 31,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 1.289,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:48:03.691100+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.615,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:48:09.306632+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 31,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.636,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:48:14.942604+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 26,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.66,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:48:20.602596+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 30,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.778,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:48:26.380417+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 35,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.643,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:48:32.023847+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 30,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.773,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "final-profile-repeat": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 291,
+        "normalized_urls": 282,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.7175,
+        "keyword_matches_top20": 168
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T20:56:34.548125+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 29,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.863,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:56:40.411546+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 27,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.693,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:56:46.105700+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.6,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:56:51.705897+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 31,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.619,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:56:57.325297+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 30,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.593,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:57:02.918090+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 29,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 1.046,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:57:08.964087+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 26,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 1.177,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:57:15.141502+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.708,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:57:20.850161+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 35,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.727,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T20:57:26.577425+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.735,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "healthy-final-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 277,
+        "normalized_urls": 270,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.6935,
+        "keyword_matches_top20": 169
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:07:49.407156+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.886,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:07:55.293982+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 26,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.93,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:01.224058+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 27,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.711,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:06.935591+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 29,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.53,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:12.466182+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.676,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:18.142551+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.465,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:23.608313+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 24,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.559,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:29.167931+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 28,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.776,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:34.943924+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 32,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.728,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:08:40.671927+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 27,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "google cse",
+            "yahoo"
+          ],
+          "seconds": 0.626,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "stable-final-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 113,
+        "normalized_urls": 108,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.6895,
+        "keyword_matches_top20": 95
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:20:17.554500+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 11,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 4.754,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:20:27.309316+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.783,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:20:33.092855+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.557,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:20:38.650354+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 11,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.595,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:20:44.245522+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.698,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:20:49.944122+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 12,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.681,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:20:55.625326+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 12,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.545,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:21:01.170195+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 11,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.771,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:21:06.941193+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 13,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.782,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:21:12.723346+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 13,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "yahoo"
+          ],
+          "seconds": 0.655,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "mojeek-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 100,
+        "normalized_urls": 100,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 1.5030000000000001,
+        "keyword_matches_top20": 83
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:24:31.386613+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.434,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:24:37.821459+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.536,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:24:44.357905+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.478,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:24:50.835900+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 0.518,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:24:56.354636+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.621,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:25:02.976352+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.003,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:25:08.979557+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.597,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:25:15.577221+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 0.968,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:25:21.545284+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.528,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        },
+        {
+          "time": "2026-10-04T21:25:28.074043+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "mojeek"
+          ],
+          "seconds": 1.618,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1,
+            "engines": "mojeek"
+          }
+        }
+      ]
+    },
+    "final-three-engine-queries": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 203,
+        "normalized_urls": 198,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.764,
+        "keyword_matches_top20": 162
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:31:28.985134+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 20,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.807,
+          "options": {
+            "q": "how do heat pumps work",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:31:34.792288+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 20,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.592,
+          "options": {
+            "q": "James Webb telescope exoplanet atmosphere",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:31:40.385312+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 19,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.691,
+          "options": {
+            "q": "Model Context Protocol specification tools",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:31:46.077004+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 18,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.563,
+          "options": {
+            "q": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:31:51.640771+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 18,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 1.174,
+          "options": {
+            "q": "SearXNG docker configuration settings",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:31:57.814771+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 21,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.584,
+          "options": {
+            "q": "retrieval augmented generation evaluation",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:03.398856+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 21,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 1.404,
+          "options": {
+            "q": "lithium iron phosphate battery recycling",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:09.803347+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 20,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.721,
+          "options": {
+            "q": "NASA Artemis mission",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:15.525638+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 23,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 1.301,
+          "options": {
+            "q": "Dell U2415 used monitor",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:21.826675+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 23,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 1.368,
+          "options": {
+            "q": "Nintendo Switch OLED used console",
+            "format": "json",
+            "language": "en-US",
+            "safesearch": 1,
+            "pageno": 1
+          }
+        }
+      ]
+    },
+    "final-expanded-results": {
+      "summary": {
+        "queries": 7,
+        "nonempty": 7,
+        "raw_urls": 90,
+        "normalized_urls": 90,
+        "responses_with_engine_errors": 7,
+        "median_seconds": 0.764,
+        "keyword_matches_top20": 79
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:32:24.676569+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 11,
+          "errors": [
+            [
+              "mojeek",
+              "access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.854,
+          "options": {
+            "query": "how do heat pumps work",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:30.531715+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 13,
+          "errors": [
+            [
+              "mojeek",
+              "Suspended: access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.864,
+          "options": {
+            "query": "James Webb telescope exoplanet atmosphere",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:36.396781+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 13,
+          "errors": [
+            [
+              "mojeek",
+              "Suspended: access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.678,
+          "options": {
+            "query": "Model Context Protocol specification tools",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:42.075368+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 14,
+          "errors": [
+            [
+              "mojeek",
+              "Suspended: access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.764,
+          "options": {
+            "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:47.839362+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 12,
+          "errors": [
+            [
+              "mojeek",
+              "Suspended: access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.723,
+          "options": {
+            "query": "SearXNG docker configuration settings",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:53.562851+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 14,
+          "errors": [
+            [
+              "mojeek",
+              "Suspended: access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.719,
+          "options": {
+            "query": "retrieval augmented generation evaluation",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:32:59.281808+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 13,
+          "errors": [
+            [
+              "mojeek",
+              "Suspended: access denied"
+            ]
+          ],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.803,
+          "options": {
+            "query": "lithium iron phosphate battery recycling",
+            "engines": "yahoo,bing,mojeek,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        }
+      ]
+    },
+    "final-query-only-results": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 131,
+        "normalized_urls": 124,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.6825,
+        "keyword_matches_top20": 111
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:33:03.819433+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 11,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.706,
+          "options": {
+            "query": "how do heat pumps work",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:09.525883+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 10,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.584,
+          "options": {
+            "query": "James Webb telescope exoplanet atmosphere",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:15.110289+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 13,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.574,
+          "options": {
+            "query": "Model Context Protocol specification tools",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:20.685371+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 14,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.659,
+          "options": {
+            "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:26.345237+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 12,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.634,
+          "options": {
+            "query": "SearXNG docker configuration settings",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:31.980005+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 12,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.625,
+          "options": {
+            "query": "retrieval augmented generation evaluation",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:37.605239+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 13,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.727,
+          "options": {
+            "query": "lithium iron phosphate battery recycling",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:43.332894+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 13,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.816,
+          "options": {
+            "query": "NASA Artemis mission",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:49.148626+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 16,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.748,
+          "options": {
+            "query": "Dell U2415 used monitor",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:33:54.896886+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 17,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "duckduckgo web",
+            "yahoo"
+          ],
+          "seconds": 0.741,
+          "options": {
+            "query": "Nintendo Switch OLED used console",
+            "engines": "yahoo,bing,duckduckgo web",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        }
+      ]
+    },
+    "extra-coverage-results": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 450,
+        "normalized_urls": 450,
+        "responses_with_engine_errors": 1,
+        "median_seconds": 0.7364999999999999,
+        "keyword_matches_top20": 146
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:27:22.871850+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 59,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.952,
+          "options": {
+            "query": "how do heat pumps work",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:27:28.824235+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 70,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.693,
+          "options": {
+            "query": "James Webb telescope exoplanet atmosphere",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:27:34.517853+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 33,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.625,
+          "options": {
+            "query": "Model Context Protocol specification tools",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:27:40.143120+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 18,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.703,
+          "options": {
+            "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:27:45.846261+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 10,
+          "errors": [
+            [
+              "mwmbl",
+              "timeout"
+            ]
+          ],
+          "contributing": [
+            "duckduckgo web"
+          ],
+          "seconds": 6.016,
+          "options": {
+            "query": "SearXNG docker configuration settings",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:27:56.863229+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 65,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.694,
+          "options": {
+            "query": "retrieval augmented generation evaluation",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:28:02.558388+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 59,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.743,
+          "options": {
+            "query": "lithium iron phosphate battery recycling",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:28:08.301695+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 74,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.733,
+          "options": {
+            "query": "NASA Artemis mission",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:28:14.035966+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 18,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.74,
+          "options": {
+            "query": "Dell U2415 used monitor",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:28:19.776307+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 44,
+          "errors": [],
+          "contributing": [
+            "duckduckgo web",
+            "mwmbl"
+          ],
+          "seconds": 0.779,
+          "options": {
+            "query": "Nintendo Switch OLED used console",
+            "engines": "duckduckgo web,mwmbl",
+            "language": "all",
+            "safesearch": 0,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        }
+      ]
+    }
+  },
+  "method": "Sequential public-query snapshots with five-second spacing, not a statistical benchmark. Counts summed per query, not globally unique. Each query records its parameters: filtered and unfiltered phases are different workloads. Seven calls of the four-engine unfiltered phase completed before it was stopped following Mojeek HTTP 403. Tracking normalization removes common tracking keys and fragments, normalizes hosts and trailing slashes. Keyword matches are a heuristic, not judged accuracy."
+}
