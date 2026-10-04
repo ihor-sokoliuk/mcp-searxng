@@ -919,9 +919,38 @@ export async function runTests(): Promise<TestResult> {
       'client-configurations.md',
       'research-workflow.md',
       'deployment-profiles.md',
+      'search-configuration.md',
+      'browser-solver-deployment.md',
+      'search-configuration-verification.md',
     ]) {
       assert.ok(index.includes(guide), `documentation index must link ${guide}`);
     }
+  }, results);
+
+  await testFunction('private search stack keeps solver APIs unpublished and uses documented MCP settings', () => {
+    const configuration = readText(new URL('../../CONFIGURATION.md', import.meta.url));
+    const base = readText(new URL('../../docs/examples/search-stack/compose.yml', import.meta.url));
+    for (const file of ['compose.yml', 'flare.yml', 'byparr.yml']) {
+      const example = readText(new URL('../../docs/examples/search-stack/' + file, import.meta.url));
+      for (const match of example.matchAll(/^ {6}([A-Z][A-Z0-9_]+):/gmu)) {
+        if (['SEARXNG_SECRET', 'LOG_LEVEL', 'LOG_HTML'].includes(match[1])) continue;
+        assert.ok(configuration.includes('`' + match[1] + '`'), file + ': unknown MCP variable ' + match[1]);
+      }
+      assert.doesNotMatch(example, /^\s+internal: true/gmu, 'search/browser network needs intentional outbound access');
+      if (file !== 'compose.yml') {
+        assert.doesNotMatch(example, /^\s+ports:/gmu, 'solver API must have no published ports');
+        assert.match(example, /@sha256:[a-f0-9]{64}/u, 'solver image must be immutable');
+      }
+    }
+    assert.match(base, /"127\.0\.0\.1:18089:8080"/u);
+    assert.match(base, /"127\.0\.0\.1:18300:3000"/u);
+    assert.doesNotMatch(base, /SEARXNG_MAX_RESULTS|SEARXNG_MAX_RESULT_CHARS/u, 'coverage profile must not impose output caps');
+    const flare = readText(new URL('../../docs/examples/search-stack/flare.yml', import.meta.url));
+    const byparr = readText(new URL('../../docs/examples/search-stack/byparr.yml', import.meta.url));
+    assert.ok(flare.includes(`FLARESOLVERR_TIMEOUT_MS: "${DEFAULT_FLARESOLVERR_TIMEOUT_MS}"`));
+    assert.ok(byparr.includes(`BYPARR_TIMEOUT_SECONDS: "${DEFAULT_BYPARR_TIMEOUT_SECONDS}"`));
+    assert.ok(flare.includes('http://flaresolverr:8191'));
+    assert.ok(byparr.includes('http://byparr:8191'));
   }, results);
 
   await testFunction('navigation anchors ignore code fences and distinguish repeated headings', () => {
@@ -936,7 +965,8 @@ export async function runTests(): Promise<TestResult> {
       'docs/index.md', 'docs/tools.md', 'docs/http-server.md', 'docs/troubleshooting.md',
       'docs/client-configurations.md', 'docs/public-searxng-instances.md',
       'docs/self-hosted-searxng.md', 'docs/research-workflow.md', 'docs/deployment-profiles.md',
-      'docs/browser-solver-verification.md'];
+      'docs/browser-solver-verification.md', 'docs/search-configuration.md',
+      'docs/browser-solver-deployment.md', 'docs/search-configuration-verification.md'];
     const publicPrefix = 'https://github.com/ihor-sokoliuk/mcp-searxng/blob/main/';
     for (const file of files) {
       const source = new URL('../../' + file, import.meta.url);

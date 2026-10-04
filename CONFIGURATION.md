@@ -17,6 +17,9 @@ For SearXNG setup, direct verification, and replica troubleshooting, see
 [Operating Self-Hosted SearXNG with mcp-searxng](docs/self-hosted-searxng.md).
 For MCP-process capacity planning and optional Docker limits, see the
 [measured deployment profiles](docs/deployment-profiles.md).
+For tested settings, engine routes and uncapped full-metadata research, see
+[search configuration](docs/search-configuration.md). For an executable private
+stack with optional solvers, see [deployment](docs/browser-solver-deployment.md).
 
 ## Authentication
 

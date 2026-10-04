@@ -1,0 +1,21 @@
+services:
+  mcp:
+    environment:
+      FLARESOLVERR_URL: http://flaresolverr:8191
+      FLARESOLVERR_TIMEOUT_MS: "60000"
+      FLARESOLVERR_MAX_CONCURRENT_REQUESTS: "1"
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
+    environment:
+      LOG_LEVEL: info
+      LOG_HTML: "false"
+    restart: unless-stopped
+    shm_size: 512m
+    mem_limit: 1536m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "3", "http://127.0.0.1:8191/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

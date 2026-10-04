@@ -1,0 +1,73 @@
+# Tested English research profile; keep upstream engine implementations intact.
+use_default_settings:
+  engines:
+    keep_only:
+      - yahoo
+      - bing
+      - arxiv
+      - crossref
+      - semantic scholar
+      - pubmed
+      - github
+      - stackoverflow
+      - wikipedia
+      - wikidata
+      - bing news
+      - duckduckgo news
+      - bing images
+      - mojeek
+      - duckduckgo web
+
+search:
+  autocomplete: bing
+  formats: [html, json]
+  default_lang: en-US
+  safe_search: 1
+  max_page: 0
+
+server:
+  # Private, loopback-only example. Read the ingress guide before public use.
+  limiter: false
+
+valkey:
+  url: valkey://valkey:6379/0
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 8.0
+
+engines:
+  - name: yahoo
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: arxiv
+    disabled: false
+  - name: crossref
+    disabled: false
+    timeout: 6.0
+  - name: semantic scholar
+    disabled: false
+    timeout: 6.0
+  - name: pubmed
+    disabled: false
+  - name: github
+    disabled: false
+  - name: stackoverflow
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: wikidata
+    disabled: false
+  - name: bing news
+    disabled: false
+  - name: duckduckgo news
+    disabled: false
+  - name: bing images
+    disabled: false
+  - name: mojeek
+    inactive: false
+    disabled: false
+  # Explicit query-only route; this backend does not advertise filter support.
+  - name: duckduckgo web
+    disabled: true

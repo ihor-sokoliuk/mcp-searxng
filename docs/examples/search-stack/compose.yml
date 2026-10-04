@@ -1,0 +1,66 @@
+name: mcp-search-stack
+
+services:
+  valkey:
+    image: valkey/valkey:8-alpine@sha256:77643d152547b446fc15cbafaff22004545663fcd40c6b28038ad283837baa75
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  searxng:
+    image: searxng/searxng:2026.10.4-44b98e610@sha256:2ddcbc64e1b96cd4c73fce2e0ddd9351f0c405d3282bed7dcbc27a4905f0811e
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Generate a unique SEARXNG_SECRET in .env}
+    volumes:
+      - ./settings:/etc/searxng
+    ports:
+      - "127.0.0.1:18089:8080"
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/config', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  mcp:
+    build:
+      context: ../../..
+    image: mcp-searxng-search:local
+    environment:
+      SEARXNG_URL: http://searxng:8080
+      SEARXNG_TIMEOUT_MS: "15000"
+      SEARXNG_DEFAULT_LANGUAGE: en-US
+      SEARXNG_DEFAULT_SAFESEARCH: "1"
+      SEARXNG_DEFAULT_RESPONSE_FORMAT: json
+      SEARCH_CACHE_TTL_MS: "300000"
+      CACHE_TTL_MS: "300000"
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "3000"
+      MCP_HTTP_STATELESS: "true"
+      MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS: "180000"
+    ports:
+      - "127.0.0.1:18300:3000"
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    depends_on:
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health',{signal:AbortSignal.timeout(3000)}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
