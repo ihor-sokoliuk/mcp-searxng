@@ -2,7 +2,8 @@
 
 These are live observations from one controlled Linux amd64 host and public
 queries. SearXNG used the official image without source patches; MCP was built
-from the current source. The final [settings](examples/search-stack/settings/settings.yml)
+from the current source. Mojeek and DuckDuckGo web remain disabled by default
+in the final overlay and are used only by the documented explicit routes. The final [settings](examples/search-stack/settings/settings.yml)
 and [Compose files](examples/search-stack/compose.yml) were exercised on that
 host. This report is a dated starting point, not a permanent provider or
 protected-site compatibility promise.
@@ -36,14 +37,15 @@ This is a sequential snapshot, not a randomized or statistical benchmark.
 | Google CSE / Yahoo / Bing before CSE throttling | 10/10 | 277 | 270 | 0/10 | 0.694 |
 | Yahoo / Bing after removing failing providers | 10/10 | 113 | 108 | 0/10 | 0.690 |
 | Mojeek alone, explicit activation, filtered | 10/10 | 100 | 100 | 0/10 | 1.503 |
-| Supplied Yahoo / Bing / Mojeek, filtered | 10/10 | 203 | 198 | 0/10 | 0.764 |
+| Three-engine activation trial, filtered | 10/10 | 203 | 198 | 0/10 | 0.764 |
+| Final explicit Yahoo / Bing / Mojeek MCP route | 10/10 | 203 | 198 | 0/10 | 0.696 |
 | Explicit Yahoo / Bing / DDG web, unfiltered MCP route | 10/10 | 131 | 124 | 0/10 | 0.683 |
 
 The last row used `language=all`, `safesearch=0`, and no time filter; it is a
 different workload from the English/moderate-safe-search rows. Counts are summed
 per query, not globally distinct URLs. Normalization removes common tracking
 query keys; see the [measurement definition](search-configuration.md#gather-another-page-when-necessary).
-The supplied filtered profile added 90 normalized URLs over Yahoo/Bing alone in
+The explicit filtered route added 90 normalized URLs over Yahoo/Bing alone in
 this snapshot. It returned fewer than the original inherited selection, whose
 responses all included Brave engine errors. Choosing functioning providers and
 useful metadata took priority over the largest raw count. Multiple engine names
@@ -62,8 +64,8 @@ matches are recorded in the JSON as a heuristic; they do not establish accuracy.
 Mojeek passed both filtered ten-query runs, then the first unfiltered request at
 21:32:24Z returned HTTP 403. The mixed route was stopped; seven completed calls
 all carried its access-denied/suspension diagnostic. That route is not recommended.
-The provider's suspension was respected before any fresh filtered recheck; no
-upstream source, cooldown or suspension policy was modified. After the three-minute
+An interim MCP check still reported suspension. The upstream backoff was left
+intact; no source, cooldown or suspension policy was modified. After the three-minute
 suspension expired, fresh English/moderate-safe-search MCP calls at 21:35:43Z
 through 21:36:00Z succeeded without engine errors: limits 10/20 returned 10/18,
 the uncapped page returned 18, and its repeat was cached. This demonstrates
@@ -81,8 +83,8 @@ Actual initialized HTTP MCP calls verified:
   more results. Omitting it returned 31 in the initial study, 30 in the four-engine
   repeat and 28 in the earlier Google CSE phase. A separate MCP process with operator cap 10 returned ten even when the
   caller requested 20; an 80-character snippet ceiling produced at most 81
-  characters including the ellipsis, without cutting titles/URLs. In the supplied
-  filtered profile a fresh uncapped PostgreSQL call returned 18; a caller limit
+  characters including the ellipsis, without cutting titles/URLs. In the explicit
+  filtered route a fresh uncapped PostgreSQL call returned 18; a caller limit
   of 20 also returned 18, because limits cannot create more upstream results.
 - A DuckDuckGo/Yahoo paging pass returned 10/15/16 URLs with a union of 40.
   This was a client-side union across three sequential calls. After excluding
@@ -130,6 +132,30 @@ hidden by the successful retry. Inspect engine error metadata on every route.
 Failed engines may work elsewhere or later. Re-admit them only after fresh,
 paced tests from the intended egress path; do not treat this table as a global
 provider outage report.
+
+## Deployment corrections and transport boundary
+
+A later rebuild failed because mounting the tracked `settings/` directory let
+the SearXNG entrypoint change its ownership, making it unreadable during Docker
+build-context collection. The final recipe requires writable settings outside
+the source checkout. With that private copy, initial build/start and a subsequent
+build succeeded. The tracked template remains readable. The four configurations
+were parsed again with this layout and their startup/health checks repeated.
+The documented dual-to-base stop/remove/recreate sequence removed both provider
+containers and left a healthy MCP process without provider endpoints.
+
+Mojeek stays disabled by default in the final inventory. The explicit
+`yahoo,bing,mojeek` route with `en-US` / safe-search `1` was rerun through MCP on
+all ten queries: 203/198 URLs, no engine errors, median 0.696s. This avoids
+implicitly selecting Mojeek when an ordinary caller drops the filters. Engine-less
+MCP calls were also checked with `en-US` / `1` and `all` / `0`: both returned
+nonempty, error-free Yahoo/Bing results, with no Mojeek contribution.
+
+The local non-hardened HTTP mode accepted native initialization without Origin
+(200), rejected an unlisted browser Origin (403), and accepted an arbitrary Host
+without Origin (200). Origin checks are active, but this mode does not claim
+Host enforcement or authentication. Follow the separate hardened HTTP procedure
+for that boundary. Browser resource observations remain single-client only.
 
 ## Browser results and operational limits
 

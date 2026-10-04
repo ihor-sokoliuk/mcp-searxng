@@ -7,9 +7,11 @@ point, verified on 2026-10-04, rather than a universal engine ranking. Provider
 availability depends on your IP, region, query and upstream changes; repeat the
 [verification procedure](#verify-before-and-after) on your own deployment.
 
-The filtered profile combines Yahoo, Bing and Mojeek, with explicit specialist
-routes for other tasks. In a ten-query English/moderate-safe-search pass it
-returned 203 result URLs, or 198 after tracking normalization, compared with
+The default general route uses Yahoo and Bing. For broader English research,
+explicitly select the tested filtered Yahoo/Bing/Mojeek route; Mojeek stays
+disabled by default to avoid including it in unfiltered calls. Specialist routes
+cover other tasks. In a ten-query English/moderate-safe-search pass, the
+explicit three-engine route returned 203 result URLs, or 198 after tracking normalization, compared with
 113/108 from Yahoo/Bing alone. Both passes were nonempty and error-free. The
 optional unfiltered Yahoo/Bing/DuckDuckGo web route returned 131/124 URLs with
 no engine errors across ten queries. Those are different workloads, not a
@@ -38,8 +40,8 @@ proxy settings.
 ## Apply the SearXNG overlay
 
 The supplied overlay uses `use_default_settings.engines.keep_only` to inherit
-the upstream definitions for fourteen active engines and one explicitly selected query-only engine. This deliberately
-limits the example's inventory. An existing deployment can instead merge only
+the upstream definitions for thirteen active engines and two engines available for explicit selection.
+This deliberately limits the example's inventory. An existing deployment can instead merge only
 the relevant named overrides into its own overlay; preserve its secret, ingress,
 Valkey, category choices and unrelated engines. Exact names matter, including
 spaces. [Upstream documents the merge rules](https://docs.searxng.org/admin/settings/settings.html).
@@ -47,7 +49,7 @@ spaces. [Upstream documents the merge rules](https://docs.searxng.org/admin/sett
 | Overlay choice | Purpose and evidence |
 |---|---|
 | `search.formats: [html, json]` | Preserves the browser UI and enables the JSON API; both direct JSON and MCP requests were exercised. |
-| `default_lang: en-US`, `safe_search: 1` | Tested English, moderate-safe-search defaults. Callers can override them; engine support varies. |
+| `default_lang: en-US`, `safe_search: 1` | Tested English, moderate-safe-search defaults. Overrides need a compatible engine route; the tested Mojeek route requires these exact filters. |
 | `max_page: 0` | Adds no global page ceiling; lower engine limits still apply. Pages 1-3 were tested with Yahoo. |
 | `autocomplete: bing` | Keeps autocomplete compatible with the limited inventory; the `postgres` prefix returned eleven suggestions. |
 | `outgoing.request_timeout: 6.0`, `max_request_timeout: 8.0` | A bounded starting budget, measured with live engines. The explicit Crossref and Semantic Scholar timeouts match six seconds. |
@@ -62,7 +64,8 @@ and [search settings](https://docs.searxng.org/admin/settings/settings_search.ht
 explain upstream limits and backoff.
 
 `disabled: false` does not cancel an inherited `inactive: true`. Mojeek needed
-both `inactive: false` and `disabled: false` to become available. Startpage
+`inactive: false` to become available. The supplied overlay keeps
+`disabled: true`, so it contributes only when selected explicitly. Startpage
 became available with the same configuration override but then returned CAPTCHA;
 activation alone is not proof that an engine works. Inspect `/config` and the
 private effective settings after an upgrade; the public capability response is
@@ -74,6 +77,7 @@ When narrowing the engine inventory, also select an autocomplete backend that
 remains available. Keeping the inherited DuckDuckGo autocomplete after removing
 its engine caused a search HTTP 500 in this study. The supplied Bing setting
 was verified both directly and through MCP.
+
 For Internet-facing SearXNG, follow the [ingress and limiter guide](self-hosted-searxng.md#limiter-proxy-and-security)
 and [upstream limiter documentation](https://docs.searxng.org/admin/searx.limiter.html).
 The included loopback recipe does not configure public authentication, TLS or
@@ -108,13 +112,14 @@ For broad research, leave `SEARXNG_MAX_RESULTS` and
 a ranking value, not a calibrated relevance probability. A tested `min_score=1`
 call reduced the result list to four sources.
 
-Use this call as a baseline:
+Use this explicit filtered call as a research baseline:
 
 ```json
 {
   "name": "searxng_web_search",
   "arguments": {
     "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+    "engines": "yahoo,bing,mojeek",
     "language": "en-US",
     "safesearch": 1,
     "response_format": "json",
@@ -124,8 +129,9 @@ Use this call as a baseline:
 ```
 
 Omitting `num_results` returns the upstream page without a result-count ceiling
-when the operator cap is also unset. The initial live call returned 31 results; the supplied filtered profile returned
-18 for the PostgreSQL example. Explicit
+when the operator cap is also unset. The initial live call returned 31 results; the explicit filtered route returned
+18 for the PostgreSQL example. Selecting an available but disabled engine
+explicitly is supported; the supplied Mojeek route was tested that way. Explicit
 `num_results` and `SEARXNG_MAX_RESULTS` accept only 1-20; requesting 20 does not
 make an engine produce 20 sources. The smaller effective caller/operator limit
 wins. Snippet caps preserve URLs and titles but discard context.
@@ -180,8 +186,11 @@ provided overlay but can be selected explicitly for query-only discovery:
 }
 ```
 
-This route requests no language, safety or date restriction. Use the filtered
-profile when those controls matter. Do not combine Mojeek into this unfiltered
+This route requests no language, safety or date restriction. Use the explicit filtered
+route when those controls matter. If you change language or safe-search values,
+name a compatible engine list; omit Mojeek outside the tested `en-US` / `1`
+combination. An engine-less call uses Yahoo/Bing, so an unfiltered call does not
+accidentally include Mojeek. Do not combine Mojeek into this unfiltered
 route: its `safe=0` request returned HTTP 403 in the test. The exact reason was
 not established. Inspect capabilities and engine errors before changing filters;
 do not present unsupported filters as working controls. The

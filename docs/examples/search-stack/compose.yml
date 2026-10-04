@@ -18,7 +18,7 @@ services:
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:?Generate a unique SEARXNG_SECRET in .env}
     volumes:
-      - ./settings:/etc/searxng
+      - ${SEARXNG_SETTINGS_DIR:?Create private settings outside the source checkout}:/etc/searxng
     ports:
       - "127.0.0.1:18089:8080"
     restart: unless-stopped

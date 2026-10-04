@@ -2428,6 +2428,229 @@
           }
         }
       ]
+    },
+    "review-fixed-matrix-results": {
+      "summary": {
+        "queries": 10,
+        "nonempty": 10,
+        "raw_urls": 203,
+        "normalized_urls": 198,
+        "responses_with_engine_errors": 0,
+        "median_seconds": 0.6955,
+        "keyword_matches_top20": 162
+      },
+      "queries": [
+        {
+          "time": "2026-10-04T21:49:55.850175+00:00",
+          "kind": "general",
+          "query": "how do heat pumps work",
+          "count": 20,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 2.243,
+          "options": {
+            "query": "how do heat pumps work",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:03.093683+00:00",
+          "kind": "general",
+          "query": "James Webb telescope exoplanet atmosphere",
+          "count": 20,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.658,
+          "options": {
+            "query": "James Webb telescope exoplanet atmosphere",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:08.752775+00:00",
+          "kind": "technical",
+          "query": "Model Context Protocol specification tools",
+          "count": 19,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.618,
+          "options": {
+            "query": "Model Context Protocol specification tools",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:14.371536+00:00",
+          "kind": "technical",
+          "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+          "count": 18,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.537,
+          "options": {
+            "query": "PostgreSQL EXPLAIN ANALYZE documentation",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:19.909017+00:00",
+          "kind": "technical",
+          "query": "SearXNG docker configuration settings",
+          "count": 18,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 1.056,
+          "options": {
+            "query": "SearXNG docker configuration settings",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:25.965412+00:00",
+          "kind": "science",
+          "query": "retrieval augmented generation evaluation",
+          "count": 21,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.686,
+          "options": {
+            "query": "retrieval augmented generation evaluation",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:31.651686+00:00",
+          "kind": "science",
+          "query": "lithium iron phosphate battery recycling",
+          "count": 21,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.719,
+          "options": {
+            "query": "lithium iron phosphate battery recycling",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:37.371789+00:00",
+          "kind": "news",
+          "query": "NASA Artemis mission",
+          "count": 20,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.705,
+          "options": {
+            "query": "NASA Artemis mission",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:43.077259+00:00",
+          "kind": "products",
+          "query": "Dell U2415 used monitor",
+          "count": 23,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 0.508,
+          "options": {
+            "query": "Dell U2415 used monitor",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        },
+        {
+          "time": "2026-10-04T21:50:48.586490+00:00",
+          "kind": "products",
+          "query": "Nintendo Switch OLED used console",
+          "count": 23,
+          "errors": [],
+          "contributing": [
+            "bing",
+            "mojeek",
+            "yahoo"
+          ],
+          "seconds": 1.139,
+          "options": {
+            "query": "Nintendo Switch OLED used console",
+            "engines": "yahoo,bing,mojeek",
+            "language": "en-US",
+            "safesearch": 1,
+            "response_format": "json",
+            "result_detail": "full"
+          }
+        }
+      ]
     }
   },
   "method": "Sequential public-query snapshots with five-second spacing, not a statistical benchmark. Counts summed per query, not globally unique. Each query records its parameters: filtered and unfiltered phases are different workloads. Seven calls of the four-engine unfiltered phase completed before it was stopped following Mojeek HTTP 403. Tracking normalization removes common tracking keys and fragments, normalizes hosts and trailing slashes. Keyword matches are a heuristic, not judged accuracy."

@@ -945,6 +945,8 @@ export async function runTests(): Promise<TestResult> {
     assert.match(base, /"127\.0\.0\.1:18089:8080"/u);
     assert.match(base, /"127\.0\.0\.1:18300:3000"/u);
     assert.doesNotMatch(base, /SEARXNG_MAX_RESULTS|SEARXNG_MAX_RESULT_CHARS/u, 'coverage profile must not impose output caps');
+    assert.ok(base.includes('${SEARXNG_SETTINGS_DIR:?'), 'writable upstream settings need an external directory');
+    assert.doesNotMatch(base, /- \.\/settings:|:\/etc\/searxng:ro/u, 'upstream settings must not mutate the tracked build context or fail entrypoint writes');
     const flare = readText(new URL('../../docs/examples/search-stack/flare.yml', import.meta.url));
     const byparr = readText(new URL('../../docs/examples/search-stack/byparr.yml', import.meta.url));
     assert.ok(flare.includes(`FLARESOLVERR_TIMEOUT_MS: "${DEFAULT_FLARESOLVERR_TIMEOUT_MS}"`));
