@@ -942,9 +942,10 @@ export async function runTests(): Promise<TestResult> {
         assert.match(example, /@sha256:[a-f0-9]{64}/u, 'solver image must be immutable');
       }
     }
-    assert.match(base, /"127\.0\.0\.1:18089:8080"/u);
-    assert.match(base, /"127\.0\.0\.1:18300:3000"/u);
+    assert.match(base, /"127\.0\.0\.1:\$\{SEARXNG_HOST_PORT:-18089\}:8080"/u);
+    assert.match(base, /"127\.0\.0\.1:\$\{MCP_HOST_PORT:-18300\}:3000"/u);
     assert.doesNotMatch(base, /SEARXNG_MAX_RESULTS|SEARXNG_MAX_RESULT_CHARS/u, 'coverage profile must not impose output caps');
+    assert.ok(base.includes('${MCP_SOURCE_DIR:?'), 'private deployment must use an explicit source build context');
     assert.ok(base.includes('${SEARXNG_SETTINGS_DIR:?'), 'writable upstream settings need an external directory');
     assert.doesNotMatch(base, /- \.\/settings:|:\/etc\/searxng:ro/u, 'upstream settings must not mutate the tracked build context or fail entrypoint writes');
     const flare = readText(new URL('../../docs/examples/search-stack/flare.yml', import.meta.url));
