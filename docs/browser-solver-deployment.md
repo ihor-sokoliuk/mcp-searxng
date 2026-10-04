@@ -27,23 +27,31 @@ preserve existing secrets when migrating a running deployment. This block
 generates a fresh secret only for a new deployment:
 
 ```bash
-umask 077
-mcp_source_dir="$(pwd -P)"
-mkdir -p "$HOME/.local/share/mcp-search-stack"
-search_stack_dir="$(mktemp -d "$HOME/.local/share/mcp-search-stack/deployment.XXXXXX")"
-search_stack_dir="$(cd "$search_stack_dir" && pwd -P)"
-case "$search_stack_dir/" in
-  "$mcp_source_dir/"*) printf 'Choose a deployment directory outside the source checkout.\n' >&2; exit 1 ;;
-esac
-cp docs/examples/search-stack/*.yml "$search_stack_dir/"
-mkdir -m 700 "$search_stack_dir/settings"
-cp docs/examples/search-stack/settings/settings.yml "$search_stack_dir/settings/settings.yml"
-printf 'SEARXNG_SECRET=%s\nMCP_SOURCE_DIR=%s\nSEARXNG_SETTINGS_DIR=%s\n' \
-  "$(openssl rand -hex 32)" "$mcp_source_dir" "$search_stack_dir/settings" > "$search_stack_dir/.env"
-cd "$search_stack_dir"
-docker compose -f compose.yml config --quiet
-docker compose -f compose.yml up -d --build --wait
+initialize_search_stack() {
+  umask 077
+  mcp_source_dir="$(pwd -P)" || return 1
+  mkdir -p "$HOME/.local/share/mcp-search-stack" || return 1
+  search_stack_dir="$(mktemp -d "$HOME/.local/share/mcp-search-stack/deployment.XXXXXX")" || return 1
+  search_stack_dir="$(cd "$search_stack_dir" && pwd -P)" || return 1
+  case "$search_stack_dir/" in
+    "$mcp_source_dir/"*) printf 'Choose a deployment directory outside the source checkout.\n' >&2; return 1 ;;
+  esac
+  cp docs/examples/search-stack/*.yml "$search_stack_dir/" || return 1
+  mkdir -m 700 "$search_stack_dir/settings" || return 1
+  cp docs/examples/search-stack/settings/settings.yml "$search_stack_dir/settings/settings.yml" || return 1
+  searxng_secret="$(openssl rand -hex 32)" || return 1
+  printf 'SEARXNG_SECRET=%s\nMCP_SOURCE_DIR=%s\nSEARXNG_SETTINGS_DIR=%s\n' \
+    "$searxng_secret" "$mcp_source_dir" "$search_stack_dir/settings" > "$search_stack_dir/.env" || return 1
+  unset searxng_secret
+  cd "$search_stack_dir" || return 1
+  docker compose -f compose.yml config --quiet
+}
+initialize_search_stack
 ```
+
+Initialization creates private files and validates the Compose model; it does
+not start services. Choose a mode from the table below. The function returns an
+error without closing the interactive shell if a setup step fails.
 
 Run initialization once for a new deployment; preserve its directory and `.env`
 for later starts. Run every command below from that private directory. The
@@ -264,9 +272,11 @@ before_mcp_image="$(docker compose -f compose.yml images -q mcp)"
 docker image tag "$before_mcp_image" mcp-searxng-search:before-update
 ```
 
-Create a second private deployment using the initialization block, then give
+From the candidate source checkout at the revision you intend to evaluate, run
+the initialization block to create a second private deployment. Its
+`MCP_SOURCE_DIR` will point to that checkout. Before starting services, give
 its project, host ports and MCP build tag distinct values. For a base-mode
-candidate, from its own directory:
+candidate, from its private deployment directory:
 
 ```bash
 MCP_IMAGE=mcp-searxng-search:candidate SEARXNG_HOST_PORT=18090 MCP_HOST_PORT=18301 \

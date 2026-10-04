@@ -92,7 +92,7 @@ Setting `FLARESOLVERR_URL` or `BYPARR_URL` delegates challenge-page navigation
 to a trusted browser service. FlareSolverr 3.5.2 and Byparr 3.0.4 were verified
 on 2026-09-18. The [2026-10-04 configuration study](docs/search-configuration-verification.md)
 retested HTML successfully but found Byparr PDF-viewer controls mixed with paper
-text on one protected PDF; that was failed clean extraction despite tool success.
+text on one protected PDF; that was a failed clean extraction despite tool success.
 Use the dated provider/target results rather than assuming all PDF reads work. When both endpoints are configured, this release uses
 FlareSolverr as the fixed primary and Byparr as the fallback for bounded acquisition or retryable read failures.
 Canonical duplicate endpoints fail closed.
