@@ -21,7 +21,8 @@ protected-site compatibility promise.
 Ten page-one queries covered heat pumps, Webb/exoplanets, MCP tools,
 PostgreSQL EXPLAIN, SearXNG settings, RAG evaluation, LFP battery recycling,
 Artemis, a used Dell U2415 and a used Switch OLED. Calls used English `en-US`,
-moderate safe search and five-second spacing. The inherited-engine comparison
+moderate safe search and five-second spacing, except the explicitly labeled
+unfiltered workload. The inherited-engine comparison
 used the same SearXNG image and six/eight-second outgoing budgets as the
 candidate. The existing-deployment row also retained its own overlay choices.
 This is a sequential snapshot, not a randomized or statistical benchmark.
@@ -139,7 +140,15 @@ A later rebuild failed because mounting the tracked `settings/` directory let
 the SearXNG entrypoint change its ownership, making it unreadable during Docker
 build-context collection. The final recipe requires writable settings outside
 the source checkout. With that private copy, initial build/start and a subsequent
-build succeeded. The tracked template remains readable. The four configurations
+build succeeded. The tracked template remains readable. A further build-context check found the
+nested `.env` in the builder stage even though it was absent from the final
+runtime image. The final initialization therefore keeps the entire private
+deployment directory outside the source tree. A rebuilt builder and runtime
+image both lacked root and nested `.env` files. Git already ignored the nested
+file; Git exclusion alone was not a Docker-context guarantee. Parallel base/candidate projects on distinct loopback ports and image tags
+started successfully. Saved-image rollback with `--no-build` selected the
+expected running image ID; this was an image-selection exercise using the same
+MCP source, not a cross-version migration test. The four configurations
 were parsed again with this layout and their startup/health checks repeated.
 The documented dual-to-base stop/remove/recreate sequence removed both provider
 containers and left a healthy MCP process without provider endpoints.
@@ -148,8 +157,9 @@ Mojeek stays disabled by default in the final inventory. The explicit
 `yahoo,bing,mojeek` route with `en-US` / safe-search `1` was rerun through MCP on
 all ten queries: 203/198 URLs, no engine errors, median 0.696s. This avoids
 implicitly selecting Mojeek when an ordinary caller drops the filters. Engine-less
-MCP calls were also checked with `en-US` / `1` and `all` / `0`: both returned
-nonempty, error-free Yahoo/Bing results, with no Mojeek contribution.
+MCP PostgreSQL calls were also checked with `en-US` / `1` and `all` / `0`: both returned
+nonempty, error-free Yahoo/Bing results, with no Mojeek contribution. Wikipedia and Wikidata are also active in the
+general category and can supply infobox metadata for entity queries.
 
 The local non-hardened HTTP mode accepted native initialization without Origin
 (200), rejected an unlisted browser Origin (403), and accepted an arbitrary Host

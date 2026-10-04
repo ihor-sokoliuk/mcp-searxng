@@ -20,7 +20,7 @@ services:
     volumes:
       - ${SEARXNG_SETTINGS_DIR:?Create private settings outside the source checkout}:/etc/searxng
     ports:
-      - "127.0.0.1:18089:8080"
+      - "127.0.0.1:${SEARXNG_HOST_PORT:-18089}:8080"
     restart: unless-stopped
     mem_limit: 768m
     cpus: 1.0
@@ -36,8 +36,8 @@ services:
 
   mcp:
     build:
-      context: ../../..
-    image: mcp-searxng-search:local
+      context: ${MCP_SOURCE_DIR:?Set the absolute MCP source checkout}
+    image: ${MCP_IMAGE:-mcp-searxng-search:local}
     environment:
       SEARXNG_URL: http://searxng:8080
       SEARXNG_TIMEOUT_MS: "15000"
@@ -51,7 +51,7 @@ services:
       MCP_HTTP_STATELESS: "true"
       MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS: "180000"
     ports:
-      - "127.0.0.1:18300:3000"
+      - "127.0.0.1:${MCP_HOST_PORT:-18300}:3000"
     restart: unless-stopped
     mem_limit: 384m
     cpus: 0.5

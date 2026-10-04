@@ -9,7 +9,7 @@ identifies the exact tested versions, failures and limits.
 ## Start a private stack
 
 The files are in [examples/search-stack](examples/search-stack/compose.yml).
-The base Compose file builds this checkout's MCP Dockerfile. SearXNG, Valkey and
+The base Compose file builds the MCP Dockerfile from `MCP_SOURCE_DIR`. SearXNG, Valkey and
 solver images use immutable manifest digests. The sample resources were
 exercised with paced single-client traffic on Linux amd64; they are not a
 production concurrency benchmark.
@@ -19,32 +19,51 @@ entrypoint changes their ownership; mounting the tracked template directory
 caused a later MCP build to fail while Docker collected that unreadable build
 context. The example requires `SEARXNG_SETTINGS_DIR` for this reason.
 
-From the repository root, create a persistent private copy and `.env` on a
-Linux host with OpenSSL and `mktemp`:
+From the root of a source checkout, create a persistent private deployment directory on a
+Linux host with OpenSSL and `mktemp`. The directory holds Compose files,
+`.env`, and writable settings **outside the MCP build context**. Migrate any
+existing private deployment files out of the source checkout before building;
+preserve existing secrets when migrating a running deployment. This block
+generates a fresh secret only for a new deployment:
 
 ```bash
-cd docs/examples/search-stack
 umask 077
+mcp_source_dir="$(pwd -P)"
 mkdir -p "$HOME/.local/share/mcp-search-stack"
-search_settings_dir="$(mktemp -d "$HOME/.local/share/mcp-search-stack/settings.XXXXXX")"
-cp settings/settings.yml "$search_settings_dir/settings.yml"
-printf 'SEARXNG_SECRET=%s\nSEARXNG_SETTINGS_DIR=%s\n' \
-  "$(openssl rand -hex 32)" "$search_settings_dir" > .env
+search_stack_dir="$(mktemp -d "$HOME/.local/share/mcp-search-stack/deployment.XXXXXX")"
+search_stack_dir="$(cd "$search_stack_dir" && pwd -P)"
+case "$search_stack_dir/" in
+  "$mcp_source_dir/"*) printf 'Choose a deployment directory outside the source checkout.\n' >&2; exit 1 ;;
+esac
+cp docs/examples/search-stack/*.yml "$search_stack_dir/"
+mkdir -m 700 "$search_stack_dir/settings"
+cp docs/examples/search-stack/settings/settings.yml "$search_stack_dir/settings/settings.yml"
+printf 'SEARXNG_SECRET=%s\nMCP_SOURCE_DIR=%s\nSEARXNG_SETTINGS_DIR=%s\n' \
+  "$(openssl rand -hex 32)" "$mcp_source_dir" "$search_stack_dir/settings" > "$search_stack_dir/.env"
+cd "$search_stack_dir"
 docker compose -f compose.yml config --quiet
 docker compose -f compose.yml up -d --build --wait
 ```
 
-Run initialization once for a new deployment; preserve its `.env` and private
-settings for later starts. Ensure the chosen directory is outside the repository
-build context if your source checkout itself is under that data location. Keep
-`.env` out of version control and logs. `docker compose config` without `--quiet`
-expands secrets, so use disposable values for shared configuration reports.
+Run initialization once for a new deployment; preserve its directory and `.env`
+for later starts. Run every command below from that private directory. The
+tracked YAML files are templates; private copies are deployment configuration.
+Keep `.env` out of version control and logs. `docker compose config` without
+`--quiet` expands secrets, so use disposable values for shared reports.
 `SEARXNG_SECRET` is SearXNG's cryptographic secret, not MCP or HTTP authentication.
-The upstream container consumes it. The tracked `settings/settings.yml` is a
-template; edit and securely back up the private deployment copy. Host-side
-administrative access may be needed after the entrypoint adjusts ownership.
+Host-side administrative access may be needed after the SearXNG entrypoint
+adjusts private settings ownership. Back up those files securely.
 
-| Mode | Start command from the example directory |
+| Compose input | Purpose |
+|---|---|
+| `MCP_SOURCE_DIR` | Absolute source checkout to build; excludes the private deployment directory. |
+| `SEARXNG_SETTINGS_DIR` | Absolute writable settings directory outside the source checkout. |
+| `MCP_IMAGE` | Local build tag, default `mcp-searxng-search:local`; give a candidate its own tag. |
+| `SEARXNG_HOST_PORT`, `MCP_HOST_PORT` | Loopback host ports, defaults `18089` and `18300`; distinct ports permit a parallel project. |
+
+These inputs belong to Compose; the MCP container still listens on port 3000.
+
+| Mode | Start command from the private deployment directory |
 |---|---|
 | No solver | `docker compose -f compose.yml up -d --build --wait` |
 | FlareSolverr | `docker compose -f compose.yml -f flare.yml up -d --build --wait` |
@@ -87,7 +106,10 @@ is a separate recipe, not a newly tested mode claimed here.
 The Compose bridge permits outbound access to search providers and source
 pages. A network marked `internal: true` alone would remove that access.
 Unpublished ports limit inbound exposure; they are not an outbound firewall.
-The host and other containers on the same network remain trusted. Restrict
+The host and other containers on the same network remain trusted. The supplied
+shared bridge lets solver browsers reach SearXNG, MCP and Valkey; it is not
+service-level network isolation. A separate solver network and browser-egress
+firewall were not tested in this recipe. Restrict
 solver egress separately if required, because a browser can follow redirects
 and load page subresources within that trusted service.
 [Docker documents these network properties](https://docs.docker.com/reference/compose-file/networks/).
@@ -234,13 +256,44 @@ personal data before sharing. Resource samples from one caller do not establish
 a safe multi-user capacity limit. Keep the [historical MCP measurements](deployment-profiles.md)
 separate from SearXNG and browser sizing.
 
-Back up `.env`, settings, Compose files and the built MCP image/source revision
-privately. Change one pinned image or setting at a time in a separate project;
-run the same direct searches, MCP calls and content assertions before adopting
-it. Restoring the previous files and image references then recreating only the
-affected services is the rollback. A settings file edit alone does not reload
-the running SearXNG process; restart that service through the same Compose file
-list and repeat the checks. Never restart unrelated application stacks.
+Back up private `.env`, settings and Compose files before editing. Preserve the
+running MCP build before rebuilding its tag; for base mode:
+
+```bash
+before_mcp_image="$(docker compose -f compose.yml images -q mcp)"
+docker image tag "$before_mcp_image" mcp-searxng-search:before-update
+```
+
+Create a second private deployment using the initialization block, then give
+its project, host ports and MCP build tag distinct values. For a base-mode
+candidate, from its own directory:
+
+```bash
+MCP_IMAGE=mcp-searxng-search:candidate SEARXNG_HOST_PORT=18090 MCP_HOST_PORT=18301 \
+  docker compose -p mcp-search-candidate -f compose.yml up -d --build --wait
+```
+
+Use the same project name, environment values and complete provider file list
+for subsequent commands. Its settings directory and `.env` must also be
+separate from the running deployment. Test direct searches, MCP calls and actual
+content reads before adopting it. Change one pinned image or setting at a time.
+These alternate ports/tag and two-project startup were exercised; substitute
+other free ports if needed.
+
+For rollback, restore the previous private files and immutable upstream image
+references. From the original deployment directory, select the saved MCP image
+without rebuilding it:
+
+```bash
+MCP_IMAGE=mcp-searxng-search:before-update \
+  docker compose -f compose.yml up -d --no-build --force-recreate --wait
+```
+
+Add the same solver overlay files when those providers were in use. Verify the
+running image ID equals the saved image ID, then repeat health/content checks.
+Do not use `--build` on this rollback command: it would overwrite the saved tag.
+A settings edit alone does not reload SearXNG; restart only that service with
+the same file list and repeat the checks. Never restart unrelated stacks.
 
 To remove this example's disposable stack, use its complete file list:
 

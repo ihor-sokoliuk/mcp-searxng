@@ -7,7 +7,8 @@ point, verified on 2026-10-04, rather than a universal engine ranking. Provider
 availability depends on your IP, region, query and upstream changes; repeat the
 [verification procedure](#verify-before-and-after) on your own deployment.
 
-The default general route uses Yahoo and Bing. For broader English research,
+The main ordinary web results in the default general route come from Yahoo
+and Bing; active entity engines can also supply infobox metadata. For broader English research,
 explicitly select the tested filtered Yahoo/Bing/Mojeek route; Mojeek stays
 disabled by default to avoid including it in unfiltered calls. Specialist routes
 cover other tasks. In a ten-query English/moderate-safe-search pass, the
@@ -186,11 +187,16 @@ provided overlay but can be selected explicitly for query-only discovery:
 }
 ```
 
+`duckduckgo web` uses upstream's separate `duckduckgo_web` implementation.
+The excluded HTML engine is named `duckduckgo` and uses `duckduckgo.py`.
+The query-only pass at 21:33 UTC succeeded after the HTML engine's CAPTCHA was
+observed. Success for one backend does not establish health of the other.
+
 This route requests no language, safety or date restriction. Use the explicit filtered
 route when those controls matter. If you change language or safe-search values,
 name a compatible engine list; omit Mojeek outside the tested `en-US` / `1`
-combination. An engine-less call uses Yahoo/Bing, so an unfiltered call does not
-accidentally include Mojeek. Do not combine Mojeek into this unfiltered
+combination. An engine-less general call can also include the enabled entity engines;
+Mojeek remains disabled and is not selected implicitly. Do not combine Mojeek into this unfiltered
 route: its `safe=0` request returned HTTP 403 in the test. The exact reason was
 not established. Inspect capabilities and engine errors before changing filters;
 do not present unsupported filters as working controls. The
