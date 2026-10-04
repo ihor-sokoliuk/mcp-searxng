@@ -65,9 +65,10 @@ engines:
     disabled: false
   - name: bing images
     disabled: false
+  # Explicit English / moderate-safe-search route; avoid unfiltered defaults.
   - name: mojeek
     inactive: false
-    disabled: false
+    disabled: true
   # Explicit query-only route; this backend does not advertise filter support.
   - name: duckduckgo web
     disabled: true

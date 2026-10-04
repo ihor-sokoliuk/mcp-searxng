@@ -14,22 +14,35 @@ solver images use immutable manifest digests. The sample resources were
 exercised with paced single-client traffic on Linux amd64; they are not a
 production concurrency benchmark.
 
-From the repository root, open `docs/examples/search-stack`. Create a private
-`.env` with a unique SearXNG secret; on a Linux host with OpenSSL:
+Keep writable SearXNG settings outside the source checkout. The upstream
+entrypoint changes their ownership; mounting the tracked template directory
+caused a later MCP build to fail while Docker collected that unreadable build
+context. The example requires `SEARXNG_SETTINGS_DIR` for this reason.
+
+From the repository root, create a persistent private copy and `.env` on a
+Linux host with OpenSSL and `mktemp`:
 
 ```bash
 cd docs/examples/search-stack
 umask 077
-printf 'SEARXNG_SECRET=%s\n' "$(openssl rand -hex 32)" > .env
+mkdir -p "$HOME/.local/share/mcp-search-stack"
+search_settings_dir="$(mktemp -d "$HOME/.local/share/mcp-search-stack/settings.XXXXXX")"
+cp settings/settings.yml "$search_settings_dir/settings.yml"
+printf 'SEARXNG_SECRET=%s\nSEARXNG_SETTINGS_DIR=%s\n' \
+  "$(openssl rand -hex 32)" "$search_settings_dir" > .env
 docker compose -f compose.yml config --quiet
 docker compose -f compose.yml up -d --build --wait
 ```
 
-Keep `.env` out of version control and logs. `docker compose config` without
-`--quiet` expands secrets, so use disposable values for shared configuration
-reports. `SEARXNG_SECRET` is SearXNG's cryptographic secret, not MCP or HTTP
-authentication. The template requires a value and the upstream container
-consumes it. Preserve `settings/`; the SearXNG entrypoint may adjust its ownership.
+Run initialization once for a new deployment; preserve its `.env` and private
+settings for later starts. Ensure the chosen directory is outside the repository
+build context if your source checkout itself is under that data location. Keep
+`.env` out of version control and logs. `docker compose config` without `--quiet`
+expands secrets, so use disposable values for shared configuration reports.
+`SEARXNG_SECRET` is SearXNG's cryptographic secret, not MCP or HTTP authentication.
+The upstream container consumes it. The tracked `settings/settings.yml` is a
+template; edit and securely back up the private deployment copy. Host-side
+administrative access may be needed after the entrypoint adjusts ownership.
 
 | Mode | Start command from the example directory |
 |---|---|
@@ -41,7 +54,17 @@ consumes it. Preserve `settings/`; the SearXNG entrypoint may adjust its ownersh
 Keep the same file list for `ps`, `logs`, `exec`, upgrades and `down`. To switch
 back to no solver, recreate MCP with only the base file and stop/remove solver
 services using the previous full file list. Merely removing an overlay does not
-stop an already-running solver container.
+stop an already-running solver container. For the supplied dual-mode files,
+these exact commands remove the optional providers and recreate MCP in base mode:
+
+```bash
+docker compose -f compose.yml -f flare.yml -f byparr.yml stop flaresolverr byparr
+docker compose -f compose.yml -f flare.yml -f byparr.yml rm -f flaresolverr byparr
+docker compose -f compose.yml up -d --force-recreate --no-deps --wait mcp
+```
+
+The complete file list defines both optional services even if only one had
+running containers. These commands target this Compose project only.
 
 SearXNG binds to host `127.0.0.1:18089`; MCP binds to
 `127.0.0.1:18300` with `/mcp` and `/health`. Solver and Valkey services have
@@ -50,6 +73,16 @@ SearXNG binds to host `127.0.0.1:18089`; MCP binds to
 use a controlled SSH tunnel or configure authenticated TLS ingress following
 the [HTTP deployment guide](http-server.md) and [security policy](../SECURITY.md).
 Do not change loopback bindings to public bindings without that ingress work.
+
+The base mode is unauthenticated and non-hardened. MCP checks every present
+`Origin` against its loopback defaults even with a `0.0.0.0` container bind;
+requests without `Origin` remain valid for native clients. Host enforcement /
+DNS-rebinding protection is enabled by `MCP_HTTP_HARDEN=true`, not by the bind
+address or `MCP_HTTP_ALLOWED_HOSTS` alone. Loopback publishing is not
+application authentication. Use the existing [hardened HTTP procedure](http-server.md#choose-authentication)
+for an untrusted local/browser environment or remote ingress; it requires a
+token or OAuth plus explicit origin/Host configuration. That hardened ingress
+is a separate recipe, not a newly tested mode claimed here.
 
 The Compose bridge permits outbound access to search providers and source
 pages. A network marked `internal: true` alone would remove that access.
@@ -215,7 +248,7 @@ To remove this example's disposable stack, use its complete file list:
 docker compose -f compose.yml -f flare.yml -f byparr.yml down
 ```
 
-This keeps the settings and `.env` files. Retain or remove those private files
+This keeps the external private settings and `.env` files. Retain or remove those private files
 according to your local secret-handling policy. Upstream provider references:
 [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) and
 [Byparr](https://github.com/ThePhaseless/Byparr).
