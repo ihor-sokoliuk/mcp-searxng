@@ -49,7 +49,7 @@
         "postversion": "TAG=$(node scripts/update-version.js | tail -1) && git add src/version.ts .mcp/server.json && git commit --amend --no-edit && git tag -f $TAG"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "2.0.0",
+        "@modelcontextprotocol/core": "2.2.0",
         "@modelcontextprotocol/node": "2.0.0",
         "@modelcontextprotocol/server": "2.0.0",
         "@types/cors": "^2.8.19",
