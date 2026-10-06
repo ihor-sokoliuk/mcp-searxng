@@ -5,14 +5,14 @@
  *   const skip = checkSkipConditions();
  *   if (skip) { console.log(skip); process.exit(0); }
  *
- *   const responses = spawnWithMessages([
+ *   const responses = await spawnWithMessages([
  *     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { ... } },
  *     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { ... } },
  *   ]);
  *   const toolResult = responses[2]; // keyed by id
  */
 
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:net';
@@ -306,47 +306,8 @@ export async function spawnHttpCli(options: SpawnHttpCliOptions = {}): Promise<S
   throw new Error(`HTTP CLI startup exhausted ${MAX_HTTP_CLI_START_ATTEMPTS} attempts after confirmed EADDRINUSE: ${lastError.message}`);
 }
 
-/**
- * Spawn the built MCP binary, pipe `messages` as newline-delimited JSON to stdin,
- * and return parsed responses keyed by id.
- *
- * @param messages - Array of JSON-RPC message objects to send
- * @param searxngUrl - SEARXNG_URL to pass to the server (default: LIVE_URL)
- * @param timeoutMs - spawnSync timeout in milliseconds (default: 15000)
- */
-export function spawnWithMessages(
-  messages: object[],
-  searxngUrl: string = LIVE_URL ?? '',
-  timeoutMs = 15000
-): Record<number, any> {
-  const input = messages.map((m) => JSON.stringify(m)).join('\n') + '\n';
-
-  const result = spawnSync('node', [DIST_CLI], {
-    input,
-    env: { ...process.env, SEARXNG_URL: searxngUrl },
-    encoding: 'utf8',
-    timeout: timeoutMs,
-  });
-
-  if (result.error) {
-    throw new Error(`spawnSync failed: ${result.error.message}`);
-  }
-
-  const responses: Record<number, any> = {};
-  for (const line of result.stdout.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const msg = JSON.parse(trimmed);
-      if (msg.id !== undefined) {
-        responses[msg.id] = msg;
-      }
-    } catch {
-      // notifications and unparseable lines are ignored
-    }
-  }
-  return responses;
-}
+/** Keep STDIN open until every requested response arrives. EOF disconnects the SDK. */
+export const spawnWithMessages = spawnWithMessagesAsync;
 
 /**
  * Asynchronous variant used when the parent process hosts local target or
@@ -372,6 +333,9 @@ export async function spawnWithMessagesAsync(
       windowsHide: true,
     });
     let stdout = '';
+    let pendingOutput = '';
+    const pendingIds = new Set(messages.flatMap(message =>
+      'id' in message && (typeof message.id === 'string' || typeof message.id === 'number') ? [message.id] : []));
     let stderr = '';
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -383,6 +347,17 @@ export async function spawnWithMessagesAsync(
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
       stdout += chunk;
+      pendingOutput += chunk;
+      let newline: number;
+      while ((newline = pendingOutput.indexOf('\n')) !== -1) {
+        const line = pendingOutput.slice(0, newline);
+        pendingOutput = pendingOutput.slice(newline + 1);
+        try {
+          const message = JSON.parse(line);
+          if (message && ('result' in message || 'error' in message)) pendingIds.delete(message.id);
+        } catch { /* Ignore non-JSON diagnostic lines, as response parsing does below. */ }
+      }
+      if (pendingIds.size === 0 && !child.stdin.writableEnded) child.stdin.end();
     });
     child.stderr.on('data', (chunk) => {
       stderr += chunk;
@@ -402,6 +377,10 @@ export async function spawnWithMessagesAsync(
         return;
       }
 
+      if (pendingIds.size > 0) {
+        reject(new Error('MCP child disconnected before all responses arrived: ' + [...pendingIds].join(', ')));
+        return;
+      }
       const responses: Record<number, any> = {};
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
@@ -420,6 +399,12 @@ export async function spawnWithMessagesAsync(
       resolve(responses);
     });
 
-    child.stdin.end(input);
+    child.stdin.once('error', error => {
+      clearTimeout(timeout);
+      child.kill();
+      reject(error);
+    });
+    child.stdin.write(input);
+    if (pendingIds.size === 0) child.stdin.end();
   });
 }

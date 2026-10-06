@@ -54,20 +54,10 @@ const MIN_STATELESS_REQUEST_TIMEOUT_MS = 1000;
 const MAX_STATELESS_REQUEST_TIMEOUT_MS = 2147483647;
 const STATELESS_CLEANUP_DEADLINE_MS = 5000;
 const STATELESS_WARNING_INTERVAL_MS = 60000;
-const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
-}
-
-function modernRequestWithClaim(body: unknown): Record<string, unknown> | undefined {
-  const request = objectRecord(body);
-  if (!request || request.jsonrpc !== "2.0" || typeof request.method !== "string") return undefined;
-  const params = objectRecord(request.params);
-  const meta = objectRecord(params?._meta);
-  if (meta?.["io.modelcontextprotocol/protocolVersion"] !== MODERN_PROTOCOL_VERSION) return undefined;
-  return request;
 }
 
 function echoableRequestId(request: Record<string, unknown>): string | number | null | undefined {
@@ -75,30 +65,6 @@ function echoableRequestId(request: Record<string, unknown>): string | number | 
   const id = request.id;
   if (typeof id === "string" || id === null) return id;
   return typeof id === "number" && Number.isFinite(id) ? id : undefined;
-}
-
-/**
- * Temporary PR-2594 compatibility guard. Remove after a patched stable server
- * release is installed and its SDK-owned HeaderMismatch response is regression-tested.
- */
-export function missingModernProtocolHeaderError(
-  headers: Record<string, string | string[] | undefined>,
-  body: unknown,
-): { id: string | number | null; error: { code: number; message: string; data: object } } | undefined {
-  if (headers["mcp-protocol-version"] !== undefined) return undefined;
-  const request = modernRequestWithClaim(body);
-  if (!request) return undefined;
-  const id = echoableRequestId(request);
-  if (id === undefined) return undefined;
-  const bodyMessage = "the body envelope names protocol version 2026-07-28 but the required MCP-Protocol-Version header is absent";
-  return {
-    id,
-    error: {
-      code: -32020,
-      message: `Bad Request: the request headers and body disagree: ${bodyMessage}`,
-      data: { mismatch: { header: "(missing)", body: bodyMessage } },
-    },
-  };
 }
 
 export interface StatelessHttpConfig {
@@ -874,11 +840,6 @@ export async function createHttpServer(
 
     const modern = res.locals.mcpModernRequest === true;
     if (modern) {
-      const headerError = missingModernProtocolHeaderError(req.headers, req.body);
-      if (headerError) {
-        res.status(400).json({ jsonrpc: "2.0", ...headerError });
-        return;
-      }
       const releaseCapacity = admitStatelessRequest(req, res);
       if (!releaseCapacity) return;
       const handler = createMcpHandler(() => createMcpServer(true), { legacy: "reject" });

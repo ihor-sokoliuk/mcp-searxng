@@ -174,12 +174,12 @@ async function expectBodyDeadline(
   );
 }
 
-function assertModernStdioSurface(): void {
+async function assertModernStdioSurface(): Promise<void> {
   const envelope = {
     'io.modelcontextprotocol/protocolVersion': '2026-07-28',
     'io.modelcontextprotocol/clientCapabilities': {},
   };
-  const responses = spawnWithMessages([
+  const responses = await spawnWithMessages([
     { jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: envelope } },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope } },
     { jsonrpc: '2.0', id: 3, method: 'resources/list', params: { _meta: envelope } },
@@ -197,8 +197,8 @@ function assertModernStdioSurface(): void {
   for (const id of [5, 6, 7, 8]) assert.ok(responses[id]?.result, JSON.stringify(responses));
 }
 
-function assertLegacyStdioSurface(): void {
-  const responses = spawnWithMessages([
+async function assertLegacyStdioSurface(): Promise<void> {
+  const responses = await spawnWithMessages([
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
     { jsonrpc: '2.0', id: 3, method: 'resources/list', params: {} },
@@ -323,7 +323,7 @@ async function runTests() {
 
     try {
       const start = Date.now();
-      const responses = spawnWithMessages(
+      const responses = await spawnWithMessages(
         [
           { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
           {
@@ -366,7 +366,7 @@ async function runTests() {
 
     try {
       const start = Date.now();
-      const responses = spawnWithMessages(
+      const responses = await spawnWithMessages(
         [
           { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
           {
