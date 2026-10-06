@@ -140,7 +140,7 @@ async function runTests() {
   }
 
   await testFunction('web_url_read fetches example.com and returns markdown', async () => {
-    const responses = spawnWithMessages(
+    const responses = await spawnWithMessages(
       [
         { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
         {
@@ -170,7 +170,7 @@ async function runTests() {
   }, results);
 
   await testFunction('web_url_read with maxLength=100 returns at most ~100 chars', async () => {
-    const responses = spawnWithMessages(
+    const responses = await spawnWithMessages(
       [
         { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
         {
@@ -194,7 +194,7 @@ async function runTests() {
   }, results);
 
   await testFunction('web_url_read with readHeadings=true returns heading list', async () => {
-    const responses = spawnWithMessages(
+    const responses = await spawnWithMessages(
       [
         { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
         {

@@ -7,20 +7,20 @@ export const safeTree = {
       path: '/consumer/node_modules/mcp-searxng',
       dependencies: {
         '@modelcontextprotocol/core': {
-          version: '2.0.0',
+          version: '2.3.1',
           path: '/consumer/node_modules/@modelcontextprotocol/core',
           _dependencies: { zod: '^4.2.0' },
         },
         '@modelcontextprotocol/node': {
-          version: '2.0.0',
+          version: '2.1.1',
           path: '/consumer/node_modules/@modelcontextprotocol/node',
           _dependencies: {},
         },
         '@modelcontextprotocol/server': {
-          version: '2.0.0',
+          version: '2.3.1',
           path: '/consumer/node_modules/@modelcontextprotocol/server',
           _dependencies: {
-            '@modelcontextprotocol/core': '2.0.0',
+            '@modelcontextprotocol/core': '2.3.1',
             zod: '^4.2.0',
           },
         },
@@ -36,9 +36,9 @@ export const safeTree = {
 export const installedPackage = {
   name: 'mcp-searxng',
   dependencies: {
-    '@modelcontextprotocol/core': '2.0.0',
-    '@modelcontextprotocol/node': '2.0.0',
-    '@modelcontextprotocol/server': '2.0.0',
+    '@modelcontextprotocol/core': '2.3.1',
+    '@modelcontextprotocol/node': '2.1.1',
+    '@modelcontextprotocol/server': '2.3.1',
     zod: '4.5.4',
   },
 };

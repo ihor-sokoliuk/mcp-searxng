@@ -49,9 +49,9 @@
         "postversion": "TAG=$(node scripts/update-version.js | tail -1) && git add src/version.ts .mcp/server.json && git commit --amend --no-edit && git tag -f $TAG"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "2.0.0",
-        "@modelcontextprotocol/node": "2.0.0",
-        "@modelcontextprotocol/server": "2.0.0",
+        "@modelcontextprotocol/core": "2.3.1",
+        "@modelcontextprotocol/node": "2.1.1",
+        "@modelcontextprotocol/server": "2.3.1",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.6",
         "cors": "^2.8.6",
@@ -65,7 +65,7 @@
         "zod": "4.6.5"
     },
     "devDependencies": {
-        "@modelcontextprotocol/client": "2.0.0",
+        "@modelcontextprotocol/client": "2.3.1",
         "@types/node": "22.20.5",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/eslint-plugin": "8.71.1",

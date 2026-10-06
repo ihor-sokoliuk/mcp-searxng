@@ -28,7 +28,7 @@ async function runTests() {
   }
 
   await testFunction('instance info returns parseable JSON capability payload', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       {
         jsonrpc: '2.0',

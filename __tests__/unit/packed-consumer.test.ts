@@ -27,9 +27,9 @@ const results = createTestResults();
 async function runDependencyContractTests(): Promise<void> {
   await testFunction('accepts an exact v2 runtime dependency tree', () => {
     assert.deepEqual(assertSafeDependencyTree(safeTree, installedPackage), [
-      { name: '@modelcontextprotocol/core', version: '2.0.0' },
-      { name: '@modelcontextprotocol/node', version: '2.0.0' },
-      { name: '@modelcontextprotocol/server', version: '2.0.0' },
+      { name: '@modelcontextprotocol/core', version: '2.3.1' },
+      { name: '@modelcontextprotocol/node', version: '2.1.1' },
+      { name: '@modelcontextprotocol/server', version: '2.3.1' },
       { name: 'zod', version: '4.5.4' },
     ]);
   }, results);
@@ -59,11 +59,11 @@ async function runDependencyContractTests(): Promise<void> {
 
   await testFunction('rejects invalid, extraneous, npm-problem, and mixed-version trees', () => {
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', invalid: true }), installedPackage),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.3.1', invalid: true }), installedPackage),
       /unsafe_dependency_tree:.*invalid/,
     );
     assert.throws(
-      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.0.0', extraneous: true }), installedPackage),
+      () => assertSafeDependencyTree(treeWithNodeServer({ version: '2.3.1', extraneous: true }), installedPackage),
       /unsafe_dependency_tree:.*extraneous/,
     );
     assert.throws(
@@ -97,9 +97,9 @@ async function runDependencyContractTests(): Promise<void> {
       () => assertSafeDependencyTree(safeTree, {
         ...installedPackage,
         dependencies: {
-          '@modelcontextprotocol/core': '2.0.0',
-          '@modelcontextprotocol/node': '2.0.0',
-          '@modelcontextprotocol/server': '2.0.0',
+          '@modelcontextprotocol/core': '2.3.1',
+          '@modelcontextprotocol/node': '2.1.1',
+          '@modelcontextprotocol/server': '2.3.1',
         },
       }),
       /unsafe_dependency_tree:.*packed manifest zod.*exact stable/iu,
@@ -129,7 +129,7 @@ async function runDependencyContractTests(): Promise<void> {
     assert.throws(
       () => assertSafeDependencyTree(treeWithMcpMetadata(
         '@modelcontextprotocol/server',
-        { _dependencies: { '@modelcontextprotocol/core': '2.0.0' } },
+        { _dependencies: { '@modelcontextprotocol/core': '2.3.1' } },
       ), installedPackage),
       /unsafe_dependency_tree:.*server.*required zod range.*missing/iu,
     );
@@ -365,7 +365,7 @@ async function runWorkflowContractTests(): Promise<void> {
           name: 'mcp-searxng',
           exports: {},
           dependencies: {
-            '@modelcontextprotocol/server': '2.0.0',
+            '@modelcontextprotocol/server': '2.3.1',
           },
         },
       ),
@@ -508,7 +508,7 @@ async function runOrchestrationTests(): Promise<void> {
             name: 'mcp-searxng',
             exports: {},
             dependencies: {
-              '@modelcontextprotocol/server': '2.0.0',
+              '@modelcontextprotocol/server': '2.3.1',
               zod: '4.5.4',
             },
           }),
@@ -558,9 +558,9 @@ async function runOrchestrationTests(): Promise<void> {
     }
 
     assert.deepEqual(outcome.adapterVersions, [
-      { name: '@modelcontextprotocol/core', version: '2.0.0' },
-      { name: '@modelcontextprotocol/node', version: '2.0.0' },
-      { name: '@modelcontextprotocol/server', version: '2.0.0' },
+      { name: '@modelcontextprotocol/core', version: '2.3.1' },
+      { name: '@modelcontextprotocol/node', version: '2.1.1' },
+      { name: '@modelcontextprotocol/server', version: '2.3.1' },
       { name: 'zod', version: '4.5.4' },
     ]);
     assert.equal(outcome.auditTotal, 0);
@@ -631,7 +631,7 @@ async function runOrchestrationTests(): Promise<void> {
             name: 'mcp-searxng',
             exports: {},
             dependencies: {
-              '@modelcontextprotocol/server': '2.0.0',
+              '@modelcontextprotocol/server': '2.3.1',
               zod: '4.5.4',
             },
           }),

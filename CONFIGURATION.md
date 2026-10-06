@@ -359,7 +359,7 @@ Both transports support modern `2026-07-28` plus legacy `2025-11-25`, `2025-06-1
 
 Modern HTTP requests always use an isolated per-request server and are bounded by `MCP_HTTP_STATELESS_MAX_IN_FLIGHT`, `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP`, and `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS`, even when `MCP_HTTP_STATELESS` is false. Setting `MCP_HTTP_STATELESS=true` extends that per-request serving model and the shared capacity controls to retained legacy POST requests.
 
-The published server SDK `2.0.0` has a temporary compatibility guard for a 2026-07-28 request that omits that header: it returns the standard HTTP 400 HeaderMismatch response. The guard will be removed only after upgrading to a stable SDK containing upstream PR 2594 and proving that the SDK itself returns the same response.
+The server SDK validates the 2026-07-28 protocol header against the request envelope. A missing or mismatched header returns HTTP 400 / HeaderMismatch (`-32020`) with the request ID before the tool runs; the server does not duplicate this validation with a compatibility guard.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|

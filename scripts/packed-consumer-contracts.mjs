@@ -1,7 +1,7 @@
 const REQUIRED_MCP_RUNTIME = new Map([
-  ['@modelcontextprotocol/core', '2.0.0'],
-  ['@modelcontextprotocol/node', '2.0.0'],
-  ['@modelcontextprotocol/server', '2.0.0'],
+  ['@modelcontextprotocol/core', '2.3.1'],
+  ['@modelcontextprotocol/node', '2.1.1'],
+  ['@modelcontextprotocol/server', '2.3.1'],
 ]);
 const REQUIRED_MCP_ZOD_DECLARATIONS = new Set([
   '@modelcontextprotocol/core',

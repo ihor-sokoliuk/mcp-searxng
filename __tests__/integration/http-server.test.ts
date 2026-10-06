@@ -7,12 +7,11 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { FetchMocker, createMockFetch } from '../helpers/mock-fetch.js';
 import request from 'supertest';
-import { LOG_LEVEL_META_KEY, McpServer, isLegacyRequest } from '@modelcontextprotocol/server';
+import { LOG_LEVEL_META_KEY, McpServer, createMcpHandler, isLegacyRequest } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import {
   DEFAULT_STATELESS_MAX_IN_FLIGHT,
@@ -20,7 +19,6 @@ import {
   DEFAULT_STATELESS_REQUEST_TIMEOUT_MS,
   MAX_STATELESS_MAX_IN_FLIGHT,
   createHttpServer,
-  missingModernProtocolHeaderError,
   resolveStatelessHttpConfig,
   resolveHttpMaxSessions,
   resolveHttpInitializeTimeoutMs,
@@ -1039,23 +1037,45 @@ async function runTests() {
   }, results);
   console.log('🧪 Integration Testing: http-server.ts\n');
 
-  await testFunction('temporary modern missing-version guard is exact and leaves every other shape to the SDK', () => {
-    const body = {
-      jsonrpc: '2.0', id: 7, method: 'server/discover',
-      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } },
+  await testFunction('SDK rejects absent or mismatched protocol headers before invoking a modern tool', async () => {
+    let calls = 0;
+    const handler = createMcpHandler(() => {
+      const server = createTestMcpServer();
+      server.registerTool('header_probe', { inputSchema: {} }, async () => {
+        calls += 1;
+        return { content: [{ type: 'text' as const, text: 'ok' }] };
+      });
+      return server;
+    }, { legacy: 'reject' });
+    const send = (id: string | number, version?: string) => {
+      const headers = new Headers({ 'Content-Type': 'application/json', Accept: 'application/json',
+        'MCP-Method': 'tools/call', 'MCP-Name': 'header_probe' });
+      if (version !== undefined) headers.set('MCP-Protocol-Version', version);
+      return handler.fetch(new Request('http://localhost/mcp', {
+        method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: {
+          name: 'header_probe', arguments: {}, _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        } }),
+      }));
     };
-    assert.deepEqual(missingModernProtocolHeaderError({}, body), {
-      id: 7,
-      error: {
-        code: -32020,
-        message: 'Bad Request: the request headers and body disagree: the body envelope names protocol version 2026-07-28 but the required MCP-Protocol-Version header is absent',
-        data: { mismatch: { header: '(missing)', body: 'the body envelope names protocol version 2026-07-28 but the required MCP-Protocol-Version header is absent' } },
-      },
-    });
-    assert.equal(missingModernProtocolHeaderError({ 'mcp-protocol-version': ' ' }, body), undefined);
-    assert.equal(missingModernProtocolHeaderError({}, [{ ...body }]), undefined);
-    assert.equal(missingModernProtocolHeaderError({}, { ...body, id: undefined }), undefined);
-    assert.equal(missingModernProtocolHeaderError({}, { ...body, params: {} }), undefined);
+    try {
+      for (const id of [7, 'header-check']) {
+        for (const version of [undefined, '2025-03-26']) {
+          const rejected = await send(id, version);
+          assert.equal(rejected.status, 400);
+          const body = await rejected.json();
+          assert.equal(body.id, id);
+          assert.equal(body.error.code, -32020);
+          assert.equal(calls, 0);
+        }
+      }
+      const accepted = await send('valid', '2026-07-28');
+      assert.equal(accepted.status, 200);
+      assert.equal((await accepted.json()).result.content[0].text, 'ok');
+      assert.equal(calls, 1);
+    } finally { await handler.close(); }
   }, results);
 
   await testFunction('official classifier keeps a headerless body-primary modern opening out of legacy', async () => {
@@ -1098,19 +1118,6 @@ async function runTests() {
     } finally {
       envManager.restore();
     }
-  }, results);
-
-  await testFunction('temporary missing-version guard is pinned to the published server 2.0.0 package', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed test-only installed package tripwire.
-    const manifest = JSON.parse(readFileSync(
-      new URL('../../node_modules/@modelcontextprotocol/server/package.json', import.meta.url),
-      'utf8',
-    ));
-    assert.equal(
-      manifest.version,
-      '2.0.0',
-      'SDK changed: remove this guard only after proving the stable SDK emits PR-2594 HeaderMismatch itself',
-    );
   }, results);
 
   await testFunction(

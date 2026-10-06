@@ -36,7 +36,7 @@ async function runTests() {
   }
 
   await testFunction('built CLI exposes response_format and result_detail schemas', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
     ], 'https://unused.invalid');
@@ -63,7 +63,7 @@ async function runTests() {
   }
 
   await testFunction('basic search returns results with title and URL', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       {
         jsonrpc: '2.0',
@@ -92,7 +92,7 @@ async function runTests() {
   }, results);
 
   await testFunction('search with time_range=day returns results', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       {
         jsonrpc: '2.0',
@@ -112,7 +112,7 @@ async function runTests() {
   }, results);
 
   await testFunction('search with language=en returns results', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       {
         jsonrpc: '2.0',
@@ -132,7 +132,7 @@ async function runTests() {
   }, results);
 
   await testFunction('search with response_format=json returns parseable JSON', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       {
         jsonrpc: '2.0',
@@ -154,7 +154,7 @@ async function runTests() {
   }, results);
 
   await testFunction('compact text has only exact three-line result records without full-mode markers', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', result_detail: 'compact', num_results: 2 } } },
     ]);
@@ -167,7 +167,7 @@ async function runTests() {
   }, results);
 
   await testFunction('compact JSON excludes full metadata and omitted detail remains valid full output', async () => {
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', response_format: 'json', result_detail: 'compact', num_results: 2 } } },
       { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', num_results: 1 } } },
@@ -186,7 +186,7 @@ async function runTests() {
 
   await testFunction('configured JSON default applies when omitted and explicit text still wins', async () => {
     process.env.SEARXNG_DEFAULT_RESPONSE_FORMAT = 'json';
-    const responses = spawnWithMessages([
+    const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       {
         jsonrpc: '2.0',
