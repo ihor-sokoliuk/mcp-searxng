@@ -5,6 +5,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.5.1] - 2026-10-06
+
+### Security
+
+- Patch the transitive `proxy-addr` dependency to 2.0.8, addressing IP spoofing through IPv4-mapped IPv6 trusted subnets. [#316](https://github.com/ihor-sokoliuk/mcp-searxng/pull/316)
+- Update development-only `brace-expansion` to 5.0.12, resolving its three denial-of-service advisories. [#317](https://github.com/ihor-sokoliuk/mcp-searxng/pull/317)
+
+### Dependencies and compatibility
+
+- Update MCP core/server/client to 2.3.1 and the Node adapter to 2.1.1. Use SDK-owned protocol-header validation in place of the temporary workaround, with regression coverage for missing/mismatched headers and valid requests. STDIO clients must keep input open until responses arrive: EOF signals disconnect and aborts outstanding requests. Node >=22 remains supported. [#319](https://github.com/ihor-sokoliuk/mcp-searxng/pull/319)
+- Refresh compatible runtime and development dependencies, including `express-rate-limit`, TypeScript ESLint, ESLint, its security plugin, Supertest and Node 22 types. [#316](https://github.com/ihor-sokoliuk/mcp-searxng/pull/316)
+
+### Documentation and publication
+
+- Add tested SearXNG search configuration and browser-solver deployment guides, including writable settings, explicit engine filtering and private build-context exclusions. [#312](https://github.com/ihor-sokoliuk/mcp-searxng/pull/312)
+- Publish MCP Registry independently after npm, with bounded readiness/retry handling and final verification so transient propagation delays can recover within the same run. [#310](https://github.com/ihor-sokoliuk/mcp-searxng/pull/310)
+
+### Dependency audit
+
+- The production dependency audit is clean. A pre-existing `braces` denial-of-service advisory remains in the development-only `shx` tooling chain; no patched latest release is currently available.
+
+### Contributors
+
+- @ihor-sokoliuk — dependency maintenance, compatibility validation, documentation and publication reliability.
+
 ## [2.5.0] - 2026-09-29
 
 ### Added
