@@ -355,6 +355,9 @@ Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`. It disables all TLS certificate vali
 
 By default the server communicates over STDIO. Set `MCP_HTTP_PORT` to enable HTTP mode instead. The SDK v2 server accepts modern MCP requests and retains legacy compatibility; modern HTTP clients should send the negotiated `MCP-Protocol-Version` header.
 
+STDIO clients must keep the input pipe open until all expected responses arrive. Closing STDIN signals disconnect: the SDK aborts outstanding requests, so sending a batch through a pipe that immediately reaches EOF is not a request/response client. Close the input only after reading the responses.
+
+
 Both transports support modern `2026-07-28` plus legacy `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`. Modern HTTP requests are sessionless POSTs; legacy HTTP requests retain the stateful default or the configured legacy stateless mode.
 
 Modern HTTP requests always use an isolated per-request server and are bounded by `MCP_HTTP_STATELESS_MAX_IN_FLIGHT`, `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP`, and `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS`, even when `MCP_HTTP_STATELESS` is false. Setting `MCP_HTTP_STATELESS=true` extends that per-request serving model and the shared capacity controls to retained legacy POST requests.
