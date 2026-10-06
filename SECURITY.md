@@ -208,7 +208,7 @@ Bearer authorization and the hardened Host and Origin checks run before any per-
 
 HTTP and STDIO support modern `2026-07-28` and legacy `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`. Modern HTTP is sessionless POST-only; legacy stateful and stateless behavior retains the documented session and 405 boundaries.
 
-Modern HTTP clients are expected to provide `MCP-Protocol-Version`. For the published SDK `2.0.0`, a narrow temporary guard rejects a safe 2026-07-28 request shape when that header is missing; maintainers can remove the guard after proving that a stable SDK containing upstream PR 2594 provides the same contract.
+Modern HTTP clients must provide `MCP-Protocol-Version` matching their request envelope. The SDK owns missing/mismatched-header rejection: HTTP 400 / HeaderMismatch (`-32020`) echoes the request ID before the tool executes. Regression tests cover both the SDK directly and the product HTTP route, including release of admission capacity after rejection.
 
 `MCP_HTTP_HARDEN=true` will fail to start if static-mode `MCP_HTTP_AUTH_TOKEN` or `MCP_HTTP_ALLOWED_ORIGINS` are missing. In OAuth mode, complete OAuth configuration replaces the static token requirement.
 

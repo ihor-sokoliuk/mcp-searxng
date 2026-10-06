@@ -1078,6 +1078,46 @@ async function runTests() {
     } finally { await handler.close(); }
   }, results);
 
+  await testFunction('product HTTP rejects header mismatches without tool work and releases its admission slot', async () => {
+    envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT', '1');
+    envManager.set('MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP', '1');
+    let calls = 0;
+    try {
+      const app = await createHttpServer(() => {
+        const server = createTestMcpServer();
+        server.registerTool('header_probe', { inputSchema: {} }, async () => {
+          calls += 1;
+          return { content: [{ type: 'text' as const, text: 'ok' }] };
+        });
+        return server;
+      });
+      const send = (id: string | number, version?: string) => {
+        const pending = request(app).post('/mcp').set('Content-Type', 'application/json')
+          .set('Accept', 'application/json').set('MCP-Method', 'tools/call').set('MCP-Name', 'header_probe');
+        if (version !== undefined) pending.set('MCP-Protocol-Version', version);
+        return pending.send({ jsonrpc: '2.0', id, method: 'tools/call', params: {
+          name: 'header_probe', arguments: {}, _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        } });
+      };
+      for (const id of [7, 'product-header-check']) {
+        for (const version of [undefined, '2025-03-26']) {
+          const response = await send(id, version);
+          assert.equal(response.status, 400);
+          assert.equal(response.body.id, id);
+          assert.equal(response.body.error.code, -32020);
+          assert.equal(calls, 0);
+        }
+      }
+      const accepted = await send('valid', '2026-07-28');
+      assert.equal(accepted.status, 200, 'all rejected requests must release the single global/per-IP slot');
+      assert.equal(accepted.body.result.content[0].text, 'ok');
+      assert.equal(calls, 1);
+    } finally { envManager.restore(); }
+  }, results);
+
   await testFunction('official classifier keeps a headerless body-primary modern opening out of legacy', async () => {
     const body = {
       jsonrpc: '2.0', id: 9, method: 'server/discover',
