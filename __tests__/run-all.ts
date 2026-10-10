@@ -10,6 +10,7 @@ import { TestResult } from './helpers/test-utils.js';
 
 // Import all test suites
 import { runTests as runLoggingTests } from './unit/logging.test.js';
+import { runTests as runBuildToolingTests } from './unit/build-tooling.test.js';
 import { runTests as runTestUtilsTests } from './unit/test-utils.test.js';
 import { runTests as runDiagnosticSanitizerTests } from './unit/diagnostic-sanitizer.test.js';
 import { runTests as runCredentialOutputTests } from './unit/credential-output.test.js';
@@ -56,6 +57,7 @@ interface TestSuite {
 const testSuites: TestSuite[] = [
   // Unit Tests
   { name: 'Logging', category: 'unit', run: runLoggingTests },
+  { name: 'Build Tooling', category: 'unit', run: runBuildToolingTests },
   { name: 'Test Utilities', category: 'unit', run: runTestUtilsTests },
   { name: 'Diagnostic Sanitizer', category: 'unit', run: runDiagnosticSanitizerTests },
   { name: 'Credential Output', category: 'unit', run: runCredentialOutputTests },
