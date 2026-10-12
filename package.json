@@ -60,7 +60,7 @@
         "jose": "6.2.12",
         "node-html-markdown": "^2.0.0",
         "node-html-parser": "9.0.4",
-        "undici": "7.29.1",
+        "undici": "7.30.0",
         "unpdf": "1.8.1",
         "zod": "4.6.5"
     },
