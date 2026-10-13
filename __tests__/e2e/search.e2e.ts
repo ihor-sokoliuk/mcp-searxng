@@ -26,13 +26,59 @@ function getToolResponseText(response: any): string {
   return response.result?.content?.[0]?.text ?? '';
 }
 
+function assertCompactText(text: string): void {
+  assert.ok(text.length > 0, 'compact text should be non-empty');
+  assert.ok(!text.endsWith('\n'), text);
+  for (const marker of ['Direct answer:', 'Suggestions:', 'Corrections:', 'Infobox:', 'Relevance Score:', '_Cached result_']) assert.ok(!text.includes(marker), text);
+  const records = text.split('\n\n');
+  if (records.at(-1)?.startsWith('⚠️ Some search engines were unavailable: ')) {
+    const warning = records.pop()!;
+    assert.match(warning, /^⚠️ Some search engines were unavailable: [^\r\n]+\. Results may be incomplete\.$/u);
+  }
+  assert.ok(records.length > 0, 'an engine warning cannot replace the search output');
+  if (records.length === 1 && records[0].startsWith('No results found')) return;
+  for (const record of records) assert.equal(record.split('\n').length, 3, record);
+}
+
+function assertCompactJson(compact: Record<string, unknown>): void {
+  assert.deepEqual(Object.keys(compact).sort(), Object.hasOwn(compact, 'unresponsive_engines') ? ['results', 'unresponsive_engines'] : ['results']);
+  assert.ok(Array.isArray(compact.results));
+  for (const result of compact.results) assert.deepEqual(Object.keys(result), ['title', 'url', 'content']);
+  if (Object.hasOwn(compact, 'unresponsive_engines')) {
+    assert.ok(Array.isArray(compact.unresponsive_engines));
+    assert.ok(compact.unresponsive_engines.length > 0);
+    for (const failure of compact.unresponsive_engines) {
+      assert.ok(Array.isArray(failure) && failure.length === 2);
+      assert.ok(failure.every(value => typeof value === 'string'));
+    }
+  }
+}
+
 async function runTests() {
   console.log('🌐 E2E Testing: searxng_web_search (live)\n');
+
+  await testFunction('compact assertions accept only documented optional engine diagnostics', async () => {
+    const text = 'Title: Test\nURL: https://example.com\nDescription: Result';
+    const warning = '⚠️ Some search engines were unavailable: duckduckgo (CAPTCHA). Results may be incomplete.';
+    assertCompactText(text);
+    assertCompactText(`${text}\n\n${warning}`);
+    assert.throws(() => assertCompactText(warning));
+    assert.throws(() => assertCompactText(`${text}\nextra\n\n${warning}`));
+    assert.throws(() => assertCompactText(`${text}\n\n${warning}\nextra`));
+    assert.throws(() => assertCompactText(`${text}\n\n${warning}\n\n${warning}`));
+    const compact = { results: [{ title: 'Test', url: 'https://example.com', content: 'Result' }] };
+    assertCompactJson(compact);
+    assertCompactJson({ ...compact, unresponsive_engines: [['duckduckgo', 'CAPTCHA']] });
+    assert.throws(() => assertCompactJson({ ...compact, warnings: ['extra'] }));
+    assert.throws(() => assertCompactJson({ ...compact, unresponsive_engines: [['duckduckgo']] }));
+    assert.throws(() => assertCompactJson({ ...compact, unresponsive_engines: [[12, 'CAPTCHA']] }));
+    assert.throws(() => assertCompactJson({ results: [{ ...compact.results[0], score: 1 }] }));
+  }, results);
 
   const localSkip = checkSkipConditions(false);
   if (localSkip) {
     console.log(localSkip);
-    return { passed: 0, failed: 0, errors: [] };
+    return results;
   }
 
   await testFunction('built CLI exposes response_format and result_detail schemas', async () => {
@@ -153,17 +199,13 @@ async function runTests() {
     assert.ok(payload.results.length <= 2, 'num_results should slice JSON results');
   }, results);
 
-  await testFunction('compact text has only exact three-line result records without full-mode markers', async () => {
+  await testFunction('compact text has three-line results and optional engine diagnostics without full metadata', async () => {
     const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'searxng_web_search', arguments: { query: 'test', result_detail: 'compact', num_results: 2 } } },
     ]);
     const text = getToolResponseText(responses[2]);
-    assert.ok(text.length > 0, 'compact text should be non-empty');
-    if (text.includes('No results found')) return;
-    assert.ok(!text.endsWith('\n'), text);
-    for (const marker of ['Direct answer:', 'Suggestions:', 'Corrections:', 'Infobox:', 'Relevance Score:', '_Cached result_']) assert.ok(!text.includes(marker), text);
-    for (const record of text.split('\n\n')) assert.equal(record.split('\n').length, 3, record);
+    assertCompactText(text);
   }, results);
 
   await testFunction('compact JSON excludes full metadata and omitted detail remains valid full output', async () => {
@@ -174,11 +216,7 @@ async function runTests() {
     ]);
     const compactText = getToolResponseText(responses[2]);
     const compact = JSON.parse(compactText);
-    assert.deepEqual(Object.keys(compact), ['results']);
-    assert.ok(Array.isArray(compact.results));
-    if (compact.results.length > 0) {
-      for (const result of compact.results) assert.deepEqual(Object.keys(result), ['title', 'url', 'content']);
-    }
+    assertCompactJson(compact);
     const fullText = getToolResponseText(responses[3]);
     assert.ok(fullText.length > 0, 'omitted result_detail should produce a valid full response');
     assert.throws(() => JSON.parse(fullText));
