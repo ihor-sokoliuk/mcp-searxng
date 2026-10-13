@@ -36,7 +36,7 @@ function assertCompactText(text: string): void {
     assert.match(warning, /^⚠️ Some search engines were unavailable: [^\r\n]+\. Results may be incomplete\.$/u);
   }
   assert.ok(records.length > 0, 'an engine warning cannot replace the search output');
-  if (records.length === 1 && records[0].startsWith('No results found')) return;
+  if (records.length === 1 && records[0].startsWith('🔍 No results found for ')) return;
   for (const record of records) assert.equal(record.split('\n').length, 3, record);
 }
 
@@ -50,6 +50,7 @@ function assertCompactJson(compact: Record<string, unknown>): void {
     for (const failure of compact.unresponsive_engines) {
       assert.ok(Array.isArray(failure) && failure.length === 2);
       assert.ok(failure.every(value => typeof value === 'string'));
+      assert.ok(failure[0].length > 0);
     }
   }
 }
@@ -62,6 +63,9 @@ async function runTests() {
     const warning = '⚠️ Some search engines were unavailable: duckduckgo (CAPTCHA). Results may be incomplete.';
     assertCompactText(text);
     assertCompactText(`${text}\n\n${warning}`);
+    const empty = '🔍 No results found for "test". Try different keywords or check your search parameters.';
+    assertCompactText(empty);
+    assertCompactText(`${empty}\n\n${warning}`);
     assert.throws(() => assertCompactText(warning));
     assert.throws(() => assertCompactText(`${text}\nextra\n\n${warning}`));
     assert.throws(() => assertCompactText(`${text}\n\n${warning}\nextra`));
@@ -69,9 +73,11 @@ async function runTests() {
     const compact = { results: [{ title: 'Test', url: 'https://example.com', content: 'Result' }] };
     assertCompactJson(compact);
     assertCompactJson({ ...compact, unresponsive_engines: [['duckduckgo', 'CAPTCHA']] });
+    assertCompactJson({ ...compact, unresponsive_engines: [['duckduckgo', '']] });
     assert.throws(() => assertCompactJson({ ...compact, warnings: ['extra'] }));
     assert.throws(() => assertCompactJson({ ...compact, unresponsive_engines: [['duckduckgo']] }));
     assert.throws(() => assertCompactJson({ ...compact, unresponsive_engines: [[12, 'CAPTCHA']] }));
+    assert.throws(() => assertCompactJson({ ...compact, unresponsive_engines: [['', 'CAPTCHA']] }));
     assert.throws(() => assertCompactJson({ results: [{ ...compact.results[0], score: 1 }] }));
   }, results);
 
