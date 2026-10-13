@@ -57,17 +57,27 @@ function rejectCapacity(res: express.Response): void {
   });
 }
 
+function statefulCapacityExceeded(
+  config: ReturnType<typeof resolveHttpConcurrencyConfig>,
+  totals: { post: number; get: number; initializing: number },
+  kind: "post" | "get",
+  work: SessionWork | undefined,
+  hasSessions: boolean,
+): boolean {
+  const totalLimit = kind === "post" ? config.postTotal : config.getTotal;
+  const sessionLimit = kind === "post" ? config.postPerSession : config.getPerSession;
+  // Keep at least one slot for established sessions. A one-slot deployment
+  // can initialize only while it has no established session.
+  const initializeLimit = config.postTotal === 1 ? (hasSessions ? 0 : 1)
+    : config.postTotal - Math.max(1, Math.floor(config.postTotal / 4));
+  return totals[kind] >= totalLimit || (work ? work[kind] >= sessionLimit : totals.initializing >= initializeLimit);
+}
+
 function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>) {
   const totals = { post: 0, get: 0, initializing: 0 };
   return (kind: "post" | "get", req: express.Request, res: express.Response, work?: SessionWork, hasSessions = false): (() => void) | undefined => {
     if ((req.destroyed && !req.complete) || res.destroyed) return undefined;
-    const totalLimit = kind === "post" ? config.postTotal : config.getTotal;
-    const sessionLimit = kind === "post" ? config.postPerSession : config.getPerSession;
-    // Keep at least one slot for established sessions. A one-slot deployment
-    // can initialize only while it has no established session.
-    const initializeLimit = config.postTotal === 1 ? (hasSessions ? 0 : 1)
-      : config.postTotal - Math.max(1, Math.floor(config.postTotal / 4));
-    if (totals[kind] >= totalLimit || (work ? work[kind] >= sessionLimit : totals.initializing >= initializeLimit)) {
+    if (statefulCapacityExceeded(config, totals, kind, work, hasSessions)) {
       rejectCapacity(res);
       return undefined;
     }
