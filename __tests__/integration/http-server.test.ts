@@ -279,6 +279,74 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('globally rejected stateful POSTs do not refresh idle activity', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '2');
+    const resume = createDeferred();
+    try {
+      await withIdleClock(async clock => {
+        const { app, transports } = await createIdleHarness();
+        const ids: string[] = [];
+        for (let i = 0; i < 3; i++) ids.push((await initializeIdleSession(app)).headers['mcp-session-id']);
+        const post = (id: string) => postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id);
+        const running = [];
+        try {
+          for (let i = 0; i < 2; i++) {
+            const started = createDeferred();
+            transports[i].handleRequest = async (_req, res) => { started.resolve(); await resume.promise; res.end(); };
+            running.push(post(ids[i]).then(r => r));
+            await started.promise;
+          }
+          clock.advance(500);
+          assert.equal((await post(ids[2])).status, 503);
+          clock.advance(501);
+          await clock.sweep();
+          assert.equal((await request(app).delete('/mcp').set('mcp-session-id', ids[2])).status, 404);
+        } finally {
+          resume.resolve(); await Promise.allSettled(running);
+          await Promise.all(transports.map(t => t.close()));
+        }
+      });
+    } finally { resume.resolve(); envManager.restore(); }
+  }, results);
+
+  await testFunction('rejected stateful GET requests do not refresh idle activity', async () => {
+    envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
+    envManager.set('MCP_HTTP_MAX_GET_STREAMS_TOTAL', '1');
+    try {
+      await withIdleClock(async clock => {
+        const { app, transports } = await createIdleHarness();
+        const target = (await initializeIdleSession(app)).headers['mcp-session-id'];
+        // GET streams do not protect an otherwise idle session from expiry.
+        const listener = app.listen(0, '127.0.0.1');
+        await new Promise<void>(resolve => listener.once('listening', resolve));
+        const address = listener.address() as import('node:net').AddressInfo;
+        let stream: http.ServerResponse | undefined;
+        transports[0].handleRequest = async (_req, res) => {
+          stream = res;
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.write(': open\n\n');
+        };
+        let client: http.ClientRequest | undefined;
+        try {
+          await new Promise<void>((resolve, reject) => {
+            client = http.get({ host: '127.0.0.1', port: address.port, path: '/mcp', headers: { 'mcp-session-id': target, Accept: 'text/event-stream' } }, response => { response.resume(); resolve(); });
+            client.on('error', reject);
+          });
+          clock.advance(500);
+          assert.equal((await request(app).get('/mcp').set('mcp-session-id', target)).status, 503);
+          clock.advance(501);
+          await clock.sweep();
+          assert.equal((await request(app).delete('/mcp').set('mcp-session-id', target)).status, 404);
+        } finally {
+          stream?.end(); client?.destroy();
+          await Promise.all(transports.map(t => t.close()));
+          await new Promise<void>(resolve => listener.close(() => resolve()));
+        }
+      });
+    } finally { envManager.restore(); }
+  }, results);
+
   await testFunction('stateful failures and duplicate terminal events release a slot exactly once', async () => {
     envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '1');
     envManager.set('MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION', '1');
@@ -427,6 +495,7 @@ async function runTests() {
       }
       assert.equal((await initializeIdleSession(app)).status, 503);
       assert.equal((await request(app).delete('/mcp').set('mcp-session-id', ids[0])).status, 204);
+      assert.equal((await initializeIdleSession(app)).status, 200, 'DELETE frees a global POST slot before slow SDK work finishes');
       resume.resolve();
       await Promise.allSettled(running);
       assert.equal((await post(ids[1], 30)).status, 200);
