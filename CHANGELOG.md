@@ -5,6 +5,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.6.0] - 2026-10-13
+
+### Added
+
+- Add configurable concurrency limits for retained stateful HTTP requests: 16 POSTs and 4 standalone GET streams per session by default, with process-wide limits of 256 for each. Excess work returns HTTP 503 `Server busy` with `Retry-After: 1`; DELETE remains available. Initialization shares the POST pool with reserved headroom for established sessions. Tune the four documented `MCP_HTTP_MAX_*` settings for your workload. [#327](https://github.com/ihor-sokoliuk/mcp-searxng/pull/327)
+
+### Security and build
+
+- Replace shell-based build permission tooling with native Node handling, removing the vulnerable development-only dependency chain. Both full and production dependency audits are clean for this release. [#321](https://github.com/ihor-sokoliuk/mcp-searxng/pull/321)
+
+### Dependencies and tests
+
+- Update Express to 5.3.0, Undici to 7.30.0, Zod to 4.6.7, paired TypeScript ESLint packages to 8.71.2, and pinned GitHub Actions revisions. Node.js >=22 remains supported. [#325](https://github.com/ihor-sokoliuk/mcp-searxng/pull/325)
+- Correct compact-search E2E assertions to accept the existing engine-failure diagnostics, including CAPTCHA warnings, while rejecting malformed results and unrelated metadata. Add deterministic coverage for empty results and normalized failure tuples. [#326](https://github.com/ihor-sokoliuk/mcp-searxng/pull/326)
+
+### Compatibility
+
+This minor release adds retained-stateful HTTP controls. Modern HTTP, legacy stateless HTTP and STDIO keep their existing controls. Supported integration remains the executable MCP server via CLI, npx or container; JavaScript/TypeScript package imports remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, verification and HTTP concurrency hardening.
+
 ## [2.5.1] - 2026-10-06
 
 ### Security
