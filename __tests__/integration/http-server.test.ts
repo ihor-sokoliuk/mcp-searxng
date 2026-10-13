@@ -23,6 +23,7 @@ import {
   resolveHttpMaxSessions,
   resolveHttpInitializeTimeoutMs,
   resolveHttpSessionIdleTtlMs,
+  resolveHttpConcurrencyConfig,
 } from '../../src/http-server.js';
 import { createMcpServer, ToolAdmissionController } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -278,6 +279,165 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('stateful failures and duplicate terminal events release a slot exactly once', async () => {
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '1');
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION', '1');
+    const { app, transports } = await createIdleHarness();
+    const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+    const post = () => postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id);
+    try {
+      assert.equal((await initializeIdleSession(app)).status, 503, 'a one-slot deployment preserves its established session');
+      transports[0].handleRequest = async () => { throw new Error('test failure'); };
+      assert.equal((await post()).status, 500);
+      assert.equal((await post()).status, 500);
+      transports[0].handleRequest = async (req, res) => {
+        req.emit('aborted'); req.emit('aborted');
+        res.end();
+      };
+      assert.equal((await post()).status, 200);
+      const started = createDeferred();
+      const resume = createDeferred();
+      transports[0].handleRequest = async (_req, res) => { started.resolve(); await resume.promise; res.end(); };
+      const pending = post().then(r => r);
+      try {
+        await started.promise;
+        assert.equal((await post()).status, 503, 'duplicate release must not allow the counter to underflow');
+      } finally { resume.resolve(); await pending; }
+    } finally { await Promise.all(transports.map(t => t.close())); envManager.restore(); }
+  }, results);
+
+  await testFunction('stateful concurrency configuration validates every bound without echoing invalid values', async () => {
+    const settings = [
+      ['MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION', 'postPerSession', 16, 256],
+      ['MCP_HTTP_MAX_GET_STREAMS_PER_SESSION', 'getPerSession', 4, 32],
+      ['MCP_HTTP_MAX_IN_FLIGHT_TOTAL', 'postTotal', 256, 4096],
+      ['MCP_HTTP_MAX_GET_STREAMS_TOTAL', 'getTotal', 256, 4096],
+    ] as const;
+    try {
+      const warnings = await captureConsoleOutput(async () => {
+        for (const [name, key, fallback, maximum] of settings) {
+          for (const raw of ['', '1', String(maximum)]) {
+            envManager.set(name, raw);
+            assert.equal(resolveHttpConcurrencyConfig()[key], raw ? Number(raw) : fallback);
+          }
+          for (const raw of ['0', '-1', '1.5', '1e2', '2requests', String(maximum + 1), 'private-capacity-fixture']) {
+            envManager.set(name, raw);
+            assert.equal(resolveHttpConcurrencyConfig()[key], fallback);
+          }
+          envManager.delete(name);
+        }
+      });
+      assert.doesNotMatch(warnings.join('\n'), /private-capacity-fixture/);
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('stateful GET streams retain global and per-session slots after handler return and release on close', async () => {
+    envManager.set('MCP_HTTP_MAX_GET_STREAMS_PER_SESSION', '1');
+    envManager.set('MCP_HTTP_MAX_GET_STREAMS_TOTAL', '2');
+    const { app, transports } = await createIdleHarness();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await initializeIdleSession(app)).headers['mcp-session-id']);
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const address = listener.address() as import('node:net').AddressInfo;
+    const responses: import('express').Response[] = [];
+    const clients: http.ClientRequest[] = [];
+    for (const transport of transports) transport.handleRequest = async (_req, res) => {
+      responses.push(res as import('express').Response);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': open\n\n');
+    };
+    const get = (id: string) => new Promise<http.IncomingMessage>((resolve, reject) => {
+      const client = http.get({ host: '127.0.0.1', port: address.port, path: '/mcp', headers: { 'mcp-session-id': id, Accept: 'text/event-stream' } }, response => {
+        response.resume(); resolve(response);
+      });
+      clients.push(client); client.on('error', reject);
+    });
+    try {
+      assert.equal((await get(ids[0])).statusCode, 200);
+      assert.equal((await get(ids[0])).statusCode, 503);
+      assert.equal((await get(ids[1])).statusCode, 200);
+      assert.equal((await get(ids[2])).statusCode, 503);
+      assert.equal(responses.length, 2);
+      responses[0].end();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal((await get(ids[2])).statusCode, 200);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', ids[1])).status, 204);
+      assert.equal((await get(ids[0])).statusCode, 200);
+    } finally {
+      responses.forEach(r => r.end()); clients.forEach(c => c.destroy());
+      await Promise.all(transports.map(t => t.close()));
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('initialization reserves headroom for established POSTs', async () => {
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '2');
+    const { app, transports } = await createIdleHarness();
+    const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+    const connect = McpServer.prototype.connect;
+    const entered = createDeferred();
+    const resume = createDeferred();
+    McpServer.prototype.connect = async function (transport) {
+      entered.resolve(); await resume.promise; await connect.call(this, transport);
+    };
+    const pending = initializeIdleSession(app).then(r => r);
+    try {
+      await entered.promise;
+      assert.equal((await initializeIdleSession(app)).status, 503);
+      assert.equal((await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id)).status, 200);
+      resume.resolve();
+      assert.equal((await pending).status, 200);
+    } finally {
+      resume.resolve(); await pending;
+      McpServer.prototype.connect = connect;
+      await Promise.all(transports.map(t => t.close())); envManager.restore();
+    }
+  }, results);
+
+  await testFunction('stateful POST concurrency rejects excess work and retains capacity until SDK responses finish', async () => {
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION', '1');
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '2');
+    const entered: Array<() => void> = [];
+    const resume = createDeferred();
+    const { app, transports } = await createIdleHarness(() => {
+      const server = createTestMcpServer();
+      server.registerTool('hold', {}, async () => {
+        entered.shift()?.();
+        await resume.promise;
+        return { content: [{ type: 'text', text: 'complete' }] };
+      });
+      return server;
+    });
+    const ids = await Promise.all([initializeIdleSession(app), initializeIdleSession(app)]).then(rs => rs.map(r => r.headers['mcp-session-id']));
+    const post = (session: string, id: number) => postStatelessMcp(app, {
+      jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'hold', arguments: {} },
+    }).set('mcp-session-id', session).timeout(3000);
+    const running = [];
+    try {
+      for (let i = 0; i < 2; i++) {
+        const started = new Promise<void>(resolve => entered.push(resolve));
+        running.push(post(ids[i], i + 2).then(r => r));
+        await started;
+        const excess = await post(ids[i], i + 10);
+        assert.equal(excess.status, 503);
+        assert.equal(excess.headers['retry-after'], '1');
+        assert.deepEqual(excess.body, { jsonrpc: '2.0', error: { code: -32000, message: 'Server busy' }, id: null });
+      }
+      assert.equal((await initializeIdleSession(app)).status, 503);
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', ids[0])).status, 204);
+      resume.resolve();
+      await Promise.allSettled(running);
+      assert.equal((await post(ids[1], 30)).status, 200);
+    } finally {
+      resume.resolve();
+      await Promise.allSettled(running);
+      await Promise.all(transports.map(t => t.close()));
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('idle TTL configuration has strict bounds and value-free warnings', async () => {
     const warnings = await captureConsoleOutput(async () => {
       for (const [raw, value] of [['', 0], ['0', 0], ['1000', 1000], [' +001000 ', 1000], ['2147483647', 2147483647]] as const) {

@@ -373,8 +373,20 @@ The server SDK validates the 2026-07-28 protocol header against the request enve
 | `MCP_HTTP_SESSION_IDLE_TTL_MS` | No | `0` (disabled) | Opt-in idle expiry for legacy stateful HTTP sessions. Accepts `0` or a strict integer from `1000` through `2147483647` ms. Blank uses `0`; invalid values warn without echoing the value and use `0`. Activity uses a monotonic clock and refreshes on admitted POST, an established GET, DELETE start, and a fulfilled SDK send (including notifications). |
 | `MCP_HTTP_INITIALIZE_TIMEOUT_MS` | No | `30000` (range `1000`-`2147483647`) | Monotonic deadline for admitted legacy stateful initialization, from capacity reservation through delivery of the initialize response. A fulfilled SDK send cancels the deadline for SSE, even if the stream remains open; non-SSE delivery completes at response finish. Expiry returns HTTP 504 `Initialization timed out` with the scalar request ID before headers, or destroys an already-started response. Partial resources and session capacity are released, and exposed session IDs become invalid. Zero and invalid values warn without echoing the value and use the default; blank values silently use the default. This does not limit established-session requests or GET streams. |
 | `MCP_HTTP_STATELESS_MAX_IN_FLIGHT` | No | `16` (range `1`-`256`) | Global maximum number of admitted modern or legacy-stateless POST requests in flight. Invalid values use the default. |
+| `MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION` | No | `16` (range `1`-`256`) | Maximum concurrent POSTs in one retained legacy session. Excess work returns HTTP 503 `Server busy` with `Retry-After: 1`. |
+| `MCP_HTTP_MAX_GET_STREAMS_PER_SESSION` | No | `4` (range `1`-`32`) | Maximum concurrent standalone GET streams in one retained legacy session, subject to the transport's own stream limits. |
+| `MCP_HTTP_MAX_IN_FLIGHT_TOTAL` | No | `256` (range `1`-`4096`) | Process-wide retained-stateful POST limit, including initialization. Initializations may occupy at most the total minus one quarter (rounded down, at least one reserved slot), leaving headroom for established sessions. With a total of one, initialization is allowed only when no established session exists. |
+| `MCP_HTTP_MAX_GET_STREAMS_TOTAL` | No | `256` (range `1`-`4096`) | Process-wide maximum standalone GET streams across retained legacy sessions. |
 | `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP` | No | `8` (range `1`-global cap) | Per-client-IP in-flight maximum for modern or legacy-stateless POSTs. Values above the normalized global cap are reduced to that cap. |
 | `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` | No | `900000` (range `1000`-`2147483647`) | Maximum lifetime of an admitted modern or legacy-stateless POST, including server construction, MCP handling, and an active response stream. |
+
+The four retained-stateful concurrency settings use strict integers; blank values
+use defaults, and invalid values warn without echoing the input. Global limits
+are checked before per-session limits. Rejected work does not refresh session
+activity or terminate the session. DELETE bypasses these concurrency limits.
+Accepted POSTs and GET streams retain capacity until completion, disconnection,
+failure or session termination. Modern HTTP, legacy stateless HTTP and STDIO use
+their existing controls and are unaffected.
 
 When idle expiry is enabled, one unref'ed sweep runs every 60000 ms while sessions
 are retained. At session capacity, the same classification can run at most once

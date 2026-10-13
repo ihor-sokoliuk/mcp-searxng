@@ -33,6 +33,64 @@ interface Session {
   mcpServer: McpServer;
   oauthPrincipal?: string;
   idle?: SessionIdleActivity;
+  work: SessionWork;
+}
+
+interface SessionWork {
+  post: number;
+  get: number;
+  releases: Set<() => void>;
+}
+
+export function resolveHttpConcurrencyConfig() {
+  return {
+    postPerSession: parseBoundedStatelessEnv("MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION", 16, 1, 256),
+    getPerSession: parseBoundedStatelessEnv("MCP_HTTP_MAX_GET_STREAMS_PER_SESSION", 4, 1, 32),
+    postTotal: parseBoundedStatelessEnv("MCP_HTTP_MAX_IN_FLIGHT_TOTAL", 256, 1, 4096),
+    getTotal: parseBoundedStatelessEnv("MCP_HTTP_MAX_GET_STREAMS_TOTAL", 256, 1, 4096),
+  };
+}
+
+function rejectCapacity(res: express.Response): void {
+  res.set("Retry-After", "1").status(503).json({
+    jsonrpc: "2.0", error: { code: -32000, message: "Server busy" }, id: null,
+  });
+}
+
+function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>) {
+  const totals = { post: 0, get: 0, initializing: 0 };
+  return (kind: "post" | "get", req: express.Request, res: express.Response, work?: SessionWork, hasSessions = false): (() => void) | undefined => {
+    if ((req.destroyed && !req.complete) || res.destroyed) return undefined;
+    const totalLimit = kind === "post" ? config.postTotal : config.getTotal;
+    const sessionLimit = kind === "post" ? config.postPerSession : config.getPerSession;
+    // Keep at least one slot for established sessions. A one-slot deployment
+    // can initialize only while it has no established session.
+    const initializeLimit = config.postTotal === 1 ? (hasSessions ? 0 : 1)
+      : config.postTotal - Math.max(1, Math.floor(config.postTotal / 4));
+    if (totals[kind] >= totalLimit || (work ? work[kind] >= sessionLimit : totals.initializing >= initializeLimit)) {
+      rejectCapacity(res);
+      return undefined;
+    }
+    totals[kind]++;
+    if (work) work[kind]++;
+    else totals.initializing++;
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      totals[kind]--;
+      if (work) { work[kind]--; work.releases.delete(release); }
+      else totals.initializing--;
+      req.off("aborted", release);
+      res.off("finish", release);
+      res.off("close", release);
+    };
+    work?.releases.add(release);
+    req.once("aborted", release);
+    res.once("finish", release);
+    res.once("close", release);
+    return release;
+  };
 }
 
 interface SessionIdleActivity {
@@ -330,6 +388,7 @@ export async function createHttpServer(
   const maxSessions = resolveHttpMaxSessions();
   const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
   const sessionIdleTtlMs = resolveHttpSessionIdleTtlMs();
+  const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig());
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
@@ -548,6 +607,7 @@ export async function createHttpServer(
         reservation.released = true;
         signalRelease();
         retainedSessions--;
+        for (const release of reservation.session?.work.releases ?? []) release();
         releaseSessionActivity(reservation.session?.idle);
         stopUnusedIdleTimer();
         if (reservation.activeId) sessions.delete(reservation.activeId);
@@ -561,11 +621,12 @@ export async function createHttpServer(
   }
 
   async function initializeStatefulSession(req: express.Request, res: express.Response): Promise<void> {
+    const releasePost = admitStateful("post", req, res, undefined, sessions.size > 0);
+    if (!releasePost) return;
     const reservation = reserveStatefulSession();
     if (!reservation) {
-      res.set("Retry-After", "1").status(503).json({
-        jsonrpc: "2.0", error: { code: -32000, message: "Server busy" }, id: null,
-      });
+      releasePost();
+      rejectCapacity(res);
       return;
     }
     let transport: NodeStreamableHTTPServerTransport | undefined;
@@ -577,6 +638,7 @@ export async function createHttpServer(
     let timedOut = false;
     let restoreSend = (): void => {};
     const cancelDeadline = (): void => {
+      releasePost();
       if (deadlineTimer) clearTimeout(deadlineTimer);
       deadlineTimer = undefined;
       reservation.onRelease = undefined;
@@ -659,6 +721,7 @@ export async function createHttpServer(
       });
       reservation.session = {
         transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal,
+        work: { post: 0, get: 0, releases: new Set() },
         ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, initializeDelivered: false, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
       };
       observeSessionSends(reservation.session);
@@ -1000,11 +1063,15 @@ export async function createHttpServer(
     let transport: NodeStreamableHTTPServerTransport;
     let mcpServer: McpServer;
     let releasePost: () => void;
+    let releaseCapacity: () => void;
 
     if (sessionId && sessions.has(sessionId)) {
       // Reuse existing session
       const session = sessions.get(sessionId)!;
       if (rejectSessionPrincipal(session, res)) return;
+      const admitted = admitStateful("post", req, res, session.work);
+      if (!admitted) return;
+      releaseCapacity = admitted;
       releasePost = trackSessionPost(session.idle, req, res);
       transport = session.transport;
       mcpServer = session.mcpServer;
@@ -1018,7 +1085,11 @@ export async function createHttpServer(
     }
 
     try { await handleTransportRequest(transport, req, res); }
-    finally { releasePost(); }
+    catch (error) { releaseCapacity(); throw error; }
+    finally {
+      releasePost();
+      if (res.writableFinished || res.destroyed) releaseCapacity();
+    }
   });
 
   // Handle GET requests for server-to-client notifications via SSE
@@ -1042,17 +1113,23 @@ export async function createHttpServer(
     if (!session) return;
     const sessionId = req.headers['mcp-session-id'] as string;
     if (rejectSessionPrincipal(session, res)) return;
+    const releaseGet = admitStateful("get", req, res, session.work);
+    if (!releaseGet) return;
     const restoreGet = observeEstablishedGet(session.idle, res);
     try {
       await session.transport.handleRequest(req, res);
     } catch (error) {
+      releaseGet();
       warnDiagnostic(`⚠️  GET request failed:`, {
         clientIP: req.ip || req.socket.remoteAddress,
         sessionId,
         error: error instanceof Error ? error.message : String(error)
       });
       throw sanitizeErrorForTransport(error);
-    } finally { restoreGet(); }
+    } finally {
+      restoreGet();
+      if (res.writableFinished || res.destroyed) releaseGet();
+    }
   });
 
   // Handle DELETE requests for session termination
