@@ -3,7 +3,7 @@ import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { getConnectOptions } from "./tls-config.js";
 import { createUrlSecurityPolicyDnsError, isPrivateAddress } from "./url-security.js";
-import { getSearxngBasicAuthHeader } from "./searxng-instances.js";
+import { getSearxngBasicAuthHeader, getSearxngInstances } from "./searxng-instances.js";
 
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
@@ -15,11 +15,67 @@ type SearxngFetch = typeof globalThis.fetch;
 const defaultSearxngFetch = undiciFetch as unknown as SearxngFetch;
 let searxngFetch = defaultSearxngFetch;
 
+let unixSocketAgent: Agent | null = null;
+let unixSocketAgentPath: string | null = null;
+
+function getUnixSocketAgent(socketPath: string): Agent {
+  if (unixSocketAgent === null || unixSocketAgentPath !== socketPath) {
+    unixSocketAgent?.close();
+    unixSocketAgent = new Agent({ connect: { socketPath } } as any);
+    unixSocketAgentPath = socketPath;
+  }
+  return unixSocketAgent;
+}
+
+function splitUnixSocketPath(
+  requestPath: string,
+): { socketPath: string; path: string } | null {
+  for (const instance of getSearxngInstances()) {
+    let socketPath: string;
+    try {
+      const base = new URL(instance.endsWith("/") ? instance : instance + "/");
+      if (base.protocol !== "unix:") continue;
+      socketPath = decodeURIComponent(base.pathname).replace(/\/+$/, "");
+    } catch {
+      continue;
+    }
+    if (requestPath === socketPath) return { socketPath, path: "/" };
+    if (
+      requestPath.startsWith(socketPath.endsWith("/") ? socketPath : socketPath + "/")
+    ) {
+      return { socketPath, path: requestPath.slice(socketPath.length) };
+    }
+  }
+  return null;
+}
+
 export function fetchSearxng(
   input: string | URL | Request,
   options?: RequestInit,
 ): Promise<Response> {
-  return searxngFetch(input, options);
+  const raw =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return searxngFetch(input, options);
+  }
+  if (parsed.protocol !== "unix:") {
+    return searxngFetch(input, options);
+  }
+  const split = splitUnixSocketPath(decodeURIComponent(parsed.pathname));
+  if (split === null) {
+    return searxngFetch(input, options);
+  }
+  const nextOptions: RequestInit = { ...(options ?? {}) };
+  (nextOptions as { dispatcher?: unknown }).dispatcher = getUnixSocketAgent(split.socketPath);
+  const rewritten = new URL(split.path + parsed.search + parsed.hash, "http://unix");
+  return searxngFetch(rewritten.toString(), nextOptions);
 }
 
 export function setSearxngFetchForTesting(
