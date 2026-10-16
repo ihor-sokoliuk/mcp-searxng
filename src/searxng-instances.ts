@@ -49,7 +49,7 @@ export function validateSearxngInstanceUrl(
   try {
     const url = new URL(value);
     if (!["http:", "https:", "unix:"].includes(url.protocol)) {
-      return `SEARXNG_URL${entry} uses an unsupported protocol; expected HTTP or HTTPS`;
+      return `SEARXNG_URL${entry} uses an unsupported protocol; expected HTTP, HTTPS, or unix`;
     }
   } catch {
     return `SEARXNG_URL${entry} has invalid format`;
