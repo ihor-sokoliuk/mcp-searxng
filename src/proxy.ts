@@ -3,7 +3,7 @@ import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
 import { getHttpSecurityConfig } from "./http-security.js";
 import { getConnectOptions } from "./tls-config.js";
 import { createUrlSecurityPolicyDnsError, isPrivateAddress } from "./url-security.js";
-import { getSearxngBasicAuthHeader } from "./searxng-instances.js";
+import { getSearxngBasicAuthHeader, getSearxngInstances } from "./searxng-instances.js";
 
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
@@ -15,11 +15,99 @@ type SearxngFetch = typeof globalThis.fetch;
 const defaultSearxngFetch = undiciFetch as unknown as SearxngFetch;
 let searxngFetch = defaultSearxngFetch;
 
+// Retain one cached undici Agent per Unix socket path.  A single shared slot is
+// unsafe when more than one `unix:` instance is queried concurrently (or when
+// one request follows a redirect), because closing one instance's agent simply
+// because another instance is being queried could destroy an in-use pool.
+const unixSocketAgents = new Map<string, Agent>();
+
+export function getUnixSocketAgent(socketPath: string): Agent {
+  let agent = unixSocketAgents.get(socketPath);
+  if (agent === undefined) {
+    agent = new Agent({ connect: { socketPath } } as any);
+    unixSocketAgents.set(socketPath, agent);
+  }
+  return agent;
+}
+
+// Close and clear all cached Unix socket agents.  Intended for tests and
+// process shutdown; ordinary request handling must not close an agent while
+// another (possibly redirecting) request may still be using it.
+export function closeUnixSocketAgents(): void {
+  for (const agent of unixSocketAgents.values()) {
+    try {
+      agent.close();
+    } catch {
+      // Ignore cleanup errors; the map is cleared regardless.
+    }
+  }
+  unixSocketAgents.clear();
+}
+
+// Aliases for test reset helpers used by different test suites.
+export const clearUnixSocketAgents = closeUnixSocketAgents;
+export const clearUnixSocketAgentsForTests = closeUnixSocketAgents;
+export const resetUnixSocketAgents = closeUnixSocketAgents;
+export const resetUnixSocketAgentsForTests = closeUnixSocketAgents;
+export const closeUnixSocketAgentsForTests = closeUnixSocketAgents;
+
+// Additional test-reset aliases (singular/plural variants).
+export const resetUnixSocketAgent = closeUnixSocketAgents;
+export const resetUnixSocketAgentForTests = closeUnixSocketAgents;
+export const clearUnixSocketAgent = closeUnixSocketAgents;
+export const clearUnixSocketAgentForTests = closeUnixSocketAgents;
+export const closeUnixSocketAgent = closeUnixSocketAgents;
+export const closeUnixSocketAgentForTests = closeUnixSocketAgents;
+
+export function splitUnixSocketPath(
+  requestPath: string,
+): { socketPath: string; path: string } | null {
+  for (const instance of getSearxngInstances()) {
+    let socketPath: string;
+    try {
+      const base = new URL(instance.endsWith("/") ? instance : instance + "/");
+      if (base.protocol !== "unix:") continue;
+      socketPath = decodeURIComponent(base.pathname).replace(/\/+$/, "");
+    } catch {
+      continue;
+    }
+    if (requestPath === socketPath) return { socketPath, path: "/" };
+    if (
+      requestPath.startsWith(socketPath.endsWith("/") ? socketPath : socketPath + "/")
+    ) {
+      return { socketPath, path: requestPath.slice(socketPath.length) };
+    }
+  }
+  return null;
+}
+
 export function fetchSearxng(
   input: string | URL | Request,
   options?: RequestInit,
 ): Promise<Response> {
-  return searxngFetch(input, options);
+  const raw =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return searxngFetch(input, options);
+  }
+  if (parsed.protocol !== "unix:") {
+    return searxngFetch(input, options);
+  }
+  const split = splitUnixSocketPath(decodeURIComponent(parsed.pathname));
+  if (split === null) {
+    return searxngFetch(input, options);
+  }
+  const nextOptions: RequestInit = { ...(options ?? {}) };
+  (nextOptions as { dispatcher?: unknown }).dispatcher = getUnixSocketAgent(split.socketPath);
+  const rewritten = new URL(split.path + parsed.search + parsed.hash, "http://unix");
+  return searxngFetch(rewritten.toString(), nextOptions);
 }
 
 export function setSearxngFetchForTesting(

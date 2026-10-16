@@ -72,7 +72,7 @@ async function runTests() {
     assert.equal(malformed, 'SEARXNG_URL entry 2 has invalid format');
     assert.equal(
       unsupported,
-      'SEARXNG_URL entry 3 uses an unsupported protocol; expected HTTP or HTTPS',
+      'SEARXNG_URL entry 3 uses an unsupported protocol; expected HTTP, HTTPS, or unix',
     );
     assert.ok(!unsupported?.includes('user'));
     assert.ok(!unsupported?.includes('pass'));
