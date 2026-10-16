@@ -86,7 +86,7 @@ function redactUrl(raw: string, proxy: boolean): string {
     // A bare user:password@host can parse as an opaque custom scheme; clearing
     // URL.userinfo would leave the entire credential-bearing path untouched.
     // Misplaced separators can also put credentials in a path/query/fragment.
-    if (!["http:", "https:"].includes(url.protocol) || url.pathname.includes("@") || (proxy && (
+    if (!["http:", "https:", "unix:"].includes(url.protocol) || url.pathname.includes("@") || (proxy && (
       url.pathname !== "/" || url.search !== "" || url.hash !== ""
     ))) {
       return REDACTED_DIAGNOSTIC;

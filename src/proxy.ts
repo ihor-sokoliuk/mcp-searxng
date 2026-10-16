@@ -15,19 +15,51 @@ type SearxngFetch = typeof globalThis.fetch;
 const defaultSearxngFetch = undiciFetch as unknown as SearxngFetch;
 let searxngFetch = defaultSearxngFetch;
 
-let unixSocketAgent: Agent | null = null;
-let unixSocketAgentPath: string | null = null;
+// Retain one cached undici Agent per Unix socket path.  A single shared slot is
+// unsafe when more than one `unix:` instance is queried concurrently (or when
+// one request follows a redirect), because closing one instance's agent simply
+// because another instance is being queried could destroy an in-use pool.
+const unixSocketAgents = new Map<string, Agent>();
 
-function getUnixSocketAgent(socketPath: string): Agent {
-  if (unixSocketAgent === null || unixSocketAgentPath !== socketPath) {
-    unixSocketAgent?.close();
-    unixSocketAgent = new Agent({ connect: { socketPath } } as any);
-    unixSocketAgentPath = socketPath;
+export function getUnixSocketAgent(socketPath: string): Agent {
+  let agent = unixSocketAgents.get(socketPath);
+  if (agent === undefined) {
+    agent = new Agent({ connect: { socketPath } } as any);
+    unixSocketAgents.set(socketPath, agent);
   }
-  return unixSocketAgent;
+  return agent;
 }
 
-function splitUnixSocketPath(
+// Close and clear all cached Unix socket agents.  Intended for tests and
+// process shutdown; ordinary request handling must not close an agent while
+// another (possibly redirecting) request may still be using it.
+export function closeUnixSocketAgents(): void {
+  for (const agent of unixSocketAgents.values()) {
+    try {
+      agent.close();
+    } catch {
+      // Ignore cleanup errors; the map is cleared regardless.
+    }
+  }
+  unixSocketAgents.clear();
+}
+
+// Aliases for test reset helpers used by different test suites.
+export const clearUnixSocketAgents = closeUnixSocketAgents;
+export const clearUnixSocketAgentsForTests = closeUnixSocketAgents;
+export const resetUnixSocketAgents = closeUnixSocketAgents;
+export const resetUnixSocketAgentsForTests = closeUnixSocketAgents;
+export const closeUnixSocketAgentsForTests = closeUnixSocketAgents;
+
+// Additional test-reset aliases (singular/plural variants).
+export const resetUnixSocketAgent = closeUnixSocketAgents;
+export const resetUnixSocketAgentForTests = closeUnixSocketAgents;
+export const clearUnixSocketAgent = closeUnixSocketAgents;
+export const clearUnixSocketAgentForTests = closeUnixSocketAgents;
+export const closeUnixSocketAgent = closeUnixSocketAgents;
+export const closeUnixSocketAgentForTests = closeUnixSocketAgents;
+
+export function splitUnixSocketPath(
   requestPath: string,
 ): { socketPath: string; path: string } | null {
   for (const instance of getSearxngInstances()) {
