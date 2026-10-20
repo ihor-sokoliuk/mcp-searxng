@@ -302,6 +302,199 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('stateful shutdown drains active work, closes idle sessions and rejects new work after existing gates', async () => {
+    const resume = createDeferred();
+    const { app, transports } = await createIdleHarness();
+    const ids = [
+      (await initializeIdleSession(app)).headers['mcp-session-id'],
+      (await initializeIdleSession(app)).headers['mcp-session-id'],
+    ];
+    const closes = [0, 0];
+    transports.forEach((transport, i) => {
+      const close = transport.close.bind(transport);
+      transport.close = async () => { closes[i]++; await close(); };
+    });
+    const entered = createDeferred();
+    transports[0].handleRequest = async (_req, res) => { entered.resolve(); await resume.promise; res.end(); };
+    const active = postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', ids[0]).then(r => r);
+    await entered.promise;
+    const started = performance.now();
+    const shutdown = app.shutdownStateful();
+    try {
+      assert.equal(app.shutdownStateful(), shutdown);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(closes, [0, 1], 'an idle session closes while active work drains');
+      for (const pending of [
+        postStatelessMcp(app, { jsonrpc: '2.0', id: 3, method: 'tools/list' }),
+        postStatelessMcp(app, { jsonrpc: '2.0', id: 3, method: 'tools/list' }).set('mcp-session-id', 'unknown'),
+        request(app).get('/mcp'),
+        request(app).delete('/mcp'),
+        request(app).delete('/mcp').set('mcp-session-id', ids[0]),
+      ]) {
+        const response = await pending;
+        assert.equal(response.status, 503);
+        assert.equal(response.headers['retry-after'], '5');
+        assert.deepEqual(response.body, { jsonrpc: '2.0', error: { code: -32000, message: 'Server shutting down' }, id: null });
+      }
+      assert.equal(closes[0], 0, 'DELETE during drain has no side effect');
+      assert.equal((await request(app).post('/mcp').set('Content-Type', 'application/json').send('{')).status, 500, 'preserve the existing sanitized parser-error response');
+      assert.equal((await request(app).post('/mcp').set('Content-Type', 'text/plain').send('bad')).status, 415);
+      resume.resolve();
+      assert.equal((await active).status, 200);
+      await shutdown;
+      assert.ok(performance.now() - started < 3500, 'finished work need not wait for the drain deadline');
+      assert.deepEqual(closes, [1, 1], 'transport close is shared with MCP server close');
+    } finally { resume.resolve(); await shutdown; }
+  }, results);
+
+  await testFunction('stateful shutdown preserves authentication and rate gates', async () => {
+    envManager.set('MCP_HTTP_AUTH_TOKEN', 'shutdown-test-token');
+    envManager.set('MCP_HTTP_HARDEN', 'true');
+    envManager.set('MCP_HTTP_ALLOWED_HOSTS', 'allowed.example');
+    envManager.set('MCP_HTTP_ALLOWED_ORIGINS', 'https://allowed.example');
+    envManager.set('MCP_RATE_INIT_MAX', '1');
+    try {
+      const app = await createHttpServer(createTestMcpServer);
+      await app.shutdownStateful();
+      assert.equal((await request(app).get('/mcp')).status, 401);
+      assert.equal((await request(app).get('/mcp').set('Authorization', 'Bearer shutdown-test-token').set('Host', 'wrong.example')).status, 403);
+      const first = await postStatelessMcp(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' }).set('Authorization', 'Bearer shutdown-test-token').set('Host', 'allowed.example');
+      assert.equal(first.status, 503);
+      const second = await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('Authorization', 'Bearer shutdown-test-token').set('Host', 'allowed.example');
+      assert.equal(second.status, 429);
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('shutdown has one five-second hard stop despite hung initialization and rejecting or hanging resource closes', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
+    const servers: McpServer[] = [];
+    const serverCloses = [0, 0, 0];
+    const transportCloses = [0, 0, 0];
+    const closedAt = [0, 0, 0];
+    const originalServerClose: Array<() => Promise<void>> = [];
+    const originalTransportClose: Array<() => Promise<void>> = [];
+    const initializeEntered = createDeferred();
+    const originalDateNow = Date.now;
+    const { app, transports } = await createIdleHarness(() => {
+      const server = createTestMcpServer();
+      const index = servers.length;
+      servers.push(server);
+      originalServerClose.push(server.close.bind(server));
+      server.close = async () => {
+        serverCloses[index]++;
+        if (index === 1) throw new Error('expected server close rejection');
+        await new Promise(() => {});
+      };
+      if (index === 2) server.connect = async () => { initializeEntered.resolve(); await new Promise(() => {}); };
+      return server;
+    });
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const port = (listener.address() as { port: number }).port;
+    const clients: http.ClientRequest[] = [];
+    const streams: http.IncomingMessage[] = [];
+    try {
+      await withRequestDeadline(async timers => {
+        const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+        await initializeIdleSession(app);
+        const initializing = initializeIdleSession(app).then(r => r);
+        await initializeEntered.promise;
+        transports.forEach((transport, i) => {
+          originalTransportClose.push(transport.close.bind(transport));
+          transport.close = async () => {
+            transportCloses[i]++; closedAt[i] = performance.now();
+            if (i === 1) throw new Error('expected transport close rejection');
+            await new Promise(() => {});
+          };
+        });
+        const postEntered = createDeferred();
+        transports[0].handleRequest = async (req, res, body) => {
+          if (req.method === 'GET' || (body as { id?: number })?.id === 99) {
+            res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(': open\n\n'); return;
+          }
+          postEntered.resolve(); await new Promise(() => {});
+        };
+        const open = (method: 'GET' | 'POST') => new Promise<void>((resolve, reject) => {
+          const client = http.request({ host: '127.0.0.1', port, path: '/mcp', method, headers: {
+            'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': id,
+          } }, response => { streams.push(response); response.on('error', () => {}); response.resume(); resolve(); });
+          clients.push(client); client.on('error', reject);
+          client.end(method === 'POST' ? JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list' }) : undefined);
+        });
+        await open('GET'); await open('POST');
+        const active = postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id).then(r => r);
+        await postEntered.promise;
+        assert.equal(timers.size, 2);
+        const started = performance.now();
+        Date.now = () => 1;
+        const postStreamClosed = new Promise<void>(resolve => streams[1].once('close', resolve));
+        const shutdown = app.shutdownStateful();
+        assert.equal(app.shutdownStateful(), shutdown);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(streams[0].destroyed, true, 'GET closes without waiting for POST drain');
+        assert.equal(streams[1].destroyed, false, 'started POST gets its drain window');
+        assert.deepEqual(serverCloses, [0, 1, 0], 'idle resources close independently');
+        await shutdown;
+        const elapsed = performance.now() - started;
+        assert.ok(elapsed >= 4900 && elapsed < 7000, `one total deadline, observed ${elapsed}ms`);
+        assert.ok(closedAt[0] - started >= 3900 && closedAt[2] - started >= 3900);
+        assert.deepEqual(serverCloses, [1, 1, 1]);
+        assert.deepEqual(transportCloses, [1, 1, 1]);
+        assert.equal(timers.size, 0);
+        for (const response of await Promise.all([active, initializing])) {
+          assert.equal(response.status, 503);
+          assert.equal(response.headers['retry-after'], '5');
+          assert.equal(response.body.error.message, 'Server shutting down');
+        }
+        await postStreamClosed;
+        assert.equal(streams[1].destroyed, true);
+      });
+    } finally {
+      Date.now = originalDateNow;
+      clients.forEach(client => client.destroy());
+      transports.forEach((transport, i) => { if (originalTransportClose[i]) transport.close = originalTransportClose[i]; });
+      servers.forEach((server, i) => { server.close = originalServerClose[i]; });
+      await Promise.all(transports.map(t => t.close()));
+      await Promise.all(servers.map(s => s.close()));
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('an admitted request timeout keeps its 504 contract during shutdown drain', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
+    try {
+      await withRequestDeadline(async timers => {
+        const { app, transports } = await createIdleHarness();
+        const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+        const started = createDeferred();
+        transports[0].handleRequest = async () => { started.resolve(); await new Promise(() => {}); };
+        const pending = postStatelessMcp(app, { jsonrpc: '2.0', id: 7, method: 'tools/list' }).set('mcp-session-id', id).then(r => r);
+        await started.promise;
+        const shutdown = app.shutdownStateful();
+        [...timers.values()][0]();
+        const response = await pending;
+        assert.equal(response.status, 504);
+        assert.equal(response.body.error.message, 'Stateful request timed out');
+        assert.equal(response.body.id, 7);
+        await shutdown;
+        assert.equal(timers.size, 0);
+      });
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('legacy stateless HTTP retains listener-only shutdown behavior', async () => {
+    envManager.set('MCP_HTTP_STATELESS', 'true');
+    try {
+      const app = await createHttpServer(createTestMcpServer);
+      const shutdown = app.shutdownStateful();
+      assert.equal(app.shutdownStateful(), shutdown);
+      await shutdown;
+      assert.equal((await postStatelessMcp(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).status, 200);
+      assert.equal((await request(app).get('/mcp')).status, 405);
+    } finally { envManager.restore(); }
+  }, results);
+
   await testFunction('stateful request timeout accepts zero and strict bounds without leaking invalid values', async () => {
     try {
       for (const [raw, expected] of [['', 0], ['0', 0], ['1000', 1000], ['2147483647', 2147483647]] as const) {
@@ -451,8 +644,11 @@ async function runTests() {
     let transport!: NodeStreamableHTTPServerTransport;
     let releaseInitialize: (() => void) | undefined;
     let restoreClose = (): void => {};
+    let serverCloseAttempts = 0;
     const app = await createHttpServer(() => {
       const server = createTestMcpServer();
+      const closeServer = server.close.bind(server);
+      server.close = async () => { serverCloseAttempts++; await closeServer(); };
       const connect = server.connect.bind(server);
       server.connect = async candidate => {
         transport = candidate as NodeStreamableHTTPServerTransport;
@@ -505,6 +701,7 @@ async function runTests() {
         await streamClosed;
         assert.equal(incoming.destroyed, true);
         assert.equal(timers.size, 0);
+        assert.equal(serverCloseAttempts, 1, 'a hanging transport close must not prevent the server close attempt');
       });
     } finally {
       sendGate.resolve(); releaseInitialize?.(); client?.destroy(); incoming?.destroy();
