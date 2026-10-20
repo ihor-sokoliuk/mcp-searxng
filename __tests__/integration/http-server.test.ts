@@ -37,20 +37,21 @@ import {
 const results = createTestResults();
 const envManager = new EnvManager();
 
-async function withRequestDeadline(action: (timers: Map<NodeJS.Timeout, () => void>) => Promise<void>): Promise<void> {
+async function withRequestDeadline(action: (timers: Map<NodeJS.Timeout, () => void>, stats: { created: number }) => Promise<void>): Promise<void> {
   const originalSet = globalThis.setTimeout;
   const originalClear = globalThis.clearTimeout;
   const timers = new Map<NodeJS.Timeout, () => void>();
+  const stats = { created: 0 };
   globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => {
     const timer = originalSet(callback, delay === 1234 ? 60000 : delay, ...args);
-    if (delay === 1234) timers.set(timer, callback);
+    if (delay === 1234) { stats.created++; timers.set(timer, callback); }
     return timer;
   }) as typeof setTimeout;
   globalThis.clearTimeout = ((timer: NodeJS.Timeout) => {
     timers.delete(timer);
     originalClear(timer);
   }) as typeof clearTimeout;
-  try { await action(timers); }
+  try { await action(timers, stats); }
   finally {
     for (const timer of timers.keys()) originalClear(timer);
     globalThis.setTimeout = originalSet;
@@ -322,7 +323,7 @@ async function runTests() {
     envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
     envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
     try {
-      await withRequestDeadline(async timers => {
+      await withRequestDeadline(async (timers, stats) => {
         const { app, transports } = await createIdleHarness();
         const cases: Array<[unknown, unknown]> = [
           [{ id: 'request', method: 'tools/list' }, 'request'],
@@ -345,9 +346,11 @@ async function runTests() {
           // ID mapping with a transport fixture on an otherwise valid request.
           const defensiveCase = !Array.isArray(body) && Object.hasOwn(body as object, 'id') && typeof (body as { id: unknown }).id === 'object';
           if (defensiveCase) {
+            const createdBefore = stats.created;
             const rejected = await postStatelessMcp(app, envelope).set('mcp-session-id', id);
             assert.equal(rejected.status, 400);
             assert.equal(timers.size, 0);
+            assert.equal(stats.created, createdBefore, 'SDK rejection precedes request timer creation');
           }
           transport.handleRequest = async req => {
             if (defensiveCase) (req as http.IncomingMessage & { body: unknown }).body = envelope;
@@ -442,6 +445,75 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('a POST timeout closes a still-delivering initialize stream even if transport close hangs', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
+    const sendGate = createDeferred();
+    let transport!: NodeStreamableHTTPServerTransport;
+    let releaseInitialize: (() => void) | undefined;
+    let restoreClose = (): void => {};
+    const app = await createHttpServer(() => {
+      const server = createTestMcpServer();
+      const connect = server.connect.bind(server);
+      server.connect = async candidate => {
+        transport = candidate as NodeStreamableHTTPServerTransport;
+        const send = transport.send.bind(transport);
+        transport.send = async (message, options) => {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          await send(message, options); await sendGate.promise;
+        };
+        const handle = transport.handleRequest.bind(transport);
+        transport.handleRequest = async (req, res, body) => {
+          const end = res.end;
+          res.end = ((...args: Parameters<typeof res.end>) => {
+            releaseInitialize = () => { res.end = end; end.apply(res, args); };
+            return res;
+          }) as typeof res.end;
+          await handle(req, res, body);
+        };
+        await connect(candidate);
+      };
+      return server;
+    });
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const port = (listener.address() as { port: number }).port;
+    let incoming!: http.IncomingMessage;
+    let client!: http.ClientRequest;
+    try {
+      await withRequestDeadline(async timers => {
+        await new Promise<void>((resolve, reject) => {
+          client = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: {
+            'content-type': 'application/json', accept: 'application/json, text/event-stream',
+          } }, response => { incoming = response; response.on('error', () => {}); response.once('data', () => resolve()); response.resume(); });
+          client.on('error', reject);
+          client.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+            protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'pending-initialize', version: '1' },
+          } }));
+        });
+        assert.equal(timers.size, 0);
+        const started = createDeferred();
+        transport.handleRequest = async () => { started.resolve(); await new Promise(() => {}); };
+        const close = transport.close.bind(transport);
+        restoreClose = () => { transport.close = close; };
+        transport.close = async () => { await new Promise(() => {}); };
+        const pending = postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })
+          .set('mcp-session-id', incoming.headers['mcp-session-id'] as string).then(r => r);
+        await started.promise;
+        const streamClosed = new Promise<void>(resolve => incoming.once('close', resolve));
+        [...timers.values()][0]();
+        assert.equal((await pending).status, 504);
+        await streamClosed;
+        assert.equal(incoming.destroyed, true);
+        assert.equal(timers.size, 0);
+      });
+    } finally {
+      sendGate.resolve(); releaseInitialize?.(); client?.destroy(); incoming?.destroy();
+      restoreClose(); await transport?.close();
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('stateful request timers cancel on successful responses and remain absent when disabled', async () => {
     try {
       await withRequestDeadline(async timers => {
@@ -449,13 +521,16 @@ async function runTests() {
           envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', timeout);
           const { app, transports } = await createIdleHarness();
           const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+          let expiredAfterFinish: (() => void) | undefined;
           transports[0].handleRequest = async (_req, res) => {
             assert.equal(timers.size, timeout === '0' ? 0 : 1);
+            expiredAfterFinish = [...timers.values()][0];
             res.end();
           };
           await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id).set('mcp-protocol-version', '2024-11-05');
           assert.equal(timers.size, 0);
-          await transports[0].close();
+          expiredAfterFinish?.();
+          assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 204, 'a late deadline must not invalidate a finished response');
         }
       });
     } finally { envManager.restore(); }
