@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.7.0] - 2026-10-20
+
+### Added
+
+- Add opt-in `MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS` for retained stateful HTTP POSTs. It defaults to `0` (disabled); expiry returns HTTP 504 before headers or closes a started response, invalidates the session, terminates siblings and releases capacity. Initialization and standalone GET have separate lifecycles. [#333](https://github.com/ihor-sokoliuk/mcp-searxng/pull/333)
+- Drain retained stateful HTTP sessions on SIGINT/SIGTERM. New stateful requests receive HTTP 503 with `Retry-After: 5` after existing gates; admitted POSTs have up to four seconds to finish, with a five-second total session-shutdown budget before listener closure. Repeated signals share one operation, queued terminal responses may flush within the same bound, and hanging/rejecting resource closes cannot retain admission state. Existing modern/stateless work can extend subsequent listener closure. [#335](https://github.com/ihor-sokoliuk/mcp-searxng/pull/335)
+
+### Dependencies and build
+
+- Update Undici to 7.30.1, unpdf to 1.9.1, jose to 6.2.13, node-html-parser to 9.0.5, ESLint to 10.13.0 and TypeScript ESLint to 8.72.0. Refresh pinned CodeQL/Scorecard Actions and the Node LTS Alpine image from Node 24.21.0 to 24.22.0. Normalize two lockfile URLs to the official npm registry without changing their integrity. [#334](https://github.com/ihor-sokoliuk/mcp-searxng/pull/334)
+
+### Compatibility
+
+Node.js >=22 remains supported. Legacy stateless HTTP and STDIO retain their existing shutdown behavior; modern HTTP remains sessionless. The new request lifetime control is disabled by default. Supported integration remains the executable MCP server via CLI, npx or container; JavaScript/TypeScript package imports remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, verification and stateful HTTP lifecycle improvements.
+
+
 ## [2.6.0] - 2026-10-13
 
 ### Added
