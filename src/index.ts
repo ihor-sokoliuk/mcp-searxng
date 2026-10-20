@@ -7,6 +7,7 @@ import {
   type ReadResourceCallback,
 } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import type { Server as HttpListener } from "node:http";
 
 // Import modularized functionality
 import {
@@ -488,6 +489,24 @@ export function createMcpServer(admissionController: ToolAdmissionController, mo
   return mcpServer;
 }
 
+export function createHttpShutdown(
+  app: { shutdownStateful: () => Promise<void> },
+  listener: Pick<HttpListener, "close">,
+  onClosed: () => void = () => process.exit(0),
+): (signal: string) => Promise<void> {
+  let pending: Promise<void> | undefined;
+  return (signal: string): Promise<void> => {
+    pending ??= (async () => {
+      writeDiagnostic("log", `Received ${signal}. Shutting down HTTP server...`);
+      await app.shutdownStateful();
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      writeDiagnostic("log", "HTTP server closed");
+      onClosed();
+    })();
+    return pending;
+  };
+}
+
 // Main function
 export async function main() {
   initializeDiagnosticSanitizer();
@@ -518,13 +537,7 @@ export async function main() {
     });
 
     // Handle graceful shutdown
-    const shutdown = (signal: string) => {
-      writeDiagnostic("log", `Received ${signal}. Shutting down HTTP server...`);
-      httpServer.close(() => {
-        writeDiagnostic("log", "HTTP server closed");
-        process.exit(0);
-      });
-    };
+    const shutdown = createHttpShutdown(app, httpServer);
 
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -9,11 +9,13 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
 import { packageVersion } from '../../src/version.js';
 import {
   isWebUrlReadArgs,
   createMcpServer,
   createToolAdmissionController,
+  createHttpShutdown,
 } from '../../src/index.js';
 import { isSearXNGWebSearchArgs } from '../../src/types.js';
 import { createConfigResource, createHelpResource } from '../../src/resources.js';
@@ -23,6 +25,31 @@ const results = createTestResults();
 
 async function runTests() {
   console.log('🧪 Integration Testing: index.ts\n');
+
+  await testFunction('repeated HTTP signals share session shutdown before listener closure', async () => {
+    let release!: () => void;
+    let shutdownCalls = 0;
+    let closedCalls = 0;
+    const draining = new Promise<void>(resolve => { release = resolve; });
+    const listener = http.createServer();
+    listener.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const shutdown = createHttpShutdown({
+      shutdownStateful: () => { shutdownCalls++; return draining; },
+    }, listener, () => { closedCalls++; });
+    try {
+      const first = shutdown('SIGINT');
+      assert.equal(shutdown('SIGTERM'), first);
+      assert.equal(shutdownCalls, 1);
+      assert.equal(listener.listening, true);
+      assert.equal(closedCalls, 0);
+      release();
+      await first;
+      assert.equal(listener.listening, false);
+      assert.equal(closedCalls, 1);
+      assert.equal(shutdown('SIGINT'), first);
+    } finally { release(); listener.close(); }
+  }, results);
 
   await testFunction('Package version is exported', () => {
     assert.ok(packageVersion);

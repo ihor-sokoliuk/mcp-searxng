@@ -53,13 +53,123 @@ function createStatefulFinalizer(
   let closing: Promise<void> | undefined;
   return () => {
     release();
-    closing ??= (async () => {
-      try { await resources.transport?.close(); }
-      catch (error) { warnDiagnostic("Stateful transport cleanup failed.", error); }
-      try { await resources.mcpServer?.close(); }
-      catch (error) { warnDiagnostic("Stateful server cleanup failed.", error); }
-    })();
+    if (!closing) {
+      const closeTransport = resources.transport?.close.bind(resources.transport);
+      const transportClosed = Promise.resolve().then(() => closeTransport?.());
+      // McpServer.close also closes its transport. Share the in-progress close
+      // so both resources can start cleanup independently without double close.
+      if (resources.transport) resources.transport.close = () => transportClosed;
+      closing = Promise.allSettled([
+        transportClosed,
+        Promise.resolve().then(() => resources.mcpServer?.close()),
+      ]).then(outcomes => {
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") warnDiagnostic("Stateful resource cleanup failed.", outcome.reason);
+        }
+      });
+    }
     return closing;
+  };
+}
+
+interface ShutdownSession {
+  initializing: boolean;
+  work: SessionWork;
+  finalize: () => Promise<void>;
+}
+
+function rejectShutdown(res: express.Response): void {
+  res.set("Retry-After", "5").status(503).json({
+    jsonrpc: "2.0", error: { code: -32000, message: "Server shutting down" }, id: null,
+  });
+}
+
+function finishShutdownResponse(res: express.Response, kind: "post" | "get"): void {
+  if (res.destroyed || res.writableFinished) return;
+  if (kind === "get" || res.headersSent) res.destroy();
+  else rejectShutdown(res);
+}
+
+function createStatefulShutdown() {
+  const entries = new Set<ShutdownSession>();
+  const started = new Set<ShutdownSession>();
+  const responses = new Map<express.Response, "post" | "get">();
+  let stopped = false;
+  let finished = false;
+  let pending = 0;
+  let promise: Promise<void> | undefined;
+  let resolveShutdown: () => void;
+  let drainTimer: NodeJS.Timeout | undefined;
+  let hardTimer: NodeJS.Timeout | undefined;
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(drainTimer);
+    clearTimeout(hardTimer);
+    for (const [res, kind] of responses) finishShutdownResponse(res, kind);
+    responses.clear();
+    started.clear();
+    resolveShutdown();
+  };
+  const checkComplete = (): void => {
+    if (stopped && entries.size === 0 && pending === 0) finish();
+  };
+  const start = (entry: ShutdownSession): void => {
+    if (started.has(entry)) return;
+    started.add(entry);
+    pending++;
+    // Preserve the shutdown response before SDK close can end or destroy it.
+    // Active POSTs reach this point only after their drain window expires.
+    for (const [res, kind] of entry.work.responses) finishShutdownResponse(res, kind);
+    // Invalidate synchronously, even when resource closure will never settle.
+    let closing: Promise<void>;
+    try { closing = entry.finalize(); }
+    catch (error) { closing = Promise.reject(error); }
+    void closing.catch(error => warnDiagnostic("Stateful shutdown cleanup failed.", error))
+      .finally(() => { pending--; checkComplete(); });
+  };
+  const changed = (): void => {
+    if (!stopped || finished) return;
+    for (const entry of entries) {
+      if (!entry.initializing && entry.work.post === 0) start(entry);
+    }
+    queueMicrotask(checkComplete);
+  };
+  return {
+    add: (entry: ShutdownSession) => { entries.add(entry); },
+    remove: (entry: ShutdownSession) => {
+      entries.delete(entry);
+      // Let the current terminal event write its own response (for example a
+      // request-timeout 504) before shutdown finishes any remaining responses.
+      queueMicrotask(checkComplete);
+    },
+    changed,
+    reject(res: express.Response): boolean {
+      if (!stopped) return false;
+      rejectShutdown(res);
+      return true;
+    },
+    shutdown(): Promise<void> {
+      if (promise) return promise;
+      stopped = true;
+      promise = new Promise<void>(resolve => { resolveShutdown = resolve; });
+      for (const entry of entries) {
+        for (const [res, kind] of entry.work.responses) {
+          responses.set(res, kind);
+          if (kind === "get" && !res.destroyed) res.destroy();
+        }
+      }
+      // Native timers use monotonic elapsed time. Both budgets start together.
+      drainTimer = setTimeout(() => { for (const entry of entries) start(entry); }, 4000);
+      hardTimer = setTimeout(() => {
+        for (const entry of entries) start(entry);
+        finish();
+      }, 5000);
+      drainTimer.unref();
+      hardTimer.unref();
+      changed();
+      return promise;
+    },
   };
 }
 
@@ -154,7 +264,7 @@ function statefulCapacityExceeded(
   return totals[kind] >= totalLimit || (work ? work[kind] >= sessionLimit : totals.initializing >= initializeLimit);
 }
 
-function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>) {
+function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>, onRelease: () => void) {
   const totals = { post: 0, get: 0, initializing: 0 };
   return (kind: "post" | "get", req: express.Request, res: express.Response, work?: SessionWork, hasSessions = false): (() => void) | undefined => {
     if ((req.destroyed && !req.complete) || res.destroyed) return undefined;
@@ -175,6 +285,7 @@ function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrenc
       req.off("aborted", release);
       res.off("finish", release);
       res.off("close", release);
+      onRelease();
     };
     work?.releases.add(release);
     work?.responses.set(res, kind);
@@ -473,7 +584,7 @@ export async function createHttpServer(
   createMcpServer: (modern?: boolean) => McpServer,
   port?: number,
   oauthVerifier?: OAuthTokenVerifier,
-): Promise<express.Application> {
+): Promise<express.Application & { shutdownStateful: () => Promise<void> }> {
   const app = express();
   const security = getHttpSecurityConfig(port);
   const stateless = resolveStatelessHttpConfig();
@@ -481,7 +592,8 @@ export async function createHttpServer(
   const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
   const sessionIdleTtlMs = resolveHttpSessionIdleTtlMs();
   const sessionRequestTimeoutMs = resolveHttpSessionRequestTimeoutMs();
-  const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig());
+  const statefulShutdown = createStatefulShutdown();
+  const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig(), statefulShutdown.changed);
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
@@ -689,6 +801,7 @@ export async function createHttpServer(
       activeId: undefined as string | undefined,
       session: undefined as Session | undefined,
       onRelease: undefined as (() => void) | undefined,
+      onEnd: undefined as (() => void) | undefined,
       activate(sessionId: string): void {
         if (reservation.released || !reservation.session) throw new Error("Initialization was aborted");
         reservation.activeId = sessionId;
@@ -698,6 +811,8 @@ export async function createHttpServer(
       release(): void {
         if (reservation.released) return;
         reservation.released = true;
+        reservation.onEnd?.();
+        reservation.onEnd = undefined;
         signalRelease();
         retainedSessions--;
         for (const release of reservation.session?.work.releases ?? []) release();
@@ -726,6 +841,12 @@ export async function createHttpServer(
     let mcpServer: McpServer | undefined;
     const resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer } = {};
     const finalize = createStatefulFinalizer(reservation.release, resources);
+    const lifecycle: ShutdownSession = {
+      initializing: true, work: { post: 0, get: 0, releases: new Set(), responses: new Map() }, finalize,
+    };
+    reservation.onEnd = () => statefulShutdown.remove(lifecycle);
+    statefulShutdown.add(lifecycle);
+    observeInitializeResponse(lifecycle.work, res);
     const deadlineAt = performance.now() + initializeTimeoutMs;
     let deadlineTimer: NodeJS.Timeout | undefined;
     let delivered = false;
@@ -769,6 +890,7 @@ export async function createHttpServer(
     const completeDelivery = (): void => {
       if (deadlineExpired()) return;
       delivered = true;
+      lifecycle.initializing = false;
       if (reservation.session?.idle) {
         const idle = reservation.session.idle;
         idle.initializeDelivered = true;
@@ -777,6 +899,7 @@ export async function createHttpServer(
       }
       cancelDeadline();
       detachRequest();
+      statefulShutdown.changed();
     };
     const isEventStream = (): boolean => String(res.getHeader("content-type") ?? "").toLowerCase().startsWith("text/event-stream");
     const responseClosed = (): void => {
@@ -811,13 +934,12 @@ export async function createHttpServer(
       resources.transport = transport;
       reservation.session = {
         transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal,
-        work: { post: 0, get: 0, releases: new Set(), responses: new Map() },
+        work: lifecycle.work,
         invalidate: reservation.release,
         finalize,
         released: reservation.releasedSignal,
         ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, initializeDelivered: false, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
       };
-      observeInitializeResponse(reservation.session.work, res);
       observeSessionSends(reservation.session);
       transport.onclose = reservation.release;
       restoreSend = observeInitializeSend(transport, scalarRequestId(req.body), () => {
@@ -1153,6 +1275,7 @@ export async function createHttpServer(
       return;
     }
 
+    if (statefulShutdown.reject(res)) return;
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: NodeStreamableHTTPServerTransport;
     let mcpServer: McpServer;
@@ -1211,6 +1334,7 @@ export async function createHttpServer(
       return;
     }
 
+    if (statefulShutdown.reject(res)) return;
     const session = findStatefulSession("GET", req, res);
     if (!session) return;
     const sessionId = req.headers['mcp-session-id'] as string;
@@ -1251,6 +1375,7 @@ export async function createHttpServer(
       return;
     }
 
+    if (statefulShutdown.reject(res)) return;
     const session = findStatefulSession("DELETE", req, res);
     if (!session) return;
     const sessionId = req.headers['mcp-session-id'] as string;
@@ -1311,5 +1436,8 @@ export async function createHttpServer(
     });
   });
 
-  return app;
+  const noStatefulShutdown = Promise.resolve();
+  return Object.assign(app, {
+    shutdownStateful: stateless.enabled ? () => noStatefulShutdown : statefulShutdown.shutdown,
+  });
 }

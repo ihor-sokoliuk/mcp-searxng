@@ -389,6 +389,19 @@ Accepted POSTs and GET streams retain capacity until completion, disconnection,
 failure or session termination. Modern HTTP, legacy stateless HTTP and STDIO use
 their existing controls and are unaffected.
 
+On SIGINT or SIGTERM, retained stateful HTTP sessions stop admitting POST, GET
+and DELETE after the existing security, parsing and rate-limit checks. Rejected
+requests receive HTTP 503 `Server shutting down` with `Retry-After: 5`; DELETE
+does not terminate a session during the drain. Standalone GET streams close,
+idle sessions finalize immediately, and admitted POSTs have up to 4000 ms to
+finish. Remaining session cleanup starts concurrently, with a single 5000 ms
+total shutdown limit measured by monotonic timers. Before forced cleanup closes
+their transports, unfinished responses receive the same 503 before headers or
+have their connections destroyed after headers. The hard stop also terminates
+any remaining responses. The HTTP listener then closes. Repeated
+signals share this operation. Legacy stateless HTTP keeps listener-only shutdown;
+modern per-request HTTP and STDIO retain their existing behavior.
+
 When idle expiry is enabled, one unref'ed sweep runs every 60000 ms while sessions
 are retained. At session capacity, the same classification can run at most once
 per 1000 monotonic ms. Only expired active sessions with no admitted POST work
