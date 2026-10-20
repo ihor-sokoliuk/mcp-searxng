@@ -24,6 +24,7 @@ import {
   resolveHttpInitializeTimeoutMs,
   resolveHttpSessionIdleTtlMs,
   resolveHttpConcurrencyConfig,
+  resolveHttpSessionRequestTimeoutMs,
 } from '../../src/http-server.js';
 import { createMcpServer, ToolAdmissionController } from '../../src/index.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
@@ -35,6 +36,27 @@ import {
 
 const results = createTestResults();
 const envManager = new EnvManager();
+
+async function withRequestDeadline(action: (timers: Map<NodeJS.Timeout, () => void>) => Promise<void>): Promise<void> {
+  const originalSet = globalThis.setTimeout;
+  const originalClear = globalThis.clearTimeout;
+  const timers = new Map<NodeJS.Timeout, () => void>();
+  globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => {
+    const timer = originalSet(callback, delay === 1234 ? 60000 : delay, ...args);
+    if (delay === 1234) timers.set(timer, callback);
+    return timer;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((timer: NodeJS.Timeout) => {
+    timers.delete(timer);
+    originalClear(timer);
+  }) as typeof clearTimeout;
+  try { await action(timers); }
+  finally {
+    for (const timer of timers.keys()) originalClear(timer);
+    globalThis.setTimeout = originalSet;
+    globalThis.clearTimeout = originalClear;
+  }
+}
 
 async function withIdleClock(action: (clock: {
   advance: (ms: number) => void;
@@ -279,6 +301,166 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('stateful request timeout accepts zero and strict bounds without leaking invalid values', async () => {
+    try {
+      for (const [raw, expected] of [['', 0], ['0', 0], ['1000', 1000], ['2147483647', 2147483647]] as const) {
+        envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', raw);
+        assert.equal(resolveHttpSessionRequestTimeoutMs(), expected);
+      }
+      const messages = await captureConsoleOutput(async () => {
+        for (const raw of ['999', '-1', '2147483648', '1e3', '1.5', 'private-timeout-marker']) {
+          envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', raw);
+          assert.equal(resolveHttpSessionRequestTimeoutMs(), 0);
+        }
+      });
+      assert.equal(messages.length, 6);
+      assert.doesNotMatch(messages.join('\n'), /private-timeout-marker/);
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('stateful request timeout echoes only scalar IDs and releases session capacity exactly once', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    try {
+      await withRequestDeadline(async timers => {
+        const { app, transports } = await createIdleHarness();
+        const cases: Array<[unknown, unknown]> = [
+          [{ id: 'request', method: 'tools/list' }, 'request'],
+          [{ id: 42, method: 'tools/list' }, 42],
+          [[{ id: 1, method: 'tools/list' }], null],
+          [{ method: 'notifications/initialized' }, null],
+          [{ method: 'tools/list' }, null],
+          [{ id: {}, method: 'tools/list' }, null],
+          [{ id: null, method: 'tools/list' }, null],
+        ];
+        for (const [body, expectedId] of cases) {
+          const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+          assert.ok(id);
+          assert.equal(timers.size, 0, 'initialize must not start a request deadline');
+          const transport = transports.at(-1)!;
+          const started = createDeferred();
+          const envelope = Array.isArray(body) ? body.map(item => ({ jsonrpc: '2.0', ...item })) : { jsonrpc: '2.0', ...body as object };
+          // Current SDK classification rejects invalid IDs before
+          // admission. Preserve that gate, then exercise the timeout's defensive
+          // ID mapping with a transport fixture on an otherwise valid request.
+          const defensiveCase = !Array.isArray(body) && Object.hasOwn(body as object, 'id') && typeof (body as { id: unknown }).id === 'object';
+          if (defensiveCase) {
+            const rejected = await postStatelessMcp(app, envelope).set('mcp-session-id', id);
+            assert.equal(rejected.status, 400);
+            assert.equal(timers.size, 0);
+          }
+          transport.handleRequest = async req => {
+            if (defensiveCase) (req as http.IncomingMessage & { body: unknown }).body = envelope;
+            started.resolve(); await new Promise(() => {});
+          };
+          const pending = postStatelessMcp(app, defensiveCase ? { jsonrpc: '2.0', id: 1, method: 'tools/list' } : envelope).set('mcp-session-id', id).set('mcp-protocol-version', '2024-11-05').then(r => r);
+          await Promise.race([started.promise, pending.then(r => { throw new Error(`Request rejected before transport: ${r.status} ${r.text}`); })]);
+          assert.equal(timers.size, 1);
+          const [timer, expire] = [...timers][0];
+          assert.equal(timer.hasRef(), false);
+          expire();
+          const response = await pending;
+          assert.equal(response.status, 504);
+          assert.deepEqual(response.body, { jsonrpc: '2.0', error: { code: -32000, message: 'Stateful request timed out' }, id: expectedId });
+          assert.equal(timers.size, 0);
+          assert.equal((await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id).set('mcp-protocol-version', '2024-11-05')).status, 404);
+          assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id).set('mcp-protocol-version', '2024-11-05')).status, 404);
+          await transport.close();
+        }
+      });
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('one timed-out stateful POST invalidates pending siblings and cancels all deadlines', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '2');
+    envManager.set('MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION', '2');
+    try {
+      await withRequestDeadline(async timers => {
+        const { app, transports } = await createIdleHarness();
+        const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+        let entered = createDeferred();
+        transports[0].handleRequest = async () => { entered.resolve(); await new Promise(() => {}); };
+        const post = (requestId: number) => postStatelessMcp(app, { jsonrpc: '2.0', id: requestId, method: 'tools/list' }).set('mcp-session-id', id).set('mcp-protocol-version', '2024-11-05');
+        const first = post(1).then(r => r);
+        await entered.promise;
+        entered = createDeferred();
+        const second = post(2).then(r => r);
+        await entered.promise;
+        assert.equal((await post(3)).status, 503);
+        assert.equal(timers.size, 2, 'rejected requests must not have a deadline');
+        [...timers.values()][0]();
+        assert.equal((await first).status, 504);
+        const sibling = await second;
+        assert.equal(sibling.status, 404);
+        assert.deepEqual(sibling.body, { jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+        assert.equal(timers.size, 0);
+        assert.equal((await initializeIdleSession(app)).status, 200);
+        await Promise.all(transports.map(t => t.close()));
+      });
+    } finally { envManager.restore(); }
+  }, results);
+
+  await testFunction('stateful timeout destroys started POST siblings and GET streams despite wall-clock jumps', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1000');
+    const originalNow = Date.now;
+    const clients: http.ClientRequest[] = [];
+    const responses: http.IncomingMessage[] = [];
+    const { app, transports } = await createIdleHarness();
+    const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+    transports[0].handleRequest = async (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': open\n\n');
+    };
+    const listener = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => listener.once('listening', resolve));
+    const port = (listener.address() as { port: number }).port;
+    const open = (method: string) => new Promise<void>((resolve, reject) => {
+      const client = http.request({ host: '127.0.0.1', port, path: '/mcp', method, headers: {
+        'content-type': 'application/json', accept: 'application/json, text/event-stream',
+        'mcp-session-id': id, 'mcp-protocol-version': '2024-11-05',
+      } }, response => { responses.push(response); response.on('error', () => {}); response.resume(); resolve(); });
+      clients.push(client); client.on('error', reject);
+      client.end(method === 'POST' ? JSON.stringify({ jsonrpc: '2.0', id: clients.length, method: 'tools/list' }) : undefined);
+    });
+    try {
+      await open('GET');
+      await open('POST');
+      await open('POST');
+      Date.now = () => 1;
+      await new Promise(resolve => setTimeout(resolve, 1150));
+      assert.equal(responses.length, 3);
+      assert.ok(responses.every(response => response.destroyed));
+      assert.ok(responses.every(response => response.statusCode === 200), 'never write a second status after headers');
+      assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
+    } finally {
+      Date.now = originalNow;
+      clients.forEach(client => client.destroy());
+      await Promise.all(transports.map(t => t.close()));
+      await new Promise<void>(resolve => listener.close(() => resolve()));
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('stateful request timers cancel on successful responses and remain absent when disabled', async () => {
+    try {
+      await withRequestDeadline(async timers => {
+        for (const timeout of ['0', '1234']) {
+          envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', timeout);
+          const { app, transports } = await createIdleHarness();
+          const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+          transports[0].handleRequest = async (_req, res) => {
+            assert.equal(timers.size, timeout === '0' ? 0 : 1);
+            res.end();
+          };
+          await postStatelessMcp(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).set('mcp-session-id', id).set('mcp-protocol-version', '2024-11-05');
+          assert.equal(timers.size, 0);
+          await transports[0].close();
+        }
+      });
+    } finally { envManager.restore(); }
+  }, results);
+
   await testFunction('globally rejected stateful POSTs do not refresh idle activity', async () => {
     envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
     envManager.set('MCP_HTTP_MAX_IN_FLIGHT_TOTAL', '2');

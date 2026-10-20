@@ -34,12 +34,77 @@ interface Session {
   oauthPrincipal?: string;
   idle?: SessionIdleActivity;
   work: SessionWork;
+  invalidate: () => void;
+  finalize: () => Promise<void>;
+  released: Promise<void>;
 }
 
 interface SessionWork {
   post: number;
   get: number;
   releases: Set<() => void>;
+  responses: Map<express.Response, "post" | "get">;
+}
+
+function createStatefulFinalizer(
+  release: () => void,
+  resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer },
+): () => Promise<void> {
+  let closing: Promise<void> | undefined;
+  return () => {
+    release();
+    closing ??= (async () => {
+      try { await resources.transport?.close(); }
+      catch (error) { warnDiagnostic("Stateful transport cleanup failed.", error); }
+      try { await resources.mcpServer?.close(); }
+      catch (error) { warnDiagnostic("Stateful server cleanup failed.", error); }
+    })();
+    return closing;
+  };
+}
+
+export function resolveHttpSessionRequestTimeoutMs(): number {
+  if (process.env.MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS?.trim() === "0") return 0;
+  return parseBoundedStatelessEnv("MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS", 0, 1000, 2147483647);
+}
+
+function finishStatefulResponse(res: express.Response, kind: "post" | "get", timeoutId?: unknown): void {
+  if (res.destroyed || res.writableFinished) return;
+  if (kind === "get" || res.headersSent) { res.destroy(); return; }
+  const timedOut = timeoutId !== undefined;
+  res.status(timedOut ? 504 : 404).json({
+    jsonrpc: "2.0",
+    error: { code: timedOut ? -32000 : -32001, message: timedOut ? "Stateful request timed out" : "Session not found" },
+    id: timedOut ? timeoutId : null,
+  });
+}
+
+function trackStatefulDeadline(session: Session, req: express.Request, res: express.Response, timeoutMs: number): () => void {
+  if (!timeoutMs) return () => {};
+  const stop = (): void => {
+    clearTimeout(timer);
+    session.work.releases.delete(stop);
+    req.off("aborted", stop);
+    res.off("finish", stop);
+    res.off("close", stop);
+  };
+  // Node timers use monotonic elapsed time; wall-clock adjustments cannot extend
+  // an admitted request. Keep the timer until the response ends, including SSE.
+  const timer = setTimeout(() => {
+    const responses = [...session.work.responses];
+    session.invalidate();
+    finishStatefulResponse(res, "post", scalarRequestId(req.body));
+    for (const [sibling, kind] of responses) {
+      if (sibling !== res) finishStatefulResponse(sibling, kind);
+    }
+    void session.finalize();
+  }, timeoutMs);
+  timer.unref();
+  session.work.releases.add(stop);
+  req.once("aborted", stop);
+  res.once("finish", stop);
+  res.once("close", stop);
+  return stop;
 }
 
 export function resolveHttpConcurrencyConfig() {
@@ -89,13 +154,14 @@ function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrenc
       if (released) return;
       released = true;
       totals[kind]--;
-      if (work) { work[kind]--; work.releases.delete(release); }
+      if (work) { work[kind]--; work.releases.delete(release); work.responses.delete(res); }
       else totals.initializing--;
       req.off("aborted", release);
       res.off("finish", release);
       res.off("close", release);
     };
     work?.releases.add(release);
+    work?.responses.set(res, kind);
     req.once("aborted", release);
     res.once("finish", release);
     res.once("close", release);
@@ -398,6 +464,7 @@ export async function createHttpServer(
   const maxSessions = resolveHttpMaxSessions();
   const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
   const sessionIdleTtlMs = resolveHttpSessionIdleTtlMs();
+  const sessionRequestTimeoutMs = resolveHttpSessionRequestTimeoutMs();
   const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig());
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
@@ -641,7 +708,8 @@ export async function createHttpServer(
     }
     let transport: NodeStreamableHTTPServerTransport | undefined;
     let mcpServer: McpServer | undefined;
-    let cleanupPromise: Promise<void> | undefined;
+    const resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer } = {};
+    const finalize = createStatefulFinalizer(reservation.release, resources);
     const deadlineAt = performance.now() + initializeTimeoutMs;
     let deadlineTimer: NodeJS.Timeout | undefined;
     let delivered = false;
@@ -662,13 +730,7 @@ export async function createHttpServer(
     const cleanup = (): Promise<void> => {
       reservation.release();
       detachRequest();
-      cleanupPromise ??= (async () => {
-        try { await transport?.close(); }
-        catch (error) { warnDiagnostic("Stateful transport cleanup failed.", error); }
-        try { await mcpServer?.close(); }
-        catch (error) { warnDiagnostic("Stateful server cleanup failed.", error); }
-      })();
-      return cleanupPromise;
+      return finalize();
     };
     const abort = (): void => { void cleanup(); };
     const expire = (): void => {
@@ -720,6 +782,7 @@ export async function createHttpServer(
     deadlineTimer.unref();
     try {
       mcpServer = createMcpServer();
+      resources.mcpServer = mcpServer;
       if (deadlineExpired()) { await cleanup(); return; }
       transport = new NodeStreamableHTTPServerTransport({
         enableJsonResponse: false,
@@ -729,9 +792,13 @@ export async function createHttpServer(
         allowedHosts: security.allowedHosts,
         allowedOrigins: security.allowedOrigins,
       });
+      resources.transport = transport;
       reservation.session = {
         transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal,
-        work: { post: 0, get: 0, releases: new Set() },
+        work: { post: 0, get: 0, releases: new Set(), responses: new Map() },
+        invalidate: reservation.release,
+        finalize,
+        released: reservation.releasedSignal,
         ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, initializeDelivered: false, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
       };
       observeSessionSends(reservation.session);
@@ -1074,6 +1141,8 @@ export async function createHttpServer(
     let mcpServer: McpServer;
     let releasePost: () => void;
     let releaseCapacity: () => void;
+    let stopDeadline: () => void;
+    let sessionReleased: Promise<void>;
 
     if (sessionId && sessions.has(sessionId)) {
       // Reuse existing session
@@ -1083,6 +1152,8 @@ export async function createHttpServer(
       if (!admitted) return;
       releaseCapacity = admitted;
       releasePost = trackSessionPost(session.idle, req, res);
+      stopDeadline = trackStatefulDeadline(session, req, res, sessionRequestTimeoutMs);
+      sessionReleased = session.released;
       transport = session.transport;
       mcpServer = session.mcpServer;
       logMessage(mcpServer, "debug", `Reusing session: ${sessionId}`);
@@ -1094,8 +1165,8 @@ export async function createHttpServer(
       return;
     }
 
-    try { await handleTransportRequest(transport, req, res); }
-    catch (error) { releaseCapacity(); throw error; }
+    try { await Promise.race([handleTransportRequest(transport, req, res), sessionReleased]); }
+    catch (error) { stopDeadline(); releaseCapacity(); throw error; }
     finally {
       releasePost();
       if (res.writableFinished || res.destroyed) releaseCapacity();
