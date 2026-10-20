@@ -395,10 +395,12 @@ requests receive HTTP 503 `Server shutting down` with `Retry-After: 5`; DELETE
 does not terminate a session during the drain. Standalone GET streams close,
 idle sessions finalize immediately, and admitted POSTs have up to 4000 ms to
 finish. Remaining session cleanup starts concurrently, with a single 5000 ms
-total shutdown limit measured by monotonic timers. Before forced cleanup closes
+total stateful-cleanup limit measured by monotonic timers. Before forced cleanup closes
 their transports, unfinished responses receive the same 503 before headers or
 have their connections destroyed after headers. The hard stop also terminates
-any remaining responses. The HTTP listener then closes. Repeated
+any remaining responses. Already-ended responses may flush until that hard stop.
+The HTTP listener then closes; existing modern or stateless requests can extend
+listener closure beyond the stateful-cleanup budget. Repeated
 signals share this operation. Legacy stateless HTTP keeps listener-only shutdown;
 modern per-request HTTP and STDIO retain their existing behavior.
 

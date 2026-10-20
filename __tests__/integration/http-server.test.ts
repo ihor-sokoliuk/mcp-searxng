@@ -468,11 +468,30 @@ async function runTests() {
         const { app, transports } = await createIdleHarness();
         const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
         const started = createDeferred();
-        transports[0].handleRequest = async () => { started.resolve(); await new Promise(() => {}); };
+        let ended = false;
+        let flushed = false;
+        transports[0].handleRequest = async (_req, res) => {
+          const originalEnd = res.end;
+          // Model end() having queued bytes while the socket is still flushing.
+          Object.defineProperty(res, 'writableEnded', { configurable: true, get: () => ended });
+          res.end = ((...args: unknown[]) => {
+            ended = true;
+            setTimeout(() => {
+              flushed = true;
+              Reflect.apply(originalEnd, res, args);
+            }, 50);
+            return res;
+          }) as typeof res.end;
+          started.resolve();
+          await new Promise(() => {});
+        };
         const pending = postStatelessMcp(app, { jsonrpc: '2.0', id: 7, method: 'tools/list' }).set('mcp-session-id', id).then(r => r);
         await started.promise;
         const shutdown = app.shutdownStateful();
         [...timers.values()][0]();
+        await Promise.resolve();
+        assert.equal(ended, true);
+        assert.equal(flushed, false);
         const response = await pending;
         assert.equal(response.status, 504);
         assert.equal(response.body.error.message, 'Stateful request timed out');

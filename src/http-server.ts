@@ -84,8 +84,9 @@ function rejectShutdown(res: express.Response): void {
   });
 }
 
-function finishShutdownResponse(res: express.Response, kind: "post" | "get"): void {
+function finishShutdownResponse(res: express.Response, kind: "post" | "get", hardStop = false): void {
   if (res.destroyed || res.writableFinished) return;
+  if (res.writableEnded && !hardStop) return;
   if (kind === "get" || res.headersSent) res.destroy();
   else rejectShutdown(res);
 }
@@ -101,18 +102,18 @@ function createStatefulShutdown() {
   let resolveShutdown: () => void;
   let drainTimer: NodeJS.Timeout | undefined;
   let hardTimer: NodeJS.Timeout | undefined;
-  const finish = (): void => {
+  const finish = (hardStop = false): void => {
     if (finished) return;
     finished = true;
     clearTimeout(drainTimer);
     clearTimeout(hardTimer);
-    for (const [res, kind] of responses) finishShutdownResponse(res, kind);
+    for (const [res, kind] of responses) finishShutdownResponse(res, kind, hardStop);
     responses.clear();
     started.clear();
     resolveShutdown();
   };
   const checkComplete = (): void => {
-    if (stopped && entries.size === 0 && pending === 0) finish();
+    if (stopped && entries.size === 0 && pending === 0 && responses.size === 0) finish();
   };
   const start = (entry: ShutdownSession): void => {
     if (started.has(entry)) return;
@@ -156,6 +157,15 @@ function createStatefulShutdown() {
       for (const entry of entries) {
         for (const [res, kind] of entry.work.responses) {
           responses.set(res, kind);
+          const completed = (): void => {
+            responses.delete(res);
+            res.off("finish", completed);
+            res.off("close", completed);
+            queueMicrotask(checkComplete);
+          };
+          res.once("finish", completed);
+          res.once("close", completed);
+          if (res.destroyed || res.writableFinished) completed();
           if (kind === "get" && !res.destroyed) res.destroy();
         }
       }
@@ -163,7 +173,7 @@ function createStatefulShutdown() {
       drainTimer = setTimeout(() => { for (const entry of entries) start(entry); }, 4000);
       hardTimer = setTimeout(() => {
         for (const entry of entries) start(entry);
-        finish();
+        finish(true);
       }, 5000);
       drainTimer.unref();
       hardTimer.unref();
