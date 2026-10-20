@@ -100,7 +100,16 @@ export function fetchSearxng(
   if (parsed.protocol !== "unix:") {
     return searxngFetch(input, options);
   }
-  const split = splitUnixSocketPath(decodeURIComponent(parsed.pathname));
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(parsed.pathname);
+  } catch {
+    // A configured socket path containing a literal, unencoded `%` would make
+    // decodeURIComponent throw a URIError; fall through unchanged rather than
+    // crash request setup, consistent with splitUnixSocketPath/decodeUserinfoComponent.
+    return searxngFetch(input, options);
+  }
+  const split = splitUnixSocketPath(decodedPathname);
   if (split === null) {
     return searxngFetch(input, options);
   }
