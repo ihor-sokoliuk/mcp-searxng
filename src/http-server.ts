@@ -71,12 +71,27 @@ export function resolveHttpSessionRequestTimeoutMs(): number {
 function finishStatefulResponse(res: express.Response, kind: "post" | "get", timeoutId?: unknown): void {
   if (res.destroyed || res.writableFinished) return;
   if (kind === "get" || res.headersSent) { res.destroy(); return; }
-  const timedOut = timeoutId !== undefined;
-  res.status(timedOut ? 504 : 404).json({
+  const failure = timeoutId === undefined
+    ? { status: 404, code: -32001, message: "Session not found", id: null }
+    : { status: 504, code: -32000, message: "Stateful request timed out", id: timeoutId };
+  res.status(failure.status).json({
     jsonrpc: "2.0",
-    error: { code: timedOut ? -32000 : -32001, message: timedOut ? "Stateful request timed out" : "Session not found" },
-    id: timedOut ? timeoutId : null,
+    error: { code: failure.code, message: failure.message },
+    id: failure.id,
   });
+}
+
+function observeInitializeResponse(work: SessionWork, res: express.Response): void {
+  const release = (): void => {
+    work.responses.delete(res);
+    work.releases.delete(release);
+    res.off("finish", release);
+    res.off("close", release);
+  };
+  work.responses.set(res, "post");
+  work.releases.add(release);
+  res.once("finish", release);
+  res.once("close", release);
 }
 
 function trackStatefulDeadline(session: Session, req: express.Request, res: express.Response, timeoutMs: number): () => void {
@@ -91,6 +106,7 @@ function trackStatefulDeadline(session: Session, req: express.Request, res: expr
   // Node timers use monotonic elapsed time; wall-clock adjustments cannot extend
   // an admitted request. Keep the timer until the response ends, including SSE.
   const timer = setTimeout(() => {
+    if (res.writableFinished || res.destroyed) { stop(); return; }
     const responses = [...session.work.responses];
     session.invalidate();
     finishStatefulResponse(res, "post", scalarRequestId(req.body));
@@ -801,6 +817,7 @@ export async function createHttpServer(
         released: reservation.releasedSignal,
         ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, initializeDelivered: false, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
       };
+      observeInitializeResponse(reservation.session.work, res);
       observeSessionSends(reservation.session);
       transport.onclose = reservation.release;
       restoreSend = observeInitializeSend(transport, scalarRequestId(req.body), () => {
@@ -1165,7 +1182,11 @@ export async function createHttpServer(
       return;
     }
 
-    try { await Promise.race([handleTransportRequest(transport, req, res), sessionReleased]); }
+    try {
+      const handling = handleTransportRequest(transport, req, res);
+      if (sessionRequestTimeoutMs) await Promise.race([handling, sessionReleased]);
+      else await handling;
+    }
     catch (error) { stopDeadline(); releaseCapacity(); throw error; }
     finally {
       releasePost();
