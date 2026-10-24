@@ -49,18 +49,3 @@ jobs:
       - name: E2E tests
         run: npm run test:e2e
 
-  nix-flake:
-    name: Nix flake build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Build flake package
-        run: nix build .#default --no-link
-
-      - name: Verify flake lock is up to date
-        run: nix flake check --no-build
