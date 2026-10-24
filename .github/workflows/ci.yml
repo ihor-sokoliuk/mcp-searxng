@@ -48,3 +48,4 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e
+
