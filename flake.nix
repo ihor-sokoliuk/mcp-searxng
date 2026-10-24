@@ -17,9 +17,9 @@
         {
           default = pkgs.buildNpmPackage {
             pname = "mcp-searxng";
-            version = "2.6.0-socket";
+            version = "2.7.0";
             src = ./.;
-            npmDepsHash = "sha256-+df6oLBlw8fE6baGs2G5Vmn2lQvyfLhg/2s9axuVNwo=";
+            npmDepsHash = "sha256-IEeOBd32jlcb7mEveRNKuMKEqZs3eDpdxN4N567TmvU=";
             meta.mainProgram = "mcp-searxng";
           };
         });
