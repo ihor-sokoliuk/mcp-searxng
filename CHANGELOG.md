@@ -5,10 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-### Security and build
+## [2.8.1] - 2026-10-25
 
-- Update the compatible transitive Hono and ip-address dependencies to fix CVE-2026-111757 and CVE-2026-111997.
-- Apply the configured HIGH/CRITICAL severity filter when producing Docker scan SARIF reports.
+## Security and build
+
+- Refresh the compatible transitive Hono and ip-address dependencies to fix CVE-2026-111757 and CVE-2026-111997. npm audit is clean for the release dependency graph. [#340](https://github.com/ihor-sokoliuk/mcp-searxng/pull/340)
+- Make Docker SARIF scans honor the configured HIGH/CRITICAL threshold. [#340](https://github.com/ihor-sokoliuk/mcp-searxng/pull/340)
+- Publish the Docker image with Node.js 24.22.1, including the upstream Brotli decoder fix for CVE-2026-111497, and body-parser 2.4.0 for CVE-2026-111181.
+
+## Delivery
+
+Docker 2.8.0 was not published. Docker users should use `isokoliuk/mcp-searxng:2.8.1`. This release includes the Unix-domain socket support and Nix packaging introduced in 2.8.0.
+
+## Contributors
+
+- @ihor-sokoliuk — security maintenance and release verification.
 
 ## [2.8.0] - 2026-10-25
 
