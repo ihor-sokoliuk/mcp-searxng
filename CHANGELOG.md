@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.8.0] - 2026-10-25
+
+## Added
+
+- Support `unix:` SearXNG instance URLs through Unix-domain sockets. Include Nix flake packaging. [#328](https://github.com/ihor-sokoliuk/mcp-searxng/pull/328)
+
+## Security
+
+- Update the Docker runtime from Node.js 24.22.0 to 24.22.1, including the upstream Brotli decoder fix for CVE-2026-111497. [#337](https://github.com/ihor-sokoliuk/mcp-searxng/pull/337)
+- Update the compatible transitive `body-parser` dependency to 2.4.0, fixing CVE-2026-111181 involving compressed request bodies. [#337](https://github.com/ihor-sokoliuk/mcp-searxng/pull/337)
+
+## Compatibility
+
+The existing Node.js compatibility range and direct dependency versions are unchanged.
+
+## Contributors
+
+- @nsrkn2n — Unix-domain socket support and Nix packaging.
+- @ihor-sokoliuk — security maintenance and release verification.
+
 ## [2.7.0] - 2026-10-20
 
 ### Added
