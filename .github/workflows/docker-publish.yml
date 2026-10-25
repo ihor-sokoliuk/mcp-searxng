@@ -54,6 +54,7 @@ jobs:
         with:
           image-ref: 'isokoliuk/mcp-searxng:release-scan'
           format: 'sarif'
+          limit-severities-for-sarif: true
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
