@@ -5,6 +5,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Security and build
+
+- Update the compatible transitive Hono and ip-address dependencies to fix CVE-2026-111757 and CVE-2026-111997.
+- Apply the configured HIGH/CRITICAL severity filter when producing Docker scan SARIF reports.
+
 ## [2.8.0] - 2026-10-25
 
 ## Added
