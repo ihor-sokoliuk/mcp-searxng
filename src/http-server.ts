@@ -1417,11 +1417,7 @@ export async function createHttpServer(
       if (session.idle?.phase === "closing" && previousPhase) {
         session.idle.phase = previousPhase === "initializing" && session.idle.initializeDelivered ? "active" : previousPhase;
       }
-      warnDiagnostic(`⚠️  DELETE request failed:`, {
-        clientIP: req.ip || req.socket.remoteAddress,
-        sessionId,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      lifecycleDiagnostics.record("close_failure");
       throw sanitizeErrorForTransport(error);
     }
   });

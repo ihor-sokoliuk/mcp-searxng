@@ -411,9 +411,11 @@ with `count: 1`, then suppresses repeats for 60 seconds and emits their count
 only when nonzero. Each type has its own unreferenced timer. Shutdown flushes
 pending counts immediately and at completion, with no new diagnostic timers
 while draining. Events after shutdown completion are ignored. Forced shutdown
-counts a drain-window expiry with remaining work and a hard-stop expiry
-separately. Idle reclaim counts sessions selected for expiry; close failures
-are counted separately. These warnings contain only the fixed name and numeric
+counts a drain-window expiry that forces active work to begin cleanup and a
+hard-stop expiry separately. Already-started cleanup does not count at the
+drain boundary. Idle reclaim counts each selection attempt, including retries;
+close failure counts rejected resource-close operations, so a session can
+contribute more than one. Failures that settle after the hard stop are ignored. These warnings contain only the fixed name and numeric
 count, never session IDs, request data, addresses, configuration values or raw
 errors. A failed diagnostic sink does not change HTTP or cleanup outcomes.
 

@@ -157,23 +157,41 @@ async function verifyBypassAndGlobalProxy(fixture: ProxyRoutingFixture, configur
   }
 }
 
+function captureLifecycleDiagnostics() {
+  const originalSet = globalThis.setTimeout;
+  const originalClear = globalThis.clearTimeout;
+  const originalWarn = console.warn;
+  const timers = new Map<NodeJS.Timeout, () => void>();
+  const output: unknown[][] = [];
+  console.warn = (...values) => { output.push(values); };
+  globalThis.setTimeout = ((callback: () => void, delay: number) => {
+    assert.equal(delay, 60000);
+    const timer = originalSet(() => {}, 60000);
+    timers.set(timer, callback);
+    return timer;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((timer: NodeJS.Timeout) => {
+    timers.delete(timer); originalClear(timer);
+  }) as typeof clearTimeout;
+  return { timers, output,
+    expire(): void {
+      for (const [timer, callback] of [...timers]) {
+        assert.equal(timer.hasRef(), false);
+        timers.delete(timer); originalClear(timer); callback();
+      }
+    },
+    restore(): void {
+      for (const timer of timers.keys()) originalClear(timer);
+      globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;
+      console.warn = originalWarn;
+    },
+  };
+}
+
 async function runTests() {
   await testFunction("lifecycle events independently aggregate fixed names and counts and release timers", async () => {
-    const originalSet = globalThis.setTimeout;
-    const originalClear = globalThis.clearTimeout;
-    const originalWarn = console.warn;
-    const timers = new Map<NodeJS.Timeout, () => void>();
-    const output: unknown[][] = [];
-    console.warn = (...values) => { output.push(values); };
-    globalThis.setTimeout = ((callback: () => void, delay: number) => {
-      assert.equal(delay, 60000);
-      const timer = originalSet(() => {}, 60000);
-      timers.set(timer, callback);
-      return timer;
-    }) as typeof setTimeout;
-    globalThis.clearTimeout = ((timer: NodeJS.Timeout) => {
-      timers.delete(timer); originalClear(timer);
-    }) as typeof clearTimeout;
+    const capture = captureLifecycleDiagnostics();
+    const { timers, output } = capture;
     const diagnostics = createStatefulLifecycleDiagnostics();
     try {
       for (const event of STATEFUL_LIFECYCLE_EVENTS) {
@@ -181,10 +199,7 @@ async function runTests() {
       }
       assert.equal(output.length, 6);
       assert.equal(timers.size, 6);
-      for (const [timer, callback] of [...timers]) {
-        assert.equal(timer.hasRef(), false);
-        timers.delete(timer); originalClear(timer); callback();
-      }
+      capture.expire();
       assert.deepEqual(output, [
         ...STATEFUL_LIFECYCLE_EVENTS.map(event => [`Stateful HTTP lifecycle: ${event}`, { count: 1 }]),
         ...STATEFUL_LIFECYCLE_EVENTS.map(event => [`Stateful HTTP lifecycle: ${event}`, { count: 19 }]),
@@ -206,9 +221,7 @@ async function runTests() {
       assert.equal(output.length, 15, "late cleanup after shutdown is silent");
     } finally {
       diagnostics.close();
-      for (const timer of timers.keys()) originalClear(timer);
-      globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;
-      console.warn = originalWarn;
+      capture.restore();
     }
   }, results);
 

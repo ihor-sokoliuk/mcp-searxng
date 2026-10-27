@@ -301,7 +301,49 @@ async function assertModernHttpSurface(): Promise<void> {
   assert.deepEqual(harness.factoryEras, [true, true, true, true, true, true, true, true]);
 }
 
+async function assertLifecycleEvents(action: () => Promise<void>, expected: Record<string, number>): Promise<void> {
+  const originalWarn = console.warn;
+  const counts: Record<string, number> = {};
+  console.warn = (...values: unknown[]) => {
+    if (typeof values[0] !== 'string' || !values[0].startsWith('Stateful HTTP lifecycle: ')) {
+      originalWarn(...values); return;
+    }
+    assert.equal(values.length, 2);
+    assert.deepEqual(Object.keys(values[1] as object), ['count']);
+    const count = (values[1] as { count: number }).count;
+    assert.ok(Number.isSafeInteger(count) && count > 0);
+    const event = values[0].slice('Stateful HTTP lifecycle: '.length);
+    counts[event] = (counts[event] ?? 0) + count;
+  };
+  try { await action(); assert.deepEqual(counts, expected); }
+  finally { console.warn = originalWarn; }
+}
+
 async function runTests() {
+  await testFunction('late asynchronous close failures after the hard stop do not restart diagnostics', async () => {
+    await assertLifecycleEvents(async () => {
+      const finishClose = createDeferred();
+      const { app } = await createIdleHarness(() => {
+        const server = createTestMcpServer();
+        const close = server.close.bind(server);
+        server.close = async () => {
+          await finishClose.promise;
+          await close();
+          throw new Error('late close rejection');
+        };
+        return server;
+      });
+      await initializeIdleSession(app);
+      // Keep the process alive while the server's intentionally unref'ed timers run.
+      const keepAlive = setInterval(() => {}, 10000);
+      try {
+        await app.shutdownStateful();
+        finishClose.resolve();
+        await new Promise(resolve => setImmediate(resolve));
+      } finally { clearInterval(keepAlive); finishClose.resolve(); }
+    }, { forced_shutdown: 1 });
+  }, results);
+
   await testFunction('stateful capacity diagnostics aggregate privately and sink failure preserves HTTP outcomes', async () => {
     envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
     const originalWarn = console.warn;
@@ -398,6 +440,7 @@ async function runTests() {
   }, results);
 
   await testFunction('shutdown has one five-second hard stop despite hung initialization and rejecting or hanging resource closes', async () => {
+    await assertLifecycleEvents(async () => {
     envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
     const servers: McpServer[] = [];
     const serverCloses = [0, 0, 0];
@@ -491,9 +534,11 @@ async function runTests() {
       await new Promise<void>(resolve => listener.close(() => resolve()));
       envManager.restore();
     }
+    }, { forced_shutdown: 2, close_failure: 2 });
   }, results);
 
   await testFunction('an admitted request timeout keeps its 504 contract during shutdown drain', async () => {
+    await assertLifecycleEvents(async () => {
     envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
     try {
       await withRequestDeadline(async timers => {
@@ -532,6 +577,7 @@ async function runTests() {
         assert.equal(timers.size, 0);
       });
     } finally { envManager.restore(); }
+    }, { post_timeout: 1 });
   }, results);
 
   await testFunction('legacy stateless HTTP retains listener-only shutdown behavior', async () => {
@@ -1043,6 +1089,7 @@ async function runTests() {
   }, results);
 
   await testFunction('idle expiry uses one unref sweep and monotonic activity from admitted POSTs', async () => {
+    await assertLifecycleEvents(async () => {
     envManager.set('MCP_HTTP_SESSION_IDLE_TTL_MS', '1000');
     await withIdleClock(async clock => {
       const { app, transports } = await createIdleHarness();
@@ -1068,6 +1115,7 @@ async function runTests() {
       assert.equal((await request(app).delete('/mcp').set('mcp-session-id', id)).status, 404);
       await clock.sweep();
     });
+    }, { idle_reclaim: 1 });
   }, results);
 
   await testFunction('capacity expiry never evicts fresh sessions and runs at most once per second', async () => {
@@ -1442,6 +1490,7 @@ async function runTests() {
   }, results);
 
   await testFunction('initialize deadline returns scalar-id 504 and restores capacity during a stalled connect', async () => {
+    await assertLifecycleEvents(async () => {
     envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
     envManager.set('MCP_HTTP_INITIALIZE_TIMEOUT_MS', '1000');
     const resume = createDeferred();
@@ -1475,6 +1524,7 @@ async function runTests() {
       assert.equal(firstCloseCount, 1);
       await request(app).delete('/mcp').set('mcp-session-id', replacement.headers['mcp-session-id']);
     } finally { resume.resolve(); envManager.restore(); }
+    }, { initialize_timeout: 1, capacity_rejection: 1 });
   }, results);
 
   await testFunction('initialize response-event timeout destroys started SSE and invalidates its exposed session', async () => {
@@ -3549,8 +3599,15 @@ async function runTests() {
     };
 
     try {
-      const failedDelete = await request(app).delete('/mcp').set('mcp-session-id', sessionId);
-      assert.equal(failedDelete.status, 500);
+      const output = await captureConsoleOutput(async () => {
+        const failedDelete = await request(app).delete('/mcp').set('mcp-session-id', sessionId);
+        assert.equal(failedDelete.status, 500);
+      });
+      const lifecycle = output.filter(line => line.startsWith('Stateful HTTP lifecycle:'));
+      assert.equal(lifecycle.length, 1);
+      assert.match(lifecycle[0], /close_failure/);
+      assert.ok(!lifecycle[0].includes(sessionId));
+      assert.ok(!lifecycle[0].includes('controlled close failure'));
 
       const stillLive = await request(app)
         .post('/mcp')
@@ -3562,6 +3619,7 @@ async function runTests() {
       assert.equal((await request(app).delete('/mcp').set('mcp-session-id', sessionId)).status, 204);
     } finally {
       NodeStreamableHTTPServerTransport.prototype.close = originalClose;
+      await app.shutdownStateful();
     }
   }, results);
 
