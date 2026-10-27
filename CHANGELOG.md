@@ -5,7 +5,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-- Update MCP core/server/client to 2.4.0, the Node adapter to 2.1.2 and TypeScript ESLint to 8.72.1. Refresh pinned CodeQL and Docker login Actions. Align packed-consumer runtime checks with the installed SDK.
+## [2.9.0] - 2026-10-27
+
+### Added
+
+- Fetch up to five consecutive search pages concurrently with the optional `pages` argument. Results are merged in page order and deduplicated before applying result limits; partial page failures are reported without exposing upstream errors. [#346](https://github.com/ihor-sokoliuk/mcp-searxng/pull/346)
+- Add bounded stateful HTTP lifecycle diagnostics for capacity rejection, idle reclaim, initialization and request timeouts, resource-close failures and forced shutdown. Fixed event names and numeric counts aggregate repeated events; shutdown flushes pending counts. [#344](https://github.com/ihor-sokoliuk/mcp-searxng/pull/344)
+
+### Maintenance
+
+- Update MCP SDK core/server/client to 2.4.0, the Node adapter to 2.1.2 and TypeScript ESLint to 8.72.1. Refresh pinned CodeQL and Docker login Actions, and align packed-consumer verification with the installed SDK. [#345](https://github.com/ihor-sokoliuk/mcp-searxng/pull/345)
+- Remove unsupported Nix packaging, obsolete archived test artifacts and dead proxy code. Supported NPX, Docker, STDIO and HTTP invocation remain available. [#343](https://github.com/ihor-sokoliuk/mcp-searxng/pull/343)
+
+### Compatibility
+
+Existing single-page searches retain their default behavior. The new `pages` control is available in the full tool schema; the Lite schema is unchanged. Node.js 22 or later remains required. Source-level imports and deep imports from the npm package remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, implementation and release verification.
 
 ## [2.8.1] - 2026-10-25
 
