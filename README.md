@@ -135,6 +135,10 @@ explains how to inspect sources and cite evidence.
 
 ## Installation
 
+The project-maintained distribution methods are **npm** (including **npx**)
+and **Docker**. Additional package formats, including Nix, can be maintained
+separately by the community.
+
 For NPX and npm installs, Node.js 22 or later is required. The Docker image
 includes its Node.js runtime.
 
