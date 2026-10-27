@@ -146,14 +146,16 @@ async function runTests() {
         { title: 'shared', content: 'same', url: 'https://example.com/shared' },
         { title: `page-${page}`, content: 'result', url: `https://example.com/${page}` },
       ];
-      return createMockFetch({ json: { results } })(input);
+      return createMockFetch({ json: { results, number_of_results: 999, suggestions: [`page-${page}`] } })(input);
     });
     try {
       const value = JSON.parse(await performWebSearch(createMockServer() as any, 'page-parallel', 3,
-        undefined, undefined, undefined, undefined, 8, undefined, undefined, 'json', 'compact', 2));
+        undefined, undefined, undefined, undefined, 8, undefined, undefined, 'json', 'full', 2));
       assert.deepEqual(requested, [3, 4]);
       assert.deepEqual(value.results.map((entry: { title: string }) => entry.title), ['shared', 'page-3', 'page-4']);
       assert.equal(value.failedPages, undefined);
+      assert.equal(value.number_of_results, 999, 'retain the upstream estimate rather than the merged count');
+      assert.deepEqual(value.suggestions, ['page-3', 'page-4']);
     } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
   }, results);
 

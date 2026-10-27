@@ -920,6 +920,39 @@ async function runTests() {
     await client.close();
   }, results);
 
+  await testFunction('full and legacy Lite calls forward an explicit page count', async () => {
+    const previousLite = process.env.SEARXNG_LITE_TOOLS;
+    const previousUrl = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    try {
+      for (const lite of [false, true]) {
+        process.env.SEARXNG_LITE_TOOLS = String(lite);
+        const requested: number[] = [];
+        fetchMocker.mock(async input => {
+          requested.push(Number(new URL(String(input)).searchParams.get('pageno')));
+          return createMockFetch({ body: SEARXNG_RESPONSE })(input);
+        });
+        const { client } = await connect();
+        try {
+          const result = await client.callTool({ name: 'searxng_web_search', arguments: {
+            query: `page-handler-${lite}`, pageno: 3, pages: 2,
+          } });
+          assert.notEqual(result.isError, true);
+          assert.deepEqual(requested, [3, 4]);
+          const inventory = await client.listTools();
+          const search = inventory.tools.find(tool => tool.name === 'searxng_web_search');
+          assert.equal(Boolean(search?.inputSchema.properties?.pages), !lite);
+        } finally { await client.close(); }
+      }
+    } finally {
+      fetchMocker.restore();
+      if (previousLite === undefined) delete process.env.SEARXNG_LITE_TOOLS;
+      else process.env.SEARXNG_LITE_TOOLS = previousLite;
+      if (previousUrl === undefined) delete process.env.SEARXNG_URL;
+      else process.env.SEARXNG_URL = previousUrl;
+    }
+  }, results);
+
   await testFunction('tools/call searxng_web_search with all optional params succeeds', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: SEARXNG_RESPONSE }));
