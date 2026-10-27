@@ -969,7 +969,7 @@ async function fetchSearchPages(
     data: {
       ...successes[0].data,
       ...mergeSearchDiagnostics(successes.map(result => ({ instanceUrl: "", data: result.data }))),
-      results: [...byUrl.values()], number_of_results: byUrl.size,
+      results: [...byUrl.values()],
     },
     servedBy: [...new Set(successes.flatMap(result => result.servedBy))],
     hasCleanEmptyResponse: successes.some(result => result.hasCleanEmptyResponse
