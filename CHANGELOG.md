@@ -5,6 +5,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- Update MCP core/server/client to 2.4.0, the Node adapter to 2.1.2 and TypeScript ESLint to 8.72.1. Refresh pinned CodeQL and Docker login Actions. Align packed-consumer runtime checks with the installed SDK.
+
 ## [2.8.1] - 2026-10-25
 
 ## Security and build
