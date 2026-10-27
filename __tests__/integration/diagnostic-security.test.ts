@@ -10,6 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createHttpServer } from "../../src/http-server.js";
 import { createMcpServer, ToolAdmissionController } from "../../src/index.js";
 import { resetDiagnosticSanitizerForTests } from "../../src/diagnostic-sanitizer.js";
+import { createStatefulLifecycleDiagnostics, STATEFUL_LIFECYCLE_EVENTS } from "../../src/diagnostic-output.js";
 import { snapshotProcessEnv, restoreProcessEnv } from "../helpers/env-utils.js";
 import {
   createTestResults,
@@ -157,6 +158,85 @@ async function verifyBypassAndGlobalProxy(fixture: ProxyRoutingFixture, configur
 }
 
 async function runTests() {
+  await testFunction("lifecycle events independently aggregate fixed names and counts and release timers", async () => {
+    const originalSet = globalThis.setTimeout;
+    const originalClear = globalThis.clearTimeout;
+    const originalWarn = console.warn;
+    const timers = new Map<NodeJS.Timeout, () => void>();
+    const output: unknown[][] = [];
+    console.warn = (...values) => { output.push(values); };
+    globalThis.setTimeout = ((callback: () => void, delay: number) => {
+      assert.equal(delay, 60000);
+      const timer = originalSet(() => {}, 60000);
+      timers.set(timer, callback);
+      return timer;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: NodeJS.Timeout) => {
+      timers.delete(timer); originalClear(timer);
+    }) as typeof clearTimeout;
+    const diagnostics = createStatefulLifecycleDiagnostics();
+    try {
+      for (const event of STATEFUL_LIFECYCLE_EVENTS) {
+        for (let i = 0; i < 20; i++) diagnostics.record(event);
+      }
+      assert.equal(output.length, 6);
+      assert.equal(timers.size, 6);
+      for (const [timer, callback] of [...timers]) {
+        assert.equal(timer.hasRef(), false);
+        timers.delete(timer); originalClear(timer); callback();
+      }
+      assert.deepEqual(output, [
+        ...STATEFUL_LIFECYCLE_EVENTS.map(event => [`Stateful HTTP lifecycle: ${event}`, { count: 1 }]),
+        ...STATEFUL_LIFECYCLE_EVENTS.map(event => [`Stateful HTTP lifecycle: ${event}`, { count: 19 }]),
+      ]);
+      diagnostics.record("capacity_rejection");
+      assert.equal(timers.size, 1, "an expired window starts afresh");
+      diagnostics.drain();
+      assert.equal(timers.size, 0);
+      assert.equal(output.length, 13, "zero aggregates are omitted");
+      diagnostics.record("forced_shutdown");
+      diagnostics.record("forced_shutdown");
+      assert.equal(timers.size, 0, "shutdown cannot start diagnostic timers");
+      diagnostics.close();
+      assert.deepEqual(output.slice(-2), [
+        ["Stateful HTTP lifecycle: forced_shutdown", { count: 1 }],
+        ["Stateful HTTP lifecycle: forced_shutdown", { count: 1 }],
+      ]);
+      diagnostics.record("close_failure");
+      assert.equal(output.length, 15, "late cleanup after shutdown is silent");
+    } finally {
+      diagnostics.close();
+      for (const timer of timers.keys()) originalClear(timer);
+      globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;
+      console.warn = originalWarn;
+    }
+  }, results);
+
+  await testFunction("lifecycle diagnostics reject arbitrary names and tolerate a failed sink", async () => {
+    const originalWarn = console.warn;
+    const output: unknown[][] = [];
+    const diagnostics = createStatefulLifecycleDiagnostics();
+    try {
+      console.warn = (...values) => { output.push(values); };
+      const record = diagnostics.record as (...values: unknown[]) => void;
+      const privateUrl = new URL("https://example.test/session-id");
+      privateUrl.username = randomUUID(); privateUrl.password = randomUUID();
+      record(privateUrl.href);
+      record({ headers: new Headers([["authorization", randomUUID()]]) });
+      record("post_timeout", { id: "private-id", body: "secret-body" });
+      record("post_timeout", new Error("private error"));
+      diagnostics.drain();
+      assert.deepEqual(output, [
+        ["Stateful HTTP lifecycle: post_timeout", { count: 1 }],
+        ["Stateful HTTP lifecycle: post_timeout", { count: 1 }],
+      ]);
+      console.warn = () => { throw new Error("sink unavailable"); };
+      assert.doesNotThrow(() => {
+        diagnostics.record("close_failure"); diagnostics.record("close_failure"); diagnostics.close();
+      });
+    } finally { diagnostics.close(); console.warn = originalWarn; }
+  }, results);
+
   console.log("Integration Testing: credential-safe diagnostics\n");
 
   for (const scenario of ["single", "failover", "fanout", "reader", "flaresolverr", "byparr"]) {

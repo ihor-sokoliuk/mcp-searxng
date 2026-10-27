@@ -302,6 +302,38 @@ async function assertModernHttpSurface(): Promise<void> {
 }
 
 async function runTests() {
+  await testFunction('stateful capacity diagnostics aggregate privately and sink failure preserves HTTP outcomes', async () => {
+    envManager.set('MCP_HTTP_MAX_SESSIONS', '1');
+    const originalWarn = console.warn;
+    const output: unknown[][] = [];
+    const { app } = await createIdleHarness();
+    try {
+      const initialized = await initializeIdleSession(app);
+      assert.equal(initialized.status, 200);
+      console.warn = (...values) => { output.push(values); };
+      for (let i = 0; i < 5; i++) {
+        const rejected = await initializeIdleSession(app);
+        assert.equal(rejected.status, 503);
+        assert.equal(rejected.headers['retry-after'], '1');
+      }
+      assert.deepEqual(output, [['Stateful HTTP lifecycle: capacity_rejection', { count: 1 }]]);
+      const shutdown = app.shutdownStateful();
+      assert.deepEqual(output[1], ['Stateful HTTP lifecycle: capacity_rejection', { count: 4 }]);
+      assert.ok(!JSON.stringify(output).includes(initialized.headers['mcp-session-id']));
+      await shutdown;
+      console.warn = () => { throw new Error('failed diagnostic sink'); };
+      const second = await createIdleHarness();
+      try {
+        assert.equal((await initializeIdleSession(second.app)).status, 200);
+        assert.equal((await initializeIdleSession(second.app)).status, 503);
+      } finally { await second.app.shutdownStateful(); }
+    } finally {
+      console.warn = originalWarn;
+      await app.shutdownStateful();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('stateful shutdown drains active work, closes idle sessions and rejects new work after existing gates', async () => {
     const resume = createDeferred();
     const { app, transports } = await createIdleHarness();

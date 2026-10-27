@@ -19,7 +19,7 @@ import {
   sanitizeDiagnosticValue,
   sanitizeErrorForTransport,
 } from "./diagnostic-sanitizer.js";
-import { writeDiagnostic } from "./diagnostic-output.js";
+import { createStatefulLifecycleDiagnostics, writeDiagnostic } from "./diagnostic-output.js";
 import { parseStrictInteger } from "./env-int.js";
 import {
   getHttpSecurityConfig,
@@ -27,6 +27,8 @@ import {
   isRequestAuthorized,
   validateHttpSecurityConfig,
 } from "./http-security.js";
+
+type LifecycleDiagnostics = ReturnType<typeof createStatefulLifecycleDiagnostics>;
 
 interface Session {
   transport: NodeStreamableHTTPServerTransport;
@@ -49,6 +51,7 @@ interface SessionWork {
 function createStatefulFinalizer(
   release: () => void,
   resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer },
+  diagnostics: LifecycleDiagnostics,
 ): () => Promise<void> {
   let closing: Promise<void> | undefined;
   return () => {
@@ -64,7 +67,7 @@ function createStatefulFinalizer(
         Promise.resolve().then(() => resources.mcpServer?.close()),
       ]).then(outcomes => {
         for (const outcome of outcomes) {
-          if (outcome.status === "rejected") warnDiagnostic("Stateful resource cleanup failed.", outcome.reason);
+          if (outcome.status === "rejected") diagnostics.record("close_failure");
         }
       });
     }
@@ -91,7 +94,7 @@ function finishShutdownResponse(res: express.Response, kind: "post" | "get", har
   else rejectShutdown(res);
 }
 
-function createStatefulShutdown() {
+function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
   const entries = new Set<ShutdownSession>();
   const started = new Set<ShutdownSession>();
   const responses = new Map<express.Response, "post" | "get">();
@@ -110,6 +113,7 @@ function createStatefulShutdown() {
     for (const [res, kind] of responses) finishShutdownResponse(res, kind, hardStop);
     responses.clear();
     started.clear();
+    diagnostics.close();
     resolveShutdown();
   };
   const checkComplete = (): void => {
@@ -126,7 +130,7 @@ function createStatefulShutdown() {
     let closing: Promise<void>;
     try { closing = entry.finalize(); }
     catch (error) { closing = Promise.reject(error); }
-    void closing.catch(error => warnDiagnostic("Stateful shutdown cleanup failed.", error))
+    void closing.catch(() => diagnostics.record("close_failure"))
       .finally(() => { pending--; checkComplete(); });
   };
   const changed = (): void => {
@@ -153,6 +157,7 @@ function createStatefulShutdown() {
     shutdown(): Promise<void> {
       if (promise) return promise;
       stopped = true;
+      diagnostics.drain();
       promise = new Promise<void>(resolve => { resolveShutdown = resolve; });
       for (const entry of entries) {
         for (const [res, kind] of entry.work.responses) {
@@ -170,8 +175,12 @@ function createStatefulShutdown() {
         }
       }
       // Native timers use monotonic elapsed time. Both budgets start together.
-      drainTimer = setTimeout(() => { for (const entry of entries) start(entry); }, 4000);
+      drainTimer = setTimeout(() => {
+        if ([...entries].some(entry => !started.has(entry))) diagnostics.record("forced_shutdown");
+        for (const entry of entries) start(entry);
+      }, 4000);
       hardTimer = setTimeout(() => {
+        diagnostics.record("forced_shutdown");
         for (const entry of entries) start(entry);
         finish(true);
       }, 5000);
@@ -214,7 +223,7 @@ function observeInitializeResponse(work: SessionWork, res: express.Response): vo
   res.once("close", release);
 }
 
-function trackStatefulDeadline(session: Session, req: express.Request, res: express.Response, timeoutMs: number): () => void {
+function trackStatefulDeadline(session: Session, req: express.Request, res: express.Response, timeoutMs: number, diagnostics: LifecycleDiagnostics): () => void {
   if (!timeoutMs) return () => {};
   const stop = (): void => {
     clearTimeout(timer);
@@ -227,6 +236,7 @@ function trackStatefulDeadline(session: Session, req: express.Request, res: expr
   // an admitted request. Keep the timer until the response ends, including SSE.
   const timer = setTimeout(() => {
     if (res.writableFinished || res.destroyed) { stop(); return; }
+    diagnostics.record("post_timeout");
     const responses = [...session.work.responses];
     session.invalidate();
     finishStatefulResponse(res, "post", scalarRequestId(req.body));
@@ -274,11 +284,12 @@ function statefulCapacityExceeded(
   return totals[kind] >= totalLimit || (work ? work[kind] >= sessionLimit : totals.initializing >= initializeLimit);
 }
 
-function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>, onRelease: () => void) {
+function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>, onRelease: () => void, diagnostics: LifecycleDiagnostics) {
   const totals = { post: 0, get: 0, initializing: 0 };
   return (kind: "post" | "get", req: express.Request, res: express.Response, work?: SessionWork, hasSessions = false): (() => void) | undefined => {
     if ((req.destroyed && !req.complete) || res.destroyed) return undefined;
     if (statefulCapacityExceeded(config, totals, kind, work, hasSessions)) {
+      diagnostics.record("capacity_rejection");
       rejectCapacity(res);
       return undefined;
     }
@@ -602,8 +613,9 @@ export async function createHttpServer(
   const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
   const sessionIdleTtlMs = resolveHttpSessionIdleTtlMs();
   const sessionRequestTimeoutMs = resolveHttpSessionRequestTimeoutMs();
-  const statefulShutdown = createStatefulShutdown();
-  const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig(), statefulShutdown.changed);
+  const lifecycleDiagnostics = createStatefulLifecycleDiagnostics();
+  const statefulShutdown = createStatefulShutdown(lifecycleDiagnostics);
+  const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig(), statefulShutdown.changed, lifecycleDiagnostics);
   validateHttpSecurityConfig(security);
   const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
   if (security.trustProxy !== false) {
@@ -772,15 +784,16 @@ export async function createHttpServer(
         idle.phase = "closing";
         sessions.delete(id);
         expired.push({ id, session });
+        lifecycleDiagnostics.record("idle_reclaim");
       }
       await Promise.all(expired.map(async ({ id, session }) => {
         try { await session.transport.close(); }
-        catch (error) {
+        catch {
           if (session.idle?.phase === "closing") {
             session.idle.phase = "active";
             sessions.set(id, session);
           }
-          warnDiagnostic("Idle session cleanup failed.", error);
+          lifecycleDiagnostics.record("close_failure");
         }
       }));
     } finally { sweepingIdle = false; }
@@ -843,6 +856,7 @@ export async function createHttpServer(
     if (!releasePost) return;
     const reservation = reserveStatefulSession();
     if (!reservation) {
+      lifecycleDiagnostics.record("capacity_rejection");
       releasePost();
       rejectCapacity(res);
       return;
@@ -850,7 +864,7 @@ export async function createHttpServer(
     let transport: NodeStreamableHTTPServerTransport | undefined;
     let mcpServer: McpServer | undefined;
     const resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer } = {};
-    const finalize = createStatefulFinalizer(reservation.release, resources);
+    const finalize = createStatefulFinalizer(reservation.release, resources, lifecycleDiagnostics);
     const lifecycle: ShutdownSession = {
       initializing: true, work: { post: 0, get: 0, releases: new Set(), responses: new Map() }, finalize,
     };
@@ -883,6 +897,7 @@ export async function createHttpServer(
     const expire = (): void => {
       if (delivered || timedOut || reservation.released) return;
       timedOut = true;
+      lifecycleDiagnostics.record("initialize_timeout");
       // Invalidate the identifier/capacity before writing a terminal response.
       reservation.release();
       if (!res.headersSent && !res.destroyed) {
@@ -1302,7 +1317,7 @@ export async function createHttpServer(
       if (!admitted) return;
       releaseCapacity = admitted;
       releasePost = trackSessionPost(session.idle, req, res);
-      stopDeadline = trackStatefulDeadline(session, req, res, sessionRequestTimeoutMs);
+      stopDeadline = trackStatefulDeadline(session, req, res, sessionRequestTimeoutMs, lifecycleDiagnostics);
       sessionReleased = session.released;
       transport = session.transport;
       mcpServer = session.mcpServer;

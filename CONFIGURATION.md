@@ -404,6 +404,19 @@ listener closure beyond the stateful-cleanup budget. Repeated
 signals share this operation. Legacy stateless HTTP keeps listener-only shutdown;
 modern per-request HTTP and STDIO retain their existing behavior.
 
+Legacy stateful HTTP lifecycle warnings use fixed event names:
+`capacity_rejection`, `idle_reclaim`, `initialize_timeout`, `post_timeout`,
+`close_failure`, and `forced_shutdown`. Each application emits the first event
+with `count: 1`, then suppresses repeats for 60 seconds and emits their count
+only when nonzero. Each type has its own unreferenced timer. Shutdown flushes
+pending counts immediately and at completion, with no new diagnostic timers
+while draining. Events after shutdown completion are ignored. Forced shutdown
+counts a drain-window expiry with remaining work and a hard-stop expiry
+separately. Idle reclaim counts sessions selected for expiry; close failures
+are counted separately. These warnings contain only the fixed name and numeric
+count, never session IDs, request data, addresses, configuration values or raw
+errors. A failed diagnostic sink does not change HTTP or cleanup outcomes.
+
 When idle expiry is enabled, one unref'ed sweep runs every 60000 ms while sessions
 are retained. At session capacity, the same classification can run at most once
 per 1000 monotonic ms. Only expired active sessions with no admitted POST work
