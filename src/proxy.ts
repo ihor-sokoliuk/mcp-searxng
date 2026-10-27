@@ -44,21 +44,6 @@ export function closeUnixSocketAgents(): void {
   unixSocketAgents.clear();
 }
 
-// Aliases for test reset helpers used by different test suites.
-export const clearUnixSocketAgents = closeUnixSocketAgents;
-export const clearUnixSocketAgentsForTests = closeUnixSocketAgents;
-export const resetUnixSocketAgents = closeUnixSocketAgents;
-export const resetUnixSocketAgentsForTests = closeUnixSocketAgents;
-export const closeUnixSocketAgentsForTests = closeUnixSocketAgents;
-
-// Additional test-reset aliases (singular/plural variants).
-export const resetUnixSocketAgent = closeUnixSocketAgents;
-export const resetUnixSocketAgentForTests = closeUnixSocketAgents;
-export const clearUnixSocketAgent = closeUnixSocketAgents;
-export const clearUnixSocketAgentForTests = closeUnixSocketAgents;
-export const closeUnixSocketAgent = closeUnixSocketAgents;
-export const closeUnixSocketAgentForTests = closeUnixSocketAgents;
-
 export function splitUnixSocketPath(
   requestPath: string,
 ): { socketPath: string; path: string } | null {

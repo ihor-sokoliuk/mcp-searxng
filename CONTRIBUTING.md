@@ -4,6 +4,13 @@ We welcome contributions! Follow these guidelines to get started.
 
 Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) when participating in this project.
 
+## Supported distribution methods
+
+The project maintains **npm** (including **npx**) and **Docker** distribution.
+Additional package formats, including Nix, should be maintained separately by
+the community in an external package or repository that tracks upstream releases.
+Keep additional packaging and its build or release tooling out of project PRs.
+
 ## Getting Started
 
 ```bash
