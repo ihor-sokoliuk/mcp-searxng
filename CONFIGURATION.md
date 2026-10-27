@@ -406,7 +406,7 @@ modern per-request HTTP and STDIO retain their existing behavior.
 
 Legacy stateful HTTP lifecycle warnings use fixed event names:
 `capacity_rejection`, `idle_reclaim`, `initialize_timeout`, `post_timeout`,
-`close_failure`, and `forced_shutdown`. Each application emits the first event
+`close_failure`, and `forced_shutdown`. Each application emits the first event of each type
 with `count: 1`, then suppresses repeats for 60 seconds and emits their count
 only when nonzero. Each type has its own unreferenced timer. Shutdown flushes
 pending counts immediately and at completion, with no new diagnostic timers
