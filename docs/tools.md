@@ -42,6 +42,7 @@ usable full metadata and clean empty replicas remain successful. See
   - Inputs:
     - `query` (string): The search query. This string is passed to external search services.
     - `pageno` (number, optional): Search page number, starts at 1 (default 1)
+    - `pages` (integer, optional): Fetch 1-5 consecutive pages concurrently, starting at `pageno` (default 1). Merge in page order and deduplicate URLs before applying the result limit. JSON output includes numeric `failedPages` when only some pages fail; if all pages fail, the call returns an error. Partial page failures are not cached.
     - `time_range` (string, optional): Filter results by time range - one of: "day", "week", "month", "year" (default: none)
     - `language` (string, optional): Language code for results (e.g., "en", "fr", "de") or "all" (default: "all")
     - `safesearch` (string enum, optional): Safe search filter level, one of `"0"` (None), `"1"` (Moderate), or `"2"` (Strict). Legacy numeric values `0`, `1`, and `2` are still accepted for backward compatibility. (default: instance setting)

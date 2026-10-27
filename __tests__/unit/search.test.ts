@@ -130,6 +130,92 @@ function utf8(value: string): Uint8Array {
 }
 
 async function runTests() {
+  await testFunction('page fanout is parallel, ordered and deduplicated before the result limit', async () => {
+    envManager.set('SEARXNG_URL', 'https://search.example.com');
+    envManager.set('SEARXNG_MAX_RESULTS', '3');
+    searchCache.clear();
+    const requested: number[] = [];
+    let release!: () => void;
+    const bothStarted = new Promise<void>(resolve => { release = resolve; });
+    fetchMocker.mock(async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get('pageno'));
+      requested.push(page);
+      if (requested.length === 2) release();
+      await bothStarted;
+      const results = [
+        { title: 'shared', content: 'same', url: 'https://example.com/shared' },
+        { title: `page-${page}`, content: 'result', url: `https://example.com/${page}` },
+      ];
+      return createMockFetch({ json: { results } })(input);
+    });
+    try {
+      const value = JSON.parse(await performWebSearch(createMockServer() as any, 'page-parallel', 3,
+        undefined, undefined, undefined, undefined, 8, undefined, undefined, 'json', 'compact', 2));
+      assert.deepEqual(requested, [3, 4]);
+      assert.deepEqual(value.results.map((entry: { title: string }) => entry.title), ['shared', 'page-3', 'page-4']);
+      assert.equal(value.failedPages, undefined);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('page failures retain successful results, expose only page numbers and are not cached', async () => {
+    envManager.set('SEARXNG_URL', 'https://search.example.com');
+    searchCache.clear();
+    const requested: number[] = [];
+    fetchMocker.mock(async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get('pageno'));
+      requested.push(page);
+      if (page === 2) throw new Error('untrusted failure detail');
+      return createMockFetch({ json: { results: makeMockSearchResults(1) } })(input);
+    });
+    try {
+      for (const detail of ['compact', 'full'] as const) {
+        for (let i = 0; i < 2; i++) {
+          const value = JSON.parse(await performWebSearch(createMockServer() as any, 'page-partial', 1,
+            undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', detail, 2));
+          assert.equal(value.results.length, 1);
+          assert.deepEqual(value.failedPages, [2]);
+          assert.ok(!JSON.stringify(value).includes('untrusted failure detail'));
+        }
+      }
+      assert.equal(requested.length, 8);
+      const text = await performWebSearch(createMockServer() as any, 'page-partial-text', 1,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'compact', 2);
+      assert.match(text, /Search pages unavailable: 2/);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('page count and start page separate cache entries and direct calls cap fanout at five', async () => {
+    envManager.set('SEARXNG_URL', 'https://search.example.com');
+    searchCache.clear();
+    const requested: number[] = [];
+    fetchMocker.mock(async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get('pageno'));
+      requested.push(page);
+      return createMockFetch({ json: { results: [{ title: `page-${page}`, content: 'result', url: `https://example.com/${page}` }] } })(input);
+    });
+    const search = (start: number, pages: number) => performWebSearch(createMockServer() as any, 'page-cache', start,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact', pages);
+    try {
+      await search(1, 1); await search(1, 2); await search(2, 2); await search(1, 2);
+      assert.deepEqual(requested, [1, 1, 2, 2, 3]);
+      requested.length = 0;
+      await search(10, 6);
+      assert.deepEqual(requested, [10, 11, 12, 13, 14]);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
+  await testFunction('all failed pages remain a search error', async () => {
+    envManager.set('SEARXNG_URL', 'https://search.example.com');
+    searchCache.clear();
+    let calls = 0;
+    fetchMocker.mock(async () => { calls++; throw new Error('failed upstream'); });
+    try {
+      await assert.rejects(performWebSearch(createMockServer() as any, 'page-all-failed', 1,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'json', 'compact', 2));
+      assert.equal(calls, 2);
+    } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
+  }, results);
+
   console.log('🧪 Testing: search.ts\n');
 
   await testFunction('Error handling for missing SEARXNG_URL', async () => {

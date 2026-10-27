@@ -82,9 +82,10 @@ function wireJson<T>(value: T): T {
 }
 
 const FULL_TOOL_STRUCTURAL_SNAPSHOTS = [
-  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'response_format', 'result_detail'], properties: {
+  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'pages', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'response_format', 'result_detail'], properties: {
     query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
+    pages: { type: 'integer', minimum: 1, maximum: 5, enum: undefined, default: 1 },
     time_range: { type: 'string', minimum: undefined, maximum: undefined, enum: ['day', 'week', 'month', 'year'], default: undefined },
     language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
     safesearch: { type: 'string', minimum: undefined, maximum: undefined, enum: ['0', '1', '2'], default: undefined },

@@ -41,6 +41,7 @@ const VALID_RESULT_DETAILS = ["compact", "full"] as const;
 export function isSearXNGWebSearchArgs(args: unknown): args is {
   query: string;
   pageno?: number;
+  pages?: number;
   time_range?: string;
   language?: string;
   safesearch?: number | string;
@@ -62,6 +63,7 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
 
   const searchArgs = args as {
     pageno?: unknown;
+    pages?: unknown;
     time_range?: unknown;
     language?: unknown;
     safesearch?: unknown;
@@ -85,6 +87,10 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   ) {
     return false;
   }
+  if (searchArgs.pages !== undefined &&
+    (typeof searchArgs.pages !== "number" || !Number.isInteger(searchArgs.pages) || searchArgs.pages < 1 || searchArgs.pages > 5)) return false;
+  if (typeof searchArgs.pages === "number" && searchArgs.pages > 1 &&
+    (!Number.isSafeInteger(searchArgs.pageno ?? 1) || Number(searchArgs.pageno ?? 1) > Number.MAX_SAFE_INTEGER - (searchArgs.pages - 1))) return false;
   if (
     searchArgs.time_range !== undefined &&
     (typeof searchArgs.time_range !== "string" || !VALID_TIME_RANGES.includes(searchArgs.time_range as any))
@@ -214,6 +220,13 @@ export const WEB_SEARCH_TOOL: Tool = {
         type: "integer",
         description: "Search page number (starts at 1)",
         minimum: 1,
+        default: 1,
+      },
+      pages: {
+        type: "integer",
+        description: "Fetch 1 to 5 consecutive pages concurrently starting at pageno; merge and deduplicate before applying the result limit. Failed pages are reported in failedPages in JSON output.",
+        minimum: 1,
+        maximum: 5,
         default: 1,
       },
       time_range: {
