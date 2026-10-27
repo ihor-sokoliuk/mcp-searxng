@@ -931,6 +931,53 @@ async function performFanoutSearch(
   };
 }
 
+async function fetchSearchPage(
+  mcpServer: McpServer, instances: string[], request: SearchRequest, fanout: boolean,
+): Promise<MultiInstanceSearchResult> {
+  if (instances.length === 1) {
+    const result = await fetchSearchFromInstance(mcpServer, instances[0], request);
+    return { data: result.data, servedBy: [] };
+  }
+  return fanout ? performFanoutSearch(mcpServer, instances, request)
+    : performFailoverSearch(mcpServer, instances, request);
+}
+
+async function fetchSearchPages(
+  mcpServer: McpServer, instances: string[], request: SearchRequest, fanout: boolean, pages: number,
+): Promise<MultiInstanceSearchResult & { failedPages: number[] }> {
+  if (pages === 1) return { ...await fetchSearchPage(mcpServer, instances, request, fanout), failedPages: [] };
+  const outcomes = await Promise.allSettled(Array.from({ length: pages }, (_, index) =>
+    fetchSearchPage(mcpServer, instances, { ...request, pageno: request.pageno + index }, fanout)));
+  const successes: MultiInstanceSearchResult[] = [];
+  const failedPages: number[] = [];
+  for (const [index, outcome] of outcomes.entries()) {
+    if (outcome.status === "fulfilled") successes.push(outcome.value);
+    else failedPages.push(request.pageno + index);
+  }
+  if (!successes.length) {
+    const first = outcomes[0];
+    throw first.status === "rejected" ? first.reason : new MCPSearXNGError("All search pages failed");
+  }
+  const byUrl = new Map<string, SearXNGWeb["results"][number]>();
+  for (const { data } of successes) {
+    for (const entry of data.results) {
+      const urlKey = canonicalResultUrl(entry.url);
+      if (!byUrl.has(urlKey)) byUrl.set(urlKey, entry);
+    }
+  }
+  return {
+    data: {
+      ...successes[0].data,
+      ...mergeSearchDiagnostics(successes.map(result => ({ instanceUrl: "", data: result.data }))),
+      results: [...byUrl.values()],
+    },
+    servedBy: [...new Set(successes.flatMap(result => result.servedBy))],
+    hasCleanEmptyResponse: successes.some(result => result.hasCleanEmptyResponse
+      || (result.data.results.length === 0 && normalizeEngineFailures(result.data.unresponsive_engines).length === 0)),
+    failedPages,
+  };
+}
+
 export async function performWebSearch(
   mcpServer: McpServer,
   query: string,
@@ -944,7 +991,10 @@ export async function performWebSearch(
   engines?: string,
   response_format?: ResponseFormat,
   result_detail: ResultDetail = "full",
+  pages: number = 1,
 ) {
+  // The tool schema rejects out-of-range input; retain a defensive internal cap.
+  const pageCount = Number.isInteger(pages) && pages > 0 ? Math.min(pages, 5) : 1;
   const startTime = Date.now();
   const effectiveResponseFormat = response_format ?? getDefaultResponseFormat(mcpServer);
   const operatorMax = getOperatorMaxResults(mcpServer);
@@ -997,6 +1047,7 @@ export async function performWebSearch(
   const cacheArgs: Record<string, unknown> = {
     query,
     pageno,
+    pages: pageCount,
     time_range,
     effectiveLanguage,
     effectiveSafesearch,
@@ -1014,21 +1065,10 @@ export async function performWebSearch(
     return formatCachedSearchResult(cachedResult, effectiveResponseFormat, result_detail);
   }
 
-  let data: SearXNGWeb;
-  let servedBy: string[] = [];
-  let hasCleanEmptyResponse = false;
-
-  if (instances.length === 1) {
-    const result = await fetchSearchFromInstance(mcpServer, instances[0], request);
-    data = result.data;
-  } else {
-    const multiResult = fanoutEnabled
-      ? await performFanoutSearch(mcpServer, instances, request)
-      : await performFailoverSearch(mcpServer, instances, request);
-    data = multiResult.data;
-    servedBy = multiResult.servedBy;
-    hasCleanEmptyResponse = multiResult.hasCleanEmptyResponse === true;
-  }
+  const pageResult = await fetchSearchPages(mcpServer, instances, request, fanoutEnabled, pageCount);
+  let data = pageResult.data;
+  const { servedBy, hasCleanEmptyResponse, failedPages } = pageResult;
+  const pageFailureNote = failedPages.length ? `Search pages unavailable: ${failedPages.join(", ")}. Results may be incomplete.` : "";
   const redactedServedBy = servedBy.map(redactSearxngInstanceUrl);
   const engineFailures = normalizeEngineFailures(data.unresponsive_engines);
   if (data.unresponsive_engines !== undefined) data = { ...data, unresponsive_engines: engineFailures };
@@ -1054,15 +1094,16 @@ export async function performWebSearch(
   if (effectiveResponseFormat === "json") {
     if (result_detail === "full") assertSafeOutput(JSON.stringify({ ...data, results: slicedResults }));
     const result = result_detail === "compact"
-      ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars), ...(engineFailures.length ? { unresponsive_engines: engineFailures } : {}) }, null, 2)
+      ? JSON.stringify({ results: compactJsonResults(slicedResults, maxResultChars), ...(engineFailures.length ? { unresponsive_engines: engineFailures } : {}), ...(failedPages.length ? { failedPages } : {}) }, null, 2)
       : JSON.stringify({
         ...data,
         results: truncateSearchResults(slicedResults, maxResultChars),
+        ...(failedPages.length ? { failedPages } : {}),
         ...(filters.validationWarning ? { warnings: [filters.validationWarning] } : {}),
         ...(includeProvenance ? { servedBy: redactedServedBy } : {}),
       }, null, 2);
     assertSafeOutput(result);
-    if (slicedResults.length > 0) {
+    if (slicedResults.length > 0 && !failedPages.length) {
       searchCache.set("searxng_web_search", cacheArgs, result);
     }
     return result;
@@ -1086,7 +1127,7 @@ export async function performWebSearch(
     logMessage(mcpServer, "info", `No results found for query: "${query}"${filterNote}`);
     const noResultsMessage = createNoResultsMessage(query);
     const emptyOutput = result_detail === "compact" ? noResultsMessage : (leadingSections ? `${leadingSections}\n\n---\n\n${noResultsMessage}` : noResultsMessage);
-    const result = [emptyOutput, failureNote].filter(Boolean).join("\n\n");
+    const result = [emptyOutput, failureNote, pageFailureNote].filter(Boolean).join("\n\n");
     assertSafeOutput(result);
     return result;
   }
@@ -1129,8 +1170,8 @@ export async function performWebSearch(
     .join("\n\n");
 
   const textOutput = result_detail === "compact" ? formattedResults : (leadingSections ? `${leadingSections}\n\n---\n\n${formattedResults}` : formattedResults);
-  const result = [textOutput, failureNote].filter(Boolean).join("\n\n");
+  const result = [textOutput, failureNote, pageFailureNote].filter(Boolean).join("\n\n");
   assertSafeOutput(result);
-  searchCache.set("searxng_web_search", cacheArgs, result);
+  if (!failedPages.length) searchCache.set("searxng_web_search", cacheArgs, result);
   return result;
 }

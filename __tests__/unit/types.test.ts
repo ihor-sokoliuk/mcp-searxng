@@ -30,6 +30,17 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 const results = createTestResults();
 
 async function runTests() {
+  await testFunction('web search pages schema and validation are bounded integers', () => {
+    for (const pages of [1, 2, 5]) assert.equal(isSearXNGWebSearchArgs({ query: 'test', pages }), true);
+    for (const pages of [0, -1, 6, 1.5, NaN, Infinity, '2', null]) {
+      assert.equal(isSearXNGWebSearchArgs({ query: 'test', pages }), false);
+    }
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', pageno: Number.MAX_SAFE_INTEGER, pages: 2 }), false);
+    assert.deepEqual(WEB_SEARCH_TOOL.inputSchema.properties?.pages, {
+      type: 'integer', minimum: 1, maximum: 5, default: 1,
+      description: 'Fetch 1 to 5 consecutive pages concurrently starting at pageno; merge and deduplicate before applying the result limit. Failed pages are reported in failedPages in JSON output.',
+    });
+  }, results);
   console.log('🧪 Testing: types.ts\n');
 
   await testFunction('isSearXNGWebSearchArgs type guard - valid cases', () => {

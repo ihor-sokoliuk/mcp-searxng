@@ -82,9 +82,10 @@ function wireJson<T>(value: T): T {
 }
 
 const FULL_TOOL_STRUCTURAL_SNAPSHOTS = [
-  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'response_format', 'result_detail'], properties: {
+  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'pages', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'response_format', 'result_detail'], properties: {
     query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
+    pages: { type: 'integer', minimum: 1, maximum: 5, enum: undefined, default: 1 },
     time_range: { type: 'string', minimum: undefined, maximum: undefined, enum: ['day', 'week', 'month', 'year'], default: undefined },
     language: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: 'all' },
     safesearch: { type: 'string', minimum: undefined, maximum: undefined, enum: ['0', '1', '2'], default: undefined },
@@ -917,6 +918,39 @@ async function runTests() {
     fetchMocker.restore();
     delete process.env.SEARXNG_URL;
     await client.close();
+  }, results);
+
+  await testFunction('full and legacy Lite calls forward an explicit page count', async () => {
+    const previousLite = process.env.SEARXNG_LITE_TOOLS;
+    const previousUrl = process.env.SEARXNG_URL;
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    try {
+      for (const lite of [false, true]) {
+        process.env.SEARXNG_LITE_TOOLS = String(lite);
+        const requested: number[] = [];
+        fetchMocker.mock(async input => {
+          requested.push(Number(new URL(String(input)).searchParams.get('pageno')));
+          return createMockFetch({ body: SEARXNG_RESPONSE })(input);
+        });
+        const { client } = await connect();
+        try {
+          const result = await client.callTool({ name: 'searxng_web_search', arguments: {
+            query: `page-handler-${lite}`, pageno: 3, pages: 2,
+          } });
+          assert.notEqual(result.isError, true);
+          assert.deepEqual(requested, [3, 4]);
+          const inventory = await client.listTools();
+          const search = inventory.tools.find(tool => tool.name === 'searxng_web_search');
+          assert.equal(Boolean(search?.inputSchema.properties?.pages), !lite);
+        } finally { await client.close(); }
+      }
+    } finally {
+      fetchMocker.restore();
+      if (previousLite === undefined) delete process.env.SEARXNG_LITE_TOOLS;
+      else process.env.SEARXNG_LITE_TOOLS = previousLite;
+      if (previousUrl === undefined) delete process.env.SEARXNG_URL;
+      else process.env.SEARXNG_URL = previousUrl;
+    }
   }, results);
 
   await testFunction('tools/call searxng_web_search with all optional params succeeds', async () => {

@@ -204,6 +204,19 @@ do not present unsupported filters as working controls. The
 
 ## Gather another page when necessary
 
+In the full tool schema, use `pages=2` through `pages=5` to fetch a bounded set
+of consecutive pages concurrently, starting at `pageno` (default 1). The server
+preserves page order, deduplicates URLs and applies `num_results` and the
+operator ceiling to the merged set. Omit `pages` for the existing single-page
+behavior. JSON output reports failed page numbers as `failedPages`; text output
+adds a partial-results warning. Successful pages remain usable, while failure
+of every page returns a search error. Partial page failures are not cached.
+Full JSON retains the first successful page's upstream `number_of_results`
+estimate; use `results.length` for the returned count. Page fetching reuses the
+configured instance routing for each page: fanout can send up to five requests
+per instance, and failover pages can come from different instances. Enable
+multiple pages only when the extra results justify that upstream load.
+
 Repeat the same call with `pageno=2`, then `pageno=3`, preserving the query and
 filters, and use engines that advertise paging. With `engines="yahoo"`, the
 tested pages 1-3 returned seven URLs each and 21 distinct URLs in total. An
