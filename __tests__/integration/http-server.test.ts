@@ -323,13 +323,16 @@ async function runTests() {
   await testFunction('late asynchronous close failures after the hard stop do not restart diagnostics', async () => {
     await assertLifecycleEvents(async () => {
       const finishClose = createDeferred();
+      let lateClose: Promise<void> | undefined;
       const { app } = await createIdleHarness(() => {
         const server = createTestMcpServer();
         const close = server.close.bind(server);
-        server.close = async () => {
-          await finishClose.promise;
-          await close();
-          throw new Error('late close rejection');
+        server.close = () => {
+          lateClose = finishClose.promise.then(async () => {
+            await close();
+            throw new Error('late close rejection');
+          });
+          return lateClose;
         };
         return server;
       });
@@ -338,7 +341,9 @@ async function runTests() {
       const keepAlive = setInterval(() => {}, 10000);
       try {
         await app.shutdownStateful();
+        assert.ok(lateClose, 'resource close must have started');
         finishClose.resolve();
+        await assert.rejects(lateClose, /late close rejection/);
         await new Promise(resolve => setImmediate(resolve));
       } finally { clearInterval(keepAlive); finishClose.resolve(); }
     }, { forced_shutdown: 1 });
@@ -3575,6 +3580,7 @@ async function runTests() {
   }, results);
 
   await testFunction('failed session close remains tracked and permits a later termination retry', async () => {
+    await assertLifecycleEvents(async () => {
     const app = await createHttpServer(() => createTestMcpServer());
     const initRes = await request(app)
       .post('/mcp')
@@ -3599,15 +3605,8 @@ async function runTests() {
     };
 
     try {
-      const output = await captureConsoleOutput(async () => {
-        const failedDelete = await request(app).delete('/mcp').set('mcp-session-id', sessionId);
-        assert.equal(failedDelete.status, 500);
-      });
-      const lifecycle = output.filter(line => line.startsWith('Stateful HTTP lifecycle:'));
-      assert.equal(lifecycle.length, 1);
-      assert.match(lifecycle[0], /close_failure/);
-      assert.ok(!lifecycle[0].includes(sessionId));
-      assert.ok(!lifecycle[0].includes('controlled close failure'));
+      const failedDelete = await request(app).delete('/mcp').set('mcp-session-id', sessionId);
+      assert.equal(failedDelete.status, 500);
 
       const stillLive = await request(app)
         .post('/mcp')
@@ -3621,6 +3620,7 @@ async function runTests() {
       NodeStreamableHTTPServerTransport.prototype.close = originalClose;
       await app.shutdownStateful();
     }
+    }, { close_failure: 1 });
   }, results);
 
   // --- Rate Limiting ---
