@@ -388,15 +388,19 @@ export async function fetchDiscoveryFeed(url: string, timeoutMs: number): Promis
  * Returns the instance list, reading the cache when it is still fresh and
  * falling back to a stale cache when the feed cannot be reached.
  */
+// The cache keeps the full ranking (capped at MAX_POOL_SIZE) so changing
+// SEARXNG_DISCOVERY_POOL takes effect at the next start instead of after the
+// cache expires.
 function resultFromCache(
   cached: DiscoveryCache,
   origin: DiscoveryResult["origin"],
   cacheAgeMs: number,
+  pool: number,
 ): DiscoveryResult {
   return {
     total: cached.total,
     eligible: cached.eligible,
-    instances: cached.instances,
+    instances: cached.instances.slice(0, pool),
     origin,
     cacheAgeMs,
   };
@@ -404,7 +408,8 @@ function resultFromCache(
 
 async function fetchAndCache(options: DiscoveryOptions): Promise<DiscoveryResult> {
   const fetchImpl = options.fetchImpl ?? fetchDiscoveryFeed;
-  const selection = selectInstances(await fetchImpl(options.feed, options.timeoutMs), options);
+  const feed = await fetchImpl(options.feed, options.timeoutMs);
+  const selection = selectInstances(feed, { ...options, pool: MAX_POOL_SIZE });
   if (selection.instances.length === 0) {
     throw new Error("no instance passed the health filter");
   }
@@ -415,7 +420,12 @@ async function fetchAndCache(options: DiscoveryOptions): Promise<DiscoveryResult
     total: selection.total,
     eligible: selection.eligible,
   });
-  return { ...selection, origin: "refreshed", cacheAgeMs: 0 };
+  return {
+    ...selection,
+    instances: selection.instances.slice(0, options.pool),
+    origin: "refreshed",
+    cacheAgeMs: 0,
+  };
 }
 
 /**
@@ -429,14 +439,14 @@ export async function resolveDiscoveredInstances(
   const cachedAge = cached ? cacheAgeMs(cached) : Number.POSITIVE_INFINITY;
 
   if (cached && cachedAge < options.ttlMs && cached.feed === options.feed) {
-    return resultFromCache(cached, "cache", cachedAge);
+    return resultFromCache(cached, "cache", cachedAge, options.pool);
   }
 
   try {
     return await fetchAndCache(options);
   } catch (error) {
     if (cached && cached.instances.length > 0) {
-      return resultFromCache(cached, "stale-cache", cachedAge);
+      return resultFromCache(cached, "stale-cache", cachedAge, options.pool);
     }
     throw error;
   }

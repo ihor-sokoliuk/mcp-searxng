@@ -58,7 +58,15 @@ timeout; a warm start reads the cache file and stays offline-capable. When the
 feed is unreachable, a stale cache is used and one warning is logged, so a
 previously working setup keeps working.
 
-Public instances receive your queries and may log them. Keep `SEARXNG_URL`
+Public instances rate-limit automated use. A `429` is a hard failure for that
+replica, so the request moves to the next instance and the instance is skipped
+for 60 seconds after three consecutive failures; discovery neither raises the
+operator's quota nor retries harder. Instances that answer only HTML, return
+`403` from bot protection, or disable the JSON API still need
+`SEARXNG_HTML_FALLBACK=true`, and heavy or sensitive use belongs on an instance
+you operate.
+
+Public instances also receive your queries and may log them. Keep `SEARXNG_URL`
 pointing at an instance you operate for sensitive work; discovery trades that
 control for not depending on a single public host.
 

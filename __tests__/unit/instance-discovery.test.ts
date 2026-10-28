@@ -266,6 +266,23 @@ async function runOptionsAndCacheTests() {
     assert.ok(cacheAgeMs(cache) >= 55_000);
   }, results);
 
+  await testFunction('a fresh cache applies the current pool size instead of the cached slice', async () => {
+    const file = tempCacheFile();
+    writeDiscoveryCache(file, {
+      fetchedAt: new Date().toISOString(),
+      feed: 'https://feed.test/instances.json',
+      instances: ['https://one.example.com', 'https://two.example.com', 'https://three.example.com'],
+      total: 3,
+      eligible: 3,
+    });
+
+    const fresh = await resolveDiscoveredInstances(discoveryOptions(file, { pool: 2 }));
+    assert.deepEqual(fresh.instances, ['https://one.example.com', 'https://two.example.com']);
+
+    const wider = await resolveDiscoveredInstances(discoveryOptions(file, { pool: 3 }));
+    assert.equal(wider.instances.length, 3);
+  }, results);
+
   await testFunction('resolveDiscoveredInstances serves a fresh cache without fetching', async () => {
     const file = tempCacheFile();
     writeDiscoveryCache(file, {
