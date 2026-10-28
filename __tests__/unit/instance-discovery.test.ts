@@ -36,6 +36,21 @@ import { testFunction, createTestResults, printTestSummary } from '../helpers/te
 const results = createTestResults();
 const tempRoots: string[] = [];
 
+const TEST_FEED = 'https://feed.test/instances.json';
+const SEARX_SPACE_FEED = 'https://searx.space/data/instances.json';
+
+type CacheSeed = { ageMs?: number; feed?: string; total?: number; eligible?: number };
+
+function seedCache(file: string, instances: string[], seed: CacheSeed = {}): void {
+  writeDiscoveryCache(file, {
+    fetchedAt: new Date(Date.now() - (seed.ageMs ?? 0)).toISOString(),
+    feed: seed.feed ?? TEST_FEED,
+    instances,
+    total: seed.total ?? instances.length,
+    eligible: seed.eligible ?? instances.length,
+  });
+}
+
 function tempCacheFile(): string {
   const root = mkdtempSync(join(tmpdir(), 'mcp-searxng-discovery-'));
   tempRoots.push(root);
@@ -251,13 +266,7 @@ async function runOptionsAndCacheTests() {
     const file = tempCacheFile();
     assert.equal(readDiscoveryCache(file), null);
 
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date(Date.now() - 60_000).toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://one.example.com'],
-      total: 4,
-      eligible: 1,
-    });
+    seedCache(file, ['https://one.example.com'], { ageMs: 60_000, total: 4, eligible: 1 });
 
     const cache = readDiscoveryCache(file);
     assert.ok(cache);
@@ -268,13 +277,7 @@ async function runOptionsAndCacheTests() {
 
   await testFunction('a fresh cache applies the current pool size instead of the cached slice', async () => {
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date().toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://one.example.com', 'https://two.example.com', 'https://three.example.com'],
-      total: 3,
-      eligible: 3,
-    });
+    seedCache(file, ['https://one.example.com', 'https://two.example.com', 'https://three.example.com']);
 
     const fresh = await resolveDiscoveredInstances(discoveryOptions(file, { pool: 2 }));
     assert.deepEqual(fresh.instances, ['https://one.example.com', 'https://two.example.com']);
@@ -285,13 +288,7 @@ async function runOptionsAndCacheTests() {
 
   await testFunction('resolveDiscoveredInstances serves a fresh cache without fetching', async () => {
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date().toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://cached.example.com'],
-      total: 2,
-      eligible: 1,
-    });
+    seedCache(file, ['https://cached.example.com'], { total: 2, eligible: 1 });
 
     let calls = 0;
     const fetchImpl: DiscoveryFetcher = async () => {
@@ -307,13 +304,7 @@ async function runOptionsAndCacheTests() {
 
   await testFunction('resolveDiscoveredInstances refreshes an expired cache and stores the result', async () => {
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://old.example.com'],
-      total: 2,
-      eligible: 1,
-    });
+    seedCache(file, ['https://old.example.com'], { ageMs: 2 * 86_400_000, total: 2, eligible: 1 });
 
     const payload = feed({
       'https://fresh.example.com': entry(),
@@ -330,13 +321,7 @@ async function runOptionsAndCacheTests() {
 
   await testFunction('resolveDiscoveredInstances falls back to a stale cache when the feed fails', async () => {
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date(Date.now() - 5 * 86_400_000).toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://stale.example.com'],
-      total: 3,
-      eligible: 1,
-    });
+    seedCache(file, ['https://stale.example.com'], { ageMs: 5 * 86_400_000, total: 3, eligible: 1 });
 
     const result = await resolveDiscoveredInstances(
       discoveryOptions(file, { fetchImpl: fetchFailing('feed offline') }),
@@ -361,13 +346,7 @@ async function runStartupTests() {
   await testFunction('initializeInstanceDiscovery installs the discovered list as the active instances', async () => {
     resetInstanceDiscoveryForTests();
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date().toISOString(),
-      feed: 'https://searx.space/data/instances.json',
-      instances: ['https://discovered.example.com'],
-      total: 1,
-      eligible: 1,
-    });
+    seedCache(file, ['https://discovered.example.com'], { feed: SEARX_SPACE_FEED });
 
     const env = {
       SEARXNG_DISCOVERY: 'searx.space',
@@ -383,13 +362,7 @@ async function runStartupTests() {
   await testFunction('initializeInstanceDiscovery keeps configured instances ahead of discovered ones', async () => {
     resetInstanceDiscoveryForTests();
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date().toISOString(),
-      feed: 'https://searx.space/data/instances.json',
-      instances: ['https://discovered.example.com'],
-      total: 1,
-      eligible: 1,
-    });
+    seedCache(file, ['https://discovered.example.com'], { feed: SEARX_SPACE_FEED });
 
     const ok = await initializeInstanceDiscovery({
       SEARXNG_DISCOVERY: 'searx.space',
@@ -409,13 +382,7 @@ async function runStartupTests() {
   await testFunction('initializeInstanceDiscovery drops the searx.space sentinel from the replica list', async () => {
     resetInstanceDiscoveryForTests();
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date().toISOString(),
-      feed: 'https://searx.space/data/instances.json',
-      instances: ['https://discovered.example.com'],
-      total: 1,
-      eligible: 1,
-    });
+    seedCache(file, ['https://discovered.example.com'], { feed: SEARX_SPACE_FEED });
 
     assert.equal(
       await initializeInstanceDiscovery({ SEARXNG_URL: 'searx.space', SEARXNG_DISCOVERY_CACHE: file }),
@@ -495,13 +462,7 @@ async function runRefreshAndFetchTests() {
 
   await testFunction('refreshDiscoveredInstancesIfExpired skips a fresh cache and replaces an expired one', async () => {
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date().toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://cached.example.com'],
-      total: 1,
-      eligible: 1,
-    });
+    seedCache(file, ['https://cached.example.com']);
 
     assert.equal(await refreshDiscoveredInstancesIfExpired(discoveryOptions(file)), false);
 
@@ -516,13 +477,7 @@ async function runRefreshAndFetchTests() {
 
   await testFunction('refreshDiscoveredInstancesIfExpired keeps configured instances ahead of refreshed ones', async () => {
     const file = tempCacheFile();
-    writeDiscoveryCache(file, {
-      fetchedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-      feed: 'https://feed.test/instances.json',
-      instances: ['https://old.example.com'],
-      total: 1,
-      eligible: 1,
-    });
+    seedCache(file, ['https://old.example.com'], { ageMs: 2 * 86_400_000 });
 
     const refreshed = await refreshDiscoveredInstancesIfExpired(
       discoveryOptions(file, {
