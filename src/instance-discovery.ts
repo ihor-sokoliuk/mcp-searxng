@@ -47,6 +47,8 @@ export interface DiscoveryOptions {
   maxMedianSeconds: number;
   timeoutMs: number;
   cacheFile: string;
+  /** Instances from SEARXNG_URL; they always stay ahead of discovered ones. */
+  configured: string[];
   fetchImpl?: DiscoveryFetcher;
 }
 
@@ -109,6 +111,27 @@ export function isInstanceDiscoveryRequested(env: NodeJS.ProcessEnv = process.en
   return DISCOVERY_SENTINELS[(env.SEARXNG_URL ?? "").trim().toLowerCase()] === true;
 }
 
+/**
+ * Validates the configured feed URL. The operator owns this setting, so the
+ * check is about rejecting unusable input (non-HTTP schemes, embedded
+ * credentials) rather than about trusting the caller.
+ */
+export function resolveDiscoveryFeed(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return null;
+  }
+  if (url.username !== "" || url.password !== "") {
+    return null;
+  }
+  return url.toString();
+}
+
 /** Cache file location, following XDG on Linux and Library/Caches on macOS. */
 export function discoveryCacheFile(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env.SEARXNG_DISCOVERY_CACHE?.trim();
@@ -145,9 +168,15 @@ export function resolveDiscoveryOptions(env: NodeJS.ProcessEnv = process.env): {
     2_592_000,
   );
 
+  const feedSetting = env.SEARXNG_DISCOVERY_FEED?.trim();
+  const validatedFeed = feedSetting ? resolveDiscoveryFeed(feedSetting) : DEFAULT_DISCOVERY_FEED;
+  if (feedSetting && !validatedFeed) {
+    warnings.push("SEARXNG_DISCOVERY_FEED must be an http(s) URL without credentials; using the default feed");
+  }
+
   return {
     options: {
-      feed: env.SEARXNG_DISCOVERY_FEED?.trim() || DEFAULT_DISCOVERY_FEED,
+      feed: validatedFeed ?? DEFAULT_DISCOVERY_FEED,
       ttlMs: ttlSeconds * 1000,
       pool: read("SEARXNG_DISCOVERY_POOL", DEFAULT_POOL_SIZE, 1, MAX_POOL_SIZE),
       minSearchPercent: read(
@@ -164,9 +193,37 @@ export function resolveDiscoveryOptions(env: NodeJS.ProcessEnv = process.env): {
       ),
       timeoutMs: read("SEARXNG_DISCOVERY_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, 1_000, 120_000),
       cacheFile: discoveryCacheFile(env),
+      configured: parseSearxngUrls(env.SEARXNG_URL ?? "").filter(
+        (instance) => !DISCOVERY_SENTINELS[instance.toLowerCase()],
+      ),
     },
     warnings,
   };
+}
+
+type HttpHealth = { score: number };
+type SearchHealth = { percent: number; engines: number; medianSeconds: number };
+
+function readHttpHealth(entry: Record<string, unknown>): HttpHealth | null {
+  const http = readObject(entry.http);
+  if (readNumber(http?.status_code) !== 200 || readString(http?.error)) {
+    return null;
+  }
+  return { score: readNumber(http?.score) ?? 0 };
+}
+
+function readSearchHealth(entry: Record<string, unknown>): SearchHealth | null {
+  const search = readObject(readObject(entry.timing)?.search);
+  if (!search || readString(search.error)) {
+    return null;
+  }
+  const percent = readNumber(search.success_percentage);
+  const engines = readNumber(search.working_engines);
+  const medianSeconds = readNumber(readObject(search.all)?.median);
+  if (percent === undefined || engines === undefined || medianSeconds === undefined) {
+    return null;
+  }
+  return { percent, engines, medianSeconds };
 }
 
 function rankInstance(
@@ -175,48 +232,34 @@ function rankInstance(
   options: Pick<DiscoveryOptions, "minSearchPercent" | "maxMedianSeconds">,
 ): RankedInstance | null {
   const entry = readObject(raw);
-  if (!entry) {
+  if (!entry || entry.network_type !== "normal" || entry.analytics === true) {
     return null;
   }
-  if (entry.network_type !== "normal" || entry.analytics === true) {
-    return null;
-  }
-
-  const http = readObject(entry.http);
-  if (readNumber(http?.status_code) !== 200 || readString(http?.error)) {
-    return null;
-  }
-
-  const search = readObject(readObject(entry.timing)?.search);
-  if (!search || readString(search.error)) {
-    return null;
-  }
-
-  const searchPercent = readNumber(search.success_percentage);
-  if (searchPercent === undefined || searchPercent < options.minSearchPercent) {
-    return null;
-  }
-
-  const medianSeconds = readNumber(readObject(search.all)?.median);
-  if (medianSeconds === undefined || medianSeconds > options.maxMedianSeconds) {
-    return null;
-  }
-
-  const engines = readNumber(search.working_engines);
-  if (engines === undefined || engines <= 0) {
-    return null;
-  }
-
   if (!url.startsWith("https://")) {
+    return null;
+  }
+
+  const http = readHttpHealth(entry);
+  if (!http) {
+    return null;
+  }
+
+  const search = readSearchHealth(entry);
+  if (
+    !search ||
+    search.engines <= 0 ||
+    search.percent < options.minSearchPercent ||
+    search.medianSeconds > options.maxMedianSeconds
+  ) {
     return null;
   }
 
   return {
     url: url.replace(/\/+$/, ""),
-    searchPercent,
-    engines,
-    httpScore: readNumber(http?.score) ?? 0,
-    medianSeconds,
+    searchPercent: search.percent,
+    engines: search.engines,
+    httpScore: http.score,
+    medianSeconds: search.medianSeconds,
     version: readString(entry.version) ?? "",
   };
 }
@@ -273,17 +316,21 @@ export function selectInstances(
   };
 }
 
+function readCachedInstances(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((instance): instance is string => typeof instance === "string" && instance !== "")
+    : [];
+}
+
 export function readDiscoveryCache(file: string): DiscoveryCache | null {
   try {
     // Cache path is operator-configured or the platform cache directory.
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- deliberate cache location, not a trust boundary
     const cache = readObject(JSON.parse(readFileSync(file, "utf8")));
-    if (!cache || !Array.isArray(cache.instances)) {
+    if (!cache) {
       return null;
     }
-    const instances = cache.instances.filter(
-      (instance): instance is string => typeof instance === "string" && instance !== "",
-    );
+    const instances = readCachedInstances(cache.instances);
     if (instances.length === 0 || typeof cache.fetchedAt !== "string") {
       return null;
     }
@@ -317,6 +364,9 @@ export function cacheAgeMs(cache: DiscoveryCache, now = Date.now()): number {
 }
 
 export async function fetchDiscoveryFeed(url: string, timeoutMs: number): Promise<unknown> {
+  // The URL comes from SEARXNG_DISCOVERY_FEED, is validated by resolveDiscoveryFeed
+  // (http/https only, no credentials) and is set by the operator deploying the server.
+  // nosemgrep: javascript.lang.security.audit.ssrf
   const response = await fetch(url, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
@@ -331,50 +381,63 @@ export async function fetchDiscoveryFeed(url: string, timeoutMs: number): Promis
  * Returns the instance list, reading the cache when it is still fresh and
  * falling back to a stale cache when the feed cannot be reached.
  */
+function resultFromCache(
+  cached: DiscoveryCache,
+  origin: DiscoveryResult["origin"],
+  cacheAgeMs: number,
+): DiscoveryResult {
+  return {
+    total: cached.total,
+    eligible: cached.eligible,
+    instances: cached.instances,
+    origin,
+    cacheAgeMs,
+  };
+}
+
+async function fetchAndCache(options: DiscoveryOptions): Promise<DiscoveryResult> {
+  const fetchImpl = options.fetchImpl ?? fetchDiscoveryFeed;
+  const selection = selectInstances(await fetchImpl(options.feed, options.timeoutMs), options);
+  if (selection.instances.length === 0) {
+    throw new Error("no instance passed the health filter");
+  }
+  writeDiscoveryCache(options.cacheFile, {
+    fetchedAt: new Date().toISOString(),
+    feed: options.feed,
+    instances: selection.instances,
+    total: selection.total,
+    eligible: selection.eligible,
+  });
+  return { ...selection, origin: "refreshed", cacheAgeMs: 0 };
+}
+
+/**
+ * Returns the instance list, reading the cache when it is still fresh and
+ * falling back to a stale cache when the feed cannot be reached.
+ */
 export async function resolveDiscoveredInstances(
   options: DiscoveryOptions,
 ): Promise<DiscoveryResult> {
-  const fetchImpl = options.fetchImpl ?? fetchDiscoveryFeed;
   const cached = readDiscoveryCache(options.cacheFile);
   const cachedAge = cached ? cacheAgeMs(cached) : Number.POSITIVE_INFINITY;
 
   if (cached && cachedAge < options.ttlMs && cached.feed === options.feed) {
-    return {
-      total: cached.total,
-      eligible: cached.eligible,
-      instances: cached.instances,
-      origin: "cache",
-      cacheAgeMs: cachedAge,
-    };
+    return resultFromCache(cached, "cache", cachedAge);
   }
 
   try {
-    const feed = await fetchImpl(options.feed, options.timeoutMs);
-    const selection = selectInstances(feed, options);
-    if (selection.instances.length === 0) {
-      throw new Error("no instance passed the health filter");
-    }
-    const cache: DiscoveryCache = {
-      fetchedAt: new Date().toISOString(),
-      feed: options.feed,
-      instances: selection.instances,
-      total: selection.total,
-      eligible: selection.eligible,
-    };
-    writeDiscoveryCache(options.cacheFile, cache);
-    return { ...selection, origin: "refreshed", cacheAgeMs: 0 };
+    return await fetchAndCache(options);
   } catch (error) {
     if (cached && cached.instances.length > 0) {
-      return {
-        total: cached.total,
-        eligible: cached.eligible,
-        instances: cached.instances,
-        origin: "stale-cache",
-        cacheAgeMs: cachedAge,
-      };
+      return resultFromCache(cached, "stale-cache", cachedAge);
     }
     throw error;
   }
+}
+
+/** Configured instances first, then discovered replicas, without duplicates. */
+export function mergeWithConfigured(configured: string[], discovered: string[]): string[] {
+  return [...new Set([...configured, ...discovered])];
 }
 
 /**
@@ -390,7 +453,7 @@ export async function refreshDiscoveredInstancesIfExpired(
   }
   try {
     const result = await resolveDiscoveredInstances(options);
-    setDiscoveredSearxngInstances(result.instances);
+    setDiscoveredSearxngInstances(mergeWithConfigured(options.configured, result.instances));
     return true;
   } catch (error) {
     writeDiagnostic(
@@ -432,11 +495,7 @@ export async function initializeInstanceDiscovery(
     if (result.instances.length === 0) {
       throw new Error("discovery produced an empty instance list");
     }
-    // Configured instances stay first; discovered ones extend the replica list.
-    const configured = parseSearxngUrls(env.SEARXNG_URL ?? "").filter(
-      (instance) => !DISCOVERY_SENTINELS[instance.toLowerCase()],
-    );
-    setDiscoveredSearxngInstances([...new Set([...configured, ...result.instances])]);
+    setDiscoveredSearxngInstances(mergeWithConfigured(options.configured, result.instances));
     if (result.origin === "stale-cache") {
       writeDiagnostic(
         "warn",

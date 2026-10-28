@@ -89,6 +89,7 @@ function discoveryOptions(cacheFile: string, overrides: Partial<DiscoveryOptions
     maxMedianSeconds: 5,
     timeoutMs: 1000,
     cacheFile,
+    configured: [],
     ...overrides,
   };
 }
@@ -103,9 +104,7 @@ function fetchFailing(message: string): DiscoveryFetcher {
   };
 }
 
-async function runTests() {
-  console.log('🧪 Testing: instance-discovery.ts\n');
-
+async function runFlagAndSelectionTests() {
   await testFunction('isInstanceDiscoveryRequested reads SEARXNG_DISCOVERY and the URL sentinel', () => {
     assert.equal(isInstanceDiscoveryRequested({}), false);
     assert.equal(isInstanceDiscoveryRequested({ SEARXNG_DISCOVERY: 'searx.space' }), true);
@@ -194,6 +193,9 @@ async function runTests() {
     assert.throws(() => selectInstances({ instances: {} }, selectionOptions), /no instances/);
   }, results);
 
+}
+
+async function runOptionsAndCacheTests() {
   await testFunction('resolveDiscoveryOptions applies defaults and warns once per invalid value', () => {
     const { options, warnings } = resolveDiscoveryOptions({ SEARXNG_DISCOVERY_CACHE: '/tmp/x.json' });
     assert.equal(options.feed, 'https://searx.space/data/instances.json');
@@ -211,6 +213,29 @@ async function runTests() {
     assert.equal(invalid.options.pool, 10);
     assert.equal(invalid.options.minSearchPercent, 90);
     assert.equal(invalid.warnings.length, 2);
+  }, results);
+
+  await testFunction('resolveDiscoveryOptions rejects a non-http or credential-bearing feed', () => {
+    const invalidScheme = resolveDiscoveryOptions({
+      SEARXNG_DISCOVERY_CACHE: '/tmp/x.json',
+      SEARXNG_DISCOVERY_FEED: 'file:///etc/passwd',
+    });
+    assert.equal(invalidScheme.options.feed, 'https://searx.space/data/instances.json');
+    assert.equal(invalidScheme.warnings.length, 1);
+
+    const withCredentials = resolveDiscoveryOptions({
+      SEARXNG_DISCOVERY_CACHE: '/tmp/x.json',
+      SEARXNG_DISCOVERY_FEED: 'https://user:pass@feed.test/instances.json',
+    });
+    assert.equal(withCredentials.options.feed, 'https://searx.space/data/instances.json');
+    assert.equal(withCredentials.warnings.length, 1);
+
+    const valid = resolveDiscoveryOptions({
+      SEARXNG_DISCOVERY_CACHE: '/tmp/x.json',
+      SEARXNG_DISCOVERY_FEED: 'https://mirror.test/instances.json',
+    });
+    assert.equal(valid.options.feed, 'https://mirror.test/instances.json');
+    assert.deepEqual(valid.warnings, []);
   }, results);
 
   await testFunction('cache round-trips and reports its age', () => {
@@ -304,6 +329,9 @@ async function runTests() {
     );
   }, results);
 
+}
+
+async function runStartupTests() {
   await testFunction('initializeInstanceDiscovery installs the discovered list as the active instances', async () => {
     resetInstanceDiscoveryForTests();
     const file = tempCacheFile();
@@ -388,6 +416,9 @@ async function runTests() {
     }
   }, results);
 
+}
+
+async function runRefreshAndFetchTests() {
   await testFunction('fetchDiscoveryFeed returns the parsed payload and rejects HTTP errors', async () => {
     const original = globalThis.fetch;
     try {
@@ -458,6 +489,28 @@ async function runTests() {
     resetInstanceDiscoveryForTests();
   }, results);
 
+  await testFunction('refreshDiscoveredInstancesIfExpired keeps configured instances ahead of refreshed ones', async () => {
+    const file = tempCacheFile();
+    writeDiscoveryCache(file, {
+      fetchedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      feed: 'https://feed.test/instances.json',
+      instances: ['https://old.example.com'],
+      total: 1,
+      eligible: 1,
+    });
+
+    const refreshed = await refreshDiscoveredInstancesIfExpired(
+      discoveryOptions(file, {
+        configured: ['https://mine.example.com'],
+        fetchImpl: fetchReturning(feed({ 'https://new.example.com': entry() })),
+      }),
+    );
+
+    assert.equal(refreshed, true);
+    assert.deepEqual(getSearxngInstances(), ['https://mine.example.com', 'https://new.example.com']);
+    resetInstanceDiscoveryForTests();
+  }, results);
+
   await testFunction('refreshDiscoveredInstancesIfExpired keeps the list when the feed fails', async () => {
     const file = tempCacheFile();
     resetInstanceDiscoveryForTests();
@@ -483,6 +536,17 @@ async function runTests() {
     assert.deepEqual(getSearxngInstances(), parseSearxngUrls());
     resetInstanceDiscoveryForTests();
   }, results);
+
+  console.log('\n');
+}
+
+async function runTests() {
+  console.log('🧪 Testing: instance-discovery.ts\n');
+
+  await runFlagAndSelectionTests();
+  await runOptionsAndCacheTests();
+  await runStartupTests();
+  await runRefreshAndFetchTests();
 
   for (const root of tempRoots) {
     rmSync(root, { recursive: true, force: true });
