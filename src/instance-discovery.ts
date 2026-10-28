@@ -20,6 +20,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { writeDiagnostic } from "./diagnostic-output.js";
 import { parseBoundedInteger } from "./env-int.js";
+import { applyTrustedServiceRequestConfig, fetchSearxng } from "./proxy.js";
 import { parseSearxngUrls, setDiscoveredSearxngInstances } from "./searxng-instances.js";
 
 export const DEFAULT_DISCOVERY_FEED = "https://searx.space/data/instances.json";
@@ -226,16 +227,26 @@ function readSearchHealth(entry: Record<string, unknown>): SearchHealth | null {
   return { percent, engines, medianSeconds };
 }
 
+function isRankableEntry(entry: Record<string, unknown>, url: string): boolean {
+  const usableSource = entry.network_type === "normal" && entry.analytics !== true;
+  return usableSource && url.startsWith("https://");
+}
+
+function searchMatchesOptions(
+  search: SearchHealth,
+  options: Pick<DiscoveryOptions, "minSearchPercent" | "maxMedianSeconds">,
+): boolean {
+  const coverage = search.engines > 0 && search.percent >= options.minSearchPercent;
+  return coverage && search.medianSeconds <= options.maxMedianSeconds;
+}
+
 function rankInstance(
   url: string,
   raw: unknown,
   options: Pick<DiscoveryOptions, "minSearchPercent" | "maxMedianSeconds">,
 ): RankedInstance | null {
   const entry = readObject(raw);
-  if (!entry || entry.network_type !== "normal" || entry.analytics === true) {
-    return null;
-  }
-  if (!url.startsWith("https://")) {
+  if (!entry || !isRankableEntry(entry, url)) {
     return null;
   }
 
@@ -245,12 +256,7 @@ function rankInstance(
   }
 
   const search = readSearchHealth(entry);
-  if (
-    !search ||
-    search.engines <= 0 ||
-    search.percent < options.minSearchPercent ||
-    search.medianSeconds > options.maxMedianSeconds
-  ) {
+  if (!search || !searchMatchesOptions(search, options)) {
     return null;
   }
 
@@ -364,13 +370,14 @@ export function cacheAgeMs(cache: DiscoveryCache, now = Date.now()): number {
 }
 
 export async function fetchDiscoveryFeed(url: string, timeoutMs: number): Promise<unknown> {
-  // The URL comes from SEARXNG_DISCOVERY_FEED, is validated by resolveDiscoveryFeed
-  // (http/https only, no credentials) and is set by the operator deploying the server.
-  // nosemgrep: javascript.lang.security.audit.ssrf
-  const response = await fetch(url, {
+  const requestOptions: RequestInit = {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
-  });
+  };
+  // Operator-configured service URL: reuse the shared trusted-service client so
+  // global proxy and CA settings apply, exactly as SEARXNG_URL requests do.
+  applyTrustedServiceRequestConfig(requestOptions, url);
+  const response = await fetchSearxng(url, requestOptions);
   if (!response.ok) {
     throw new Error(`discovery feed responded ${response.status} ${response.statusText}`);
   }

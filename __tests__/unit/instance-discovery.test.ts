@@ -29,6 +29,7 @@ import {
   type DiscoveryFetcher,
   type DiscoveryOptions,
 } from '../../src/instance-discovery.js';
+import { setSearxngFetchForTesting } from '../../src/proxy.js';
 import { getSearxngInstances, parseSearxngUrls } from '../../src/searxng-instances.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 
@@ -53,22 +54,30 @@ type FeedOptions = {
   version?: string;
 };
 
+const ENTRY_DEFAULTS: Required<Omit<FeedOptions, 'error' | 'median'>> & Pick<FeedOptions, 'error' | 'median'> = {
+  networkType: 'normal',
+  status: 200,
+  analytics: false,
+  searchPercent: 100,
+  median: 1.5,
+  engines: 5,
+  httpScore: 100,
+  version: '2026.10.27+abc',
+};
+
 function entry(overrides: FeedOptions = {}): Record<string, unknown> {
+  const merged = { ...ENTRY_DEFAULTS, ...overrides };
   return {
-    network_type: overrides.networkType ?? 'normal',
-    analytics: overrides.analytics ?? false,
-    version: overrides.version ?? '2026.10.27+abc',
-    http: {
-      status_code: overrides.status ?? 200,
-      error: overrides.error ?? null,
-      score: overrides.httpScore ?? 100,
-    },
+    network_type: merged.networkType,
+    analytics: merged.analytics,
+    version: merged.version,
+    http: { status_code: merged.status, error: merged.error ?? null, score: merged.httpScore },
     timing: {
       search: {
-        success_percentage: overrides.searchPercent ?? 100,
+        success_percentage: merged.searchPercent,
         error: null,
-        working_engines: overrides.engines ?? 5,
-        all: overrides.median === null ? null : { median: overrides.median ?? 1.5 },
+        working_engines: merged.engines,
+        all: merged.median === null ? null : { median: merged.median },
       },
     },
   };
@@ -420,21 +429,20 @@ async function runStartupTests() {
 
 async function runRefreshAndFetchTests() {
   await testFunction('fetchDiscoveryFeed returns the parsed payload and rejects HTTP errors', async () => {
-    const original = globalThis.fetch;
     try {
-      globalThis.fetch = (async () =>
+      setSearxngFetchForTesting(async () =>
         new Response(JSON.stringify(feed({ 'https://ok.example.com': entry() })), {
           status: 200,
           headers: { 'content-type': 'application/json' },
-        })) as unknown as typeof fetch;
+        }) as unknown as Response);
       const payload = await fetchDiscoveryFeed('https://feed.test/instances.json', 1000);
       assert.ok(payload && typeof payload === 'object');
 
-      globalThis.fetch = (async () =>
-        new Response('nope', { status: 503, statusText: 'Service Unavailable' })) as unknown as typeof fetch;
+      setSearxngFetchForTesting(async () =>
+        new Response('nope', { status: 503, statusText: 'Service Unavailable' }) as unknown as Response);
       await assert.rejects(fetchDiscoveryFeed('https://feed.test/instances.json', 1000), /503 Service Unavailable/);
     } finally {
-      globalThis.fetch = original;
+      setSearxngFetchForTesting();
     }
   }, results);
 
