@@ -148,10 +148,27 @@ enabled is more reliable for MCP use.
 | Empty results | Remove optional engine, category, language, time, safe-search, and score filters, then make one simpler request. Empty results can also reflect upstream engine degradation. |
 | Capability drift | Refresh `searxng_instance_info` once and adapt to the current public inventory. |
 
-mcp-searxng does not currently provide automated public-instance discovery,
-client-side request pacing/backoff controls, or structured zero-result retry
-diagnostics. Keep selection and retry decisions explicit instead of assuming
-those safeguards exist.
+## Automated discovery is opt-in, and it is not a safeguard
+
+`SEARXNG_DISCOVERY=searx.space` ranks public instances from the
+[searx.space](https://searx.space/) health feed and uses that ranking as the
+ordered replica list, so an instance that fails over moves to the next candidate
+without manual selection. Entries in `SEARXNG_URL` stay first; discovered
+instances extend the list behind them. See
+[instance discovery](../CONFIGURATION.md#instance-discovery) for the filters,
+ranking order and cache settings.
+
+Discovery removes manual selection; it does not remove the operator's limits.
+The feed reports the latest measurement from the feed's own vantage point, not
+your current quota. A `429`, a `403` from bot protection, a disabled JSON API,
+or a slow instance can still happen immediately after a healthy measurement, and
+discovery neither bypasses those controls nor retries harder. Keep the row
+responses above as the response policy, and prefer self-hosting when you need a
+stable service.
+
+mcp-searxng still does not provide client-side request pacing or backoff
+controls, or structured zero-result retry diagnostics. Keep retry decisions
+explicit instead of assuming those safeguards exist.
 
 ## When to self-host
 
