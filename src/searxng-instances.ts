@@ -8,6 +8,9 @@ type InstanceHealth = {
 
 const healthByInstance = new Map<string, InstanceHealth>();
 
+// Set at startup when instance discovery resolves a list; null means "use SEARXNG_URL".
+let discoveredInstances: string[] | null = null;
+
 function getActiveHealth(instanceUrl: string, now: number): InstanceHealth | undefined {
   const state = healthByInstance.get(instanceUrl);
   if (!state) {
@@ -34,7 +37,15 @@ export function parseSearxngUrls(raw: string | undefined = process.env.SEARXNG_U
 }
 
 export function getSearxngInstances(): string[] {
-  return parseSearxngUrls();
+  return discoveredInstances === null ? parseSearxngUrls() : discoveredInstances.slice();
+}
+
+/**
+ * Replaces the configured instance list with one resolved at runtime (instance
+ * discovery). Passing `null` restores `SEARXNG_URL` parsing.
+ */
+export function setDiscoveredSearxngInstances(instances: string[] | null): void {
+  discoveredInstances = instances === null ? null : instances.slice();
 }
 
 export function getPrimarySearxngInstance(): string | undefined {
@@ -151,4 +162,5 @@ export function getHealthySearxngInstances(instances: string[], now = Date.now()
 
 export function clearSearxngInstanceStateForTests(): void {
   healthByInstance.clear();
+  discoveredInstances = null;
 }

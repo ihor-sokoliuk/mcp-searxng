@@ -26,6 +26,7 @@ import { runTests as runPdfReaderTests } from './unit/pdf-reader.test.js';
 import { runTests as runPdfNetworkGuardTests } from './unit/pdf-network-guard.test.js';
 import { runTests as runErrorHandlerTests } from './unit/error-handler.test.js';
 import { runTests as runSearxngInstancesTests } from './unit/searxng-instances.test.js';
+import { runTests as runInstanceDiscoveryTests } from './unit/instance-discovery.test.js';
 import { runTests as runUnixSocketTransportTests } from './unit/unix-socket-transport.test.js';
 import { runTests as runResourcesTests } from './unit/resources.test.js';
 import { runTests as runSearchTests } from './unit/search.test.js';
@@ -74,6 +75,7 @@ const testSuites: TestSuite[] = [
   { name: 'PDF Network Guard', category: 'unit', run: runPdfNetworkGuardTests },
   { name: 'Error Handler', category: 'unit', run: runErrorHandlerTests },
   { name: 'SearXNG Instances', category: 'unit', run: runSearxngInstancesTests },
+  { name: 'Instance Discovery', category: 'unit', run: runInstanceDiscoveryTests },
   { name: 'Unix Socket Transport', category: 'unit', run: runUnixSocketTransportTests },
   { name: 'Resources', category: 'unit', run: runResourcesTests },
   { name: 'Search', category: 'unit', run: runSearchTests },
