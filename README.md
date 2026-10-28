@@ -66,6 +66,7 @@ test SearXNG connectivity. If the call fails, start with
 - Search with pagination, filters, direct answers and full or compact text/JSON output.
 - Read HTML, structured text and bounded PDF text; inspect headings or selected sections.
 - Discover instance capabilities and get query suggestions.
+- Optional public-instance discovery from the [searx.space](https://searx.space/) health feed, ranked by measured coverage and cached for a day.
 - Optional replica failover/fan-out, HTML fallback, caching, proxies and browser solvers.
 - Local STDIO or Streamable HTTP, with static bearer and optional OAuth protection.
 

@@ -3,7 +3,7 @@
  * Provides clear, focused error messages that identify the root cause
  */
 
-import { parseSearxngUrls, validateSearxngInstanceUrl } from "./searxng-instances.js";
+import { getSearxngInstances, validateSearxngInstanceUrl } from "./searxng-instances.js";
 import { validateBrowserSolverEnvironment } from "./browser-solver-config.js";
 import { sanitizeErrorForTransport } from "./diagnostic-sanitizer.js";
 import { writeDiagnostic } from "./diagnostic-output.js";
@@ -182,7 +182,7 @@ export function createDegradedSearchError(query: string, failures: string): MCPS
 export function validateEnvironment(): string | null {
   const issues: string[] = [];
   
-  const searxngUrls = parseSearxngUrls();
+  const searxngUrls = getSearxngInstances();
   if (searxngUrls.length === 0) {
     issues.push("SEARXNG_URL not set");
   } else {

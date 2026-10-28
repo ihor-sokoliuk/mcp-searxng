@@ -21,6 +21,55 @@ For tested settings, engine routes and uncapped full-metadata research, see
 [search configuration](docs/search-configuration.md). For an executable private
 stack with optional solvers, see [deployment](docs/browser-solver-deployment.md).
 
+## Instance discovery
+
+Instead of pinning one instance, the server can rank public instances from the
+[searx.space](https://searx.space/) health feed and use that ranking as an
+ordered replica list. Discovery is off by default. Entries from `SEARXNG_URL`
+are always tried first; discovered instances extend the list as failover
+replicas behind them.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SEARXNG_DISCOVERY` | No | — | Set to `searx.space` to rank public instances. `SEARXNG_URL=searx.space` enables the same mode. |
+| `SEARXNG_DISCOVERY_POOL` | No | `10` | Number of instances used as replicas, 1-50. |
+| `SEARXNG_DISCOVERY_TTL_SECONDS` | No | `86400` | Cache lifetime before the feed is fetched again, 60-2592000. |
+| `SEARXNG_DISCOVERY_MIN_SEARCH_PERCENT` | No | `90` | Minimum measured search success rate, 0-100. |
+| `SEARXNG_DISCOVERY_MAX_MEDIAN_SECONDS` | No | `5` | Maximum measured median search latency, 1-3600. |
+| `SEARXNG_DISCOVERY_TIMEOUT_MS` | No | `20000` | Feed request deadline, 1000-120000. |
+| `SEARXNG_DISCOVERY_FEED` | No | `https://searx.space/data/instances.json` | Alternative feed URL with the same shape. |
+| `SEARXNG_DISCOVERY_CACHE` | No | platform cache directory | File where the ranked list is cached. |
+
+```bash
+SEARXNG_DISCOVERY=searx.space SEARXNG_DISCOVERY_POOL=5 mcp-searxng
+```
+
+Only instances that answered the latest searx.space check are eligible: HTTP
+200 without an error, `network_type` of `normal`, no analytics collection, search
+success rate at or above `SEARXNG_DISCOVERY_MIN_SEARCH_PERCENT`, a median at or
+below `SEARXNG_DISCOVERY_MAX_MEDIAN_SECONDS`, and at least one working engine.
+Eligible instances are ordered by search success rate, then working engine count,
+then Mozilla Observatory score, then median latency, then version. Coverage comes
+before raw speed because a fast instance that returns nothing costs a failover.
+
+The ranked list is cached atomically for `SEARXNG_DISCOVERY_TTL_SECONDS` and
+refreshed hourly once expired. A cold start waits for the feed, bounded by the
+timeout; a warm start reads the cache file and stays offline-capable. When the
+feed is unreachable, a stale cache is used and one warning is logged, so a
+previously working setup keeps working.
+
+Public instances rate-limit automated use. A `429` is a hard failure for that
+replica, so the request moves to the next instance and the instance is skipped
+for 60 seconds after three consecutive failures; discovery neither raises the
+operator's quota nor retries harder. Instances that answer only HTML, return
+`403` from bot protection, or disable the JSON API still need
+`SEARXNG_HTML_FALLBACK=true`, and heavy or sensitive use belongs on an instance
+you operate.
+
+Public instances also receive your queries and may log them. Keep `SEARXNG_URL`
+pointing at an instance you operate for sensitive work; discovery trades that
+control for not depending on a single public host.
+
 ## Authentication
 
 For SearXNG instances protected with HTTP Basic Auth, embed credentials in each `SEARXNG_URL` entry:

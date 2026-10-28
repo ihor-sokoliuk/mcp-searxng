@@ -5,6 +5,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- Discover and rank public SearXNG instances from the searx.space health feed. `SEARXNG_DISCOVERY=searx.space` (or `SEARXNG_URL=searx.space`) selects instances that answered the latest health check, orders them by measured search success, working engine count, Observatory score and latency, and caches the ranking for a day with a stale-cache fallback. Entries from `SEARXNG_URL` stay first and discovered instances extend the list as failover replicas.
+
 ## [2.9.0] - 2026-10-27
 
 ### Added

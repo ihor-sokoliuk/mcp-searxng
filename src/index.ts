@@ -34,6 +34,7 @@ import {
   getSearxngInstances,
   redactSearxngInstanceUrl,
 } from "./searxng-instances.js";
+import { initializeInstanceDiscovery } from "./instance-discovery.js";
 import {
   initializeDiagnosticSanitizer,
   sanitizeDiagnosticText,
@@ -516,6 +517,9 @@ export async function main() {
   if (browserSolverIssue) {
     throw new Error(browserSolverIssue);
   }
+
+  // Resolve public instances before serving so the first search has a list.
+  await initializeInstanceDiscovery();
 
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
