@@ -52,7 +52,24 @@ Percent-encode special characters in usernames or passwords before placing them 
 
 `SEARXNG_MAX_RESPONSE_BYTES` accepts only a strict integer after surrounding JavaScript whitespace is trimmed. A leading `+` and leading zeros are accepted; `-0`, other non-positive values, fractions, exponents, suffixes, unsafe integers, and values outside the inclusive `1` through `16777216` range are invalid. Unset or blank uses `5242880` silently. An invalid value uses that default and emits one value-free warning per MCP server.
 
-Search JSON and HTML fallback each receive their own full `SEARXNG_TIMEOUT_MS` deadline, so the fallback deadline is separate and additive; replica failover remains per instance and additive as well. `/config` and `/autocompleter` retain their fixed 5-second deadlines through body consumption. Oversized, stalled, partial, malformed, or read-failed responses do not populate successful caches or health state and follow the existing failure, negative-cache, or empty-array path.
+Search JSON and HTML fallback each receive their own full `SEARXNG_TIMEOUT_MS` deadline, so the fallback deadline is separate and additive; replica failover remains per instance and additive as well. On-demand `/config` and `/autocompleter` retain their fixed 5-second deadlines through body consumption. Oversized, stalled, partial, malformed, or read-failed responses do not populate successful caches or health state and follow the existing failure, negative-cache, or empty-array path.
+
+### Optional startup capability check
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SEARXNG_STARTUP_HEALTHCHECK` | No | `false` | Only exact `true` enables one background `/config` check at process startup. Unset, blank, or any other value makes no startup capability request and emits no health-check warning. |
+| `SEARXNG_HEALTHCHECK_TIMEOUT_MS` | No | `5000` | Per-instance startup deadline in milliseconds, including response body consumption. Positive integer up to `2147483647`; invalid values warn and use `5000`. Unset or blank uses the default. On-demand capability calls keep their 5-second deadline. |
+
+The enabled check loads the existing categories/engines cache across configured
+replicas. It reports success or an actionable warning without waiting to register
+tools or serve either transport. An unavailable backend never prevents
+`web_url_read` from working. Failed checks use the existing approximately
+60-second capability failure cache; `searxng_instance_info` with `refresh=true`
+can retry immediately. A successful capability check does not guarantee that
+search engines are available. For HTTP 403, enable `format=json` in SearXNG
+`settings.yml` and check access to `/config`; for connection or TLS failures,
+check the configured URL, connectivity, and certificates.
 
 ## Tool Schema
 
