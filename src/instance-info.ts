@@ -280,12 +280,13 @@ function safeInstanceLogTarget(base: string): string {
   }
 }
 
-async function requestInstanceConfig(mcpServer: McpServer | undefined, base: string, maxResponseBytes: number, timeoutMs: number): Promise<ConfigResult> {
+async function requestInstanceConfig(mcpServer: McpServer | undefined, base: string, maxResponseBytes: number, timeoutMs: number, signal?: AbortSignal): Promise<ConfigResult> {
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
     const url = new URL("config", parsedBase);
     const requestUrl = stripSearxngInstanceUrlUserinfo(url);
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const timeoutSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
     const requestOptions: RequestInit = { signal: timeoutSignal };
     applySearchRequestConfig(requestOptions, url.toString());
 
@@ -325,6 +326,7 @@ async function fetchConfigFromInstance(
   base: string,
   maxResponseBytes: number,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<ConfigResult> {
   const cached = cachedConfigs.get(base);
   if (cached) {
@@ -336,18 +338,20 @@ async function fetchConfigFromInstance(
     return cachedFailure;
   }
 
-  const result = await requestInstanceConfig(mcpServer, base, maxResponseBytes, timeoutMs);
+  const result = await requestInstanceConfig(mcpServer, base, maxResponseBytes, timeoutMs, signal);
+  if (signal?.aborted) return result;
   if (result.available) {
     cachedConfigs.set(base, result.config);
     cachedConfigFailures.delete(base);
-  } else {
+  } else if (mcpServer) {
+    // A short startup deadline must not suppress normal on-demand discovery.
     cacheFailure(base, result.message, result.status);
   }
 
   return result;
 }
 
-async function fetchConfigs(mcpServer: McpServer | undefined, refresh = false, timeoutMs = 5000): Promise<AggregateConfigResult> {
+async function fetchConfigs(mcpServer: McpServer | undefined, refresh = false, timeoutMs = 5000, signal?: AbortSignal): Promise<AggregateConfigResult> {
   const maxResponseBytes = resolveSearxngResponseMaxBytes(mcpServer);
   const instances = getSearxngInstances();
   if (instances.length === 0) {
@@ -364,7 +368,7 @@ async function fetchConfigs(mcpServer: McpServer | undefined, refresh = false, t
   }
 
   const results = await Promise.all(
-    instances.map((instance) => fetchConfigFromInstance(mcpServer, instance, maxResponseBytes, timeoutMs)),
+    instances.map((instance) => fetchConfigFromInstance(mcpServer, instance, maxResponseBytes, timeoutMs, signal)),
   );
   const configs = results
     .filter((result): result is { available: true; config: SearXNGConfig; sourceUrl: string } => result.available)
@@ -388,16 +392,17 @@ async function fetchConfigs(mcpServer: McpServer | undefined, refresh = false, t
   return { available: true, configs, failures };
 }
 
-export async function checkStartupCapabilities(): Promise<void> {
+export async function checkStartupCapabilities(signal?: AbortSignal): Promise<void> {
   if (process.env.SEARXNG_STARTUP_HEALTHCHECK !== "true") return;
   const timeout = parseBoundedInteger(process.env.SEARXNG_HEALTHCHECK_TIMEOUT_MS, 5000, 1, 2147483647);
   if (timeout.invalid) {
     writeDiagnostic("warn", "Ignoring invalid SEARXNG_HEALTHCHECK_TIMEOUT_MS. Using default 5000.");
   }
   try {
-    const result = await fetchConfigs(undefined, false, timeout.value);
-    if (result.available) {
-      writeDiagnostic("error", "SearXNG startup check: capabilities loaded and cached.");
+    const result = await fetchConfigs(undefined, false, timeout.value, signal);
+    if (signal?.aborted) return;
+    if (result.available && result.failures.length === 0) {
+      writeDiagnostic("error", "SearXNG startup check (info): capabilities loaded and cached.");
     }
     if (!result.available || result.failures.length > 0) {
       writeDiagnostic("warn", "SearXNG startup check: /config unavailable for one or more instances. Check SEARXNG_URL, host reachability, TLS certificates, and valid JSON configuration. For HTTP 403, enable format=json in SearXNG settings.yml and check /config access. Tools remain available.");
