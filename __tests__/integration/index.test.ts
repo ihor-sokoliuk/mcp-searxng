@@ -10,6 +10,9 @@ import { strict as assert } from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, readFileSync, unlinkSync, rmdirSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import http from 'node:http';
 import { packageVersion } from '../../src/version.js';
 import {
@@ -339,6 +342,8 @@ async function runTests() {
   }, results);
 
   await testFunction('HTTP serves health and lists tools while startup capability request stalls', async () => {
+    const scratch = mkdtempSync(path.join(tmpdir(), 'startup-check-test-'));
+    const marker = path.join(scratch, 'started');
     let server: SpawnedHttpCli | undefined;
     const client = new Client({ name: 'startup-http-test', version: '1' });
     const script = `
@@ -346,7 +351,9 @@ async function runTests() {
       process.env.SEARXNG_STARTUP_HEALTHCHECK = 'true';
       process.env.SEARXNG_HEALTHCHECK_TIMEOUT_MS = '30000';
       const { setSearxngFetchForTesting } = await import('./src/proxy.ts');
+      const { writeFileSync } = await import('node:fs');
       setSearxngFetchForTesting(async (_url, options) => new Promise((_resolve, reject) => {
+        writeFileSync(${JSON.stringify(marker)}, 'started');
         options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
       }));
       await import('./src/cli.ts');
@@ -355,7 +362,16 @@ async function runTests() {
       server = await spawnHttpCli({ args: ['--import', 'tsx', '--input-type=module', '-e', script], readyTimeoutMs: 5000 });
       await client.connect(new StreamableHTTPClientTransport(server.url));
       assert.ok((await client.listTools()).tools.some(tool => tool.name === 'web_url_read'));
-    } finally { await client.close(); await server?.close(); }
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- owned test marker
+      assert.equal(readFileSync(marker, 'utf8'), 'started');
+      assert.equal((server.health as { status: string }).status, 'healthy');
+    } finally {
+      await client.close(); await server?.close();
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- owned test marker
+      if (existsSync(marker)) unlinkSync(marker);
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- empty owned test directory
+      rmdirSync(scratch);
+    }
   }, results);
 
   await testFunction('createMcpServer returns independent instances per call', () => {
