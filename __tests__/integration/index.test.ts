@@ -292,6 +292,43 @@ async function runTests() {
     assert.ok(server.server, 'should expose underlying Server via .server');
   }, results);
 
+  await testFunction('CLI lists URL reader while an enabled startup check is still pending', () => {
+    const messages = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+        protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'startup-test', version: '1' },
+      } },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    ];
+    const script = `
+      const { setSearxngFetchForTesting } = await import('./src/proxy.ts');
+      let complete = false;
+      setSearxngFetchForTesting(async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => { complete = true; reject(options.signal.reason); }, { once: true });
+      }));
+      const write = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (...args) => {
+        if (String(args[0]).includes('web_url_read')) process.stderr.write('tools-before-check:' + !complete + '\\n');
+        return write(...args);
+      };
+      setTimeout(() => {}, 400);
+      await import('./src/cli.ts');
+    `;
+    const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
+      cwd: process.cwd(),
+      env: { ...process.env, MCP_HTTP_PORT: '', SEARXNG_URL: 'https://one.example.com',
+        SEARXNG_STARTUP_HEALTHCHECK: 'true', SEARXNG_HEALTHCHECK_TIMEOUT_MS: '150' },
+      input: messages.map(message => JSON.stringify(message)).join('\n') + '\n',
+      encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    const responses = child.stdout.trim().split('\n').map(line => JSON.parse(line));
+    const list = responses.find(response => response.id === 2);
+    assert.ok(list?.result?.tools.some((tool: { name: string }) => tool.name === 'web_url_read'));
+    assert.match(child.stderr, /tools-before-check:true/);
+    assert.match(child.stderr, /Tools remain available/);
+  }, results);
+
   await testFunction('createMcpServer returns independent instances per call', () => {
     const controller = createToolAdmissionController();
     const server1 = createMcpServer(controller);

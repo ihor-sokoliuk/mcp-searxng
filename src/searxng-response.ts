@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { parseStrictInteger } from "./env-int.js";
 import { logMessage } from "./logging.js";
+import { writeDiagnostic } from "./diagnostic-output.js";
 
 export const DEFAULT_SEARXNG_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
 export const HARD_MAX_SEARXNG_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -27,7 +28,7 @@ export function resetSearxngResponseConfigWarningsForTesting(): void {
   warnedInvalidConfigurationServers = new WeakSet<object>();
 }
 
-export function resolveSearxngResponseMaxBytes(mcpServer: McpServer): number {
+export function resolveSearxngResponseMaxBytes(mcpServer?: McpServer): number {
   const rawValue = process.env.SEARXNG_MAX_RESPONSE_BYTES;
   if (rawValue === undefined || rawValue.trim() === "") {
     return DEFAULT_SEARXNG_RESPONSE_MAX_BYTES;
@@ -38,7 +39,9 @@ export function resolveSearxngResponseMaxBytes(mcpServer: McpServer): number {
     return parsed;
   }
 
-  if (!warnedInvalidConfigurationServers.has(mcpServer)) {
+  if (!mcpServer) {
+    writeDiagnostic("warn", "Ignoring invalid SEARXNG_MAX_RESPONSE_BYTES; using the safe default response limit.");
+  } else if (!warnedInvalidConfigurationServers.has(mcpServer)) {
     warnedInvalidConfigurationServers.add(mcpServer);
     logMessage(
       mcpServer,

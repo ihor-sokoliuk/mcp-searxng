@@ -26,7 +26,7 @@ import {
 import { logMessage, markModernServer, runWithModernLog, setLogLevel } from "./logging.js";
 import { performWebSearch } from "./search.js";
 import { performSearchSuggestions } from "./suggestions.js";
-import { fetchInstanceInfo } from "./instance-info.js";
+import { checkStartupCapabilities, fetchInstanceInfo } from "./instance-info.js";
 import { fetchAndConvertToMarkdown } from "./url-reader.js";
 import { createConfigResource, createHelpResource } from "./resources.js";
 import { createHttpServer, resolveBindHost } from "./http-server.js";
@@ -516,6 +516,9 @@ export async function main() {
   if (browserSolverIssue) {
     throw new Error(browserSolverIssue);
   }
+
+  // Capability warming must not delay either transport or tool registration.
+  void checkStartupCapabilities();
 
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;

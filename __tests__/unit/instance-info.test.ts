@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
-import { fetchInstanceInfo, getEngineTimeRangeSupport, clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
+import { checkStartupCapabilities, fetchInstanceInfo, getEngineTimeRangeSupport, clearInstanceInfoCacheForTests } from '../../src/instance-info.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
 import { createMockServer, createMockServerWithTracking } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
@@ -92,6 +92,128 @@ function streamedConfigResponse(chunks: Uint8Array[]): Response {
 
 async function runTests() {
   console.log('🧪 Testing: instance-info.ts\n');
+
+  await testFunction('startup capability check is silent and network-free without exact opt-in', async () => {
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const messages: unknown[] = [];
+    let requests = 0;
+    console.warn = console.error = (...args: unknown[]) => { messages.push(args); };
+    fetchMocker.mock(async () => { requests++; throw new Error('must not fetch'); });
+    envManager.set('SEARXNG_HEALTHCHECK_TIMEOUT_MS', 'invalid');
+    try {
+      for (const value of [undefined, '', 'false', 'TRUE', '1', ' true ']) {
+        envManager.set('SEARXNG_STARTUP_HEALTHCHECK', value);
+        await checkStartupCapabilities();
+      }
+      assert.equal(requests, 0);
+      assert.deepEqual(messages, []);
+    } finally {
+      console.warn = originalWarn; console.error = originalError;
+      fetchMocker.restore(); envManager.restore();
+    }
+  }, results);
+
+  await testFunction('startup check warms replica capabilities and keeps on-demand timeout unchanged', async () => {
+    const originalTimeout = AbortSignal.timeout;
+    const originalError = console.error;
+    const deadlines: number[] = [];
+    const messages: unknown[] = [];
+    let requests = 0;
+    AbortSignal.timeout = (ms: number) => { deadlines.push(ms); return originalTimeout(ms); };
+    console.error = (...args: unknown[]) => { messages.push(args); };
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://one.example.com;https://two.example.com');
+    envManager.set('SEARXNG_STARTUP_HEALTHCHECK', 'true');
+    envManager.set('SEARXNG_HEALTHCHECK_TIMEOUT_MS', '37');
+    fetchMocker.mock(async () => { requests++; return configResponse(JSON.stringify(makeConfig())); });
+    try {
+      await checkStartupCapabilities();
+      const payload = JSON.parse(await fetchInstanceInfo(createMockServer() as any, true));
+      assert.equal(requests, 2);
+      assert.deepEqual(payload.categories.common, ['general', 'news']);
+      assert.deepEqual(payload.engines.common.enabled, ['brave', 'google']);
+      assert.deepEqual(deadlines, [37, 37]);
+      assert.match(JSON.stringify(messages), /capabilities loaded and cached/);
+      await fetchInstanceInfo(createMockServer() as any, false, false, undefined, true);
+      assert.deepEqual(deadlines, [37, 37, 5000, 5000]);
+    } finally {
+      AbortSignal.timeout = originalTimeout; console.error = originalError;
+      clearInstanceInfoCacheForTests(); fetchMocker.restore(); envManager.restore();
+    }
+  }, results);
+
+  await testFunction('invalid startup deadlines warn and use the default without exposing their values', async () => {
+    const originalTimeout = AbortSignal.timeout;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const deadlines: number[] = [];
+    const messages: unknown[] = [];
+    AbortSignal.timeout = (ms: number) => { deadlines.push(ms); return originalTimeout(ms); };
+    console.warn = console.error = (...args: unknown[]) => { messages.push(args); };
+    envManager.set('SEARXNG_URL', 'https://one.example.com');
+    envManager.set('SEARXNG_STARTUP_HEALTHCHECK', 'true');
+    fetchMocker.mock(createMockFetch({ json: makeConfig() }));
+    try {
+      for (const value of ['0', '-1', '2.5', '2147483648', 'PRIVATE_VALUE']) {
+        clearInstanceInfoCacheForTests();
+        envManager.set('SEARXNG_HEALTHCHECK_TIMEOUT_MS', value);
+        await checkStartupCapabilities();
+      }
+      assert.deepEqual(deadlines, [5000, 5000, 5000, 5000, 5000]);
+      assert.equal(messages.filter(args => JSON.stringify(args).includes('Ignoring invalid')).length, 5);
+      assert.ok(!JSON.stringify(messages).includes('PRIVATE_VALUE'));
+    } finally {
+      AbortSignal.timeout = originalTimeout; console.warn = originalWarn; console.error = originalError;
+      clearInstanceInfoCacheForTests(); fetchMocker.restore(); envManager.restore();
+    }
+  }, results);
+
+  await testFunction('startup failures warn safely and do not reject', async () => {
+    const originalWarn = console.warn;
+    const messages: unknown[] = [];
+    console.warn = (...args: unknown[]) => { messages.push(args); };
+    envManager.set('SEARXNG_STARTUP_HEALTHCHECK', 'true');
+    envManager.set('SEARXNG_URL', 'https://user:PRIVATE_VALUE@one.example.com');
+    try {
+      for (const options of [
+        { status: 403, ok: false }, { body: 'PRIVATE_VALUE' }, { body: 'null' },
+        { body: '[]' }, { throwError: new Error('TLS PRIVATE_VALUE') },
+      ]) {
+        clearInstanceInfoCacheForTests();
+        fetchMocker.mock(createMockFetch(options));
+        await checkStartupCapabilities();
+      }
+      assert.equal(messages.length, 5);
+      assert.match(JSON.stringify(messages), /format=json/);
+      assert.match(JSON.stringify(messages), /TLS certificates/);
+      assert.ok(!JSON.stringify(messages).includes('PRIVATE_VALUE'));
+    } finally {
+      console.warn = originalWarn;
+      clearInstanceInfoCacheForTests(); fetchMocker.restore(); envManager.restore();
+    }
+  }, results);
+
+  await testFunction('startup timeout covers a stalled body and does not populate successful cache', async () => {
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://one.example.com');
+    envManager.set('SEARXNG_STARTUP_HEALTHCHECK', 'true');
+    envManager.set('SEARXNG_HEALTHCHECK_TIMEOUT_MS', '20');
+    let cancelled = false;
+    fetchMocker.mock(async () => new Response(new ReadableStream({ cancel() { cancelled = true; } })));
+    const keepAlive = setTimeout(() => {}, 2000);
+    try {
+      await checkStartupCapabilities();
+      assert.equal(cancelled, true);
+      const payload = JSON.parse(await fetchInstanceInfo(createMockServer() as any));
+      assert.equal(payload.available, false);
+    } finally {
+      clearTimeout(keepAlive); console.warn = originalWarn;
+      clearInstanceInfoCacheForTests(); fetchMocker.restore(); envManager.restore();
+    }
+  }, results);
 
   await testFunction('returns formatted instance info when /config is available', async () => {
     clearInstanceInfoCacheForTests();

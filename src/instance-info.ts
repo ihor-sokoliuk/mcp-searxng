@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { logMessage } from "./logging.js";
+import { writeDiagnostic } from "./diagnostic-output.js";
+import { parseBoundedInteger } from "./env-int.js";
 import { applySearchRequestConfig, fetchSearxng } from "./proxy.js";
 import {
   cancelAuxiliaryResponseBody,
@@ -278,12 +280,12 @@ function safeInstanceLogTarget(base: string): string {
   }
 }
 
-async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResponseBytes: number): Promise<ConfigResult> {
+async function requestInstanceConfig(mcpServer: McpServer | undefined, base: string, maxResponseBytes: number, timeoutMs: number): Promise<ConfigResult> {
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
     const url = new URL("config", parsedBase);
     const requestUrl = stripSearxngInstanceUrlUserinfo(url);
-    const timeoutSignal = AbortSignal.timeout(5000);
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const requestOptions: RequestInit = { signal: timeoutSignal };
     applySearchRequestConfig(requestOptions, url.toString());
 
@@ -301,9 +303,14 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResp
 
     const { text } = await readSearxngResponseBody(response, maxResponseBytes, { signal: timeoutSignal });
     const config = JSON.parse(text) as SearXNGConfig;
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error("Expected a SearXNG configuration object");
+    }
     return { available: true, config, sourceUrl: base };
   } catch {
-    logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${safeInstanceLogTarget(base)}: request or response processing failed.`);
+    if (mcpServer) {
+      logMessage(mcpServer, "warning", `SearXNG /config fetch failed for ${safeInstanceLogTarget(base)}: request or response processing failed.`);
+    }
     const message = "SearXNG /config is unavailable; instance capability discovery could not complete.";
     return {
       available: false,
@@ -314,9 +321,10 @@ async function requestInstanceConfig(mcpServer: McpServer, base: string, maxResp
 }
 
 async function fetchConfigFromInstance(
-  mcpServer: McpServer,
+  mcpServer: McpServer | undefined,
   base: string,
   maxResponseBytes: number,
+  timeoutMs: number,
 ): Promise<ConfigResult> {
   const cached = cachedConfigs.get(base);
   if (cached) {
@@ -328,7 +336,7 @@ async function fetchConfigFromInstance(
     return cachedFailure;
   }
 
-  const result = await requestInstanceConfig(mcpServer, base, maxResponseBytes);
+  const result = await requestInstanceConfig(mcpServer, base, maxResponseBytes, timeoutMs);
   if (result.available) {
     cachedConfigs.set(base, result.config);
     cachedConfigFailures.delete(base);
@@ -339,7 +347,7 @@ async function fetchConfigFromInstance(
   return result;
 }
 
-async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<AggregateConfigResult> {
+async function fetchConfigs(mcpServer: McpServer | undefined, refresh = false, timeoutMs = 5000): Promise<AggregateConfigResult> {
   const maxResponseBytes = resolveSearxngResponseMaxBytes(mcpServer);
   const instances = getSearxngInstances();
   if (instances.length === 0) {
@@ -356,7 +364,7 @@ async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<Aggr
   }
 
   const results = await Promise.all(
-    instances.map((instance) => fetchConfigFromInstance(mcpServer, instance, maxResponseBytes)),
+    instances.map((instance) => fetchConfigFromInstance(mcpServer, instance, maxResponseBytes, timeoutMs)),
   );
   const configs = results
     .filter((result): result is { available: true; config: SearXNGConfig; sourceUrl: string } => result.available)
@@ -378,6 +386,25 @@ async function fetchConfigs(mcpServer: McpServer, refresh = false): Promise<Aggr
   }
 
   return { available: true, configs, failures };
+}
+
+export async function checkStartupCapabilities(): Promise<void> {
+  if (process.env.SEARXNG_STARTUP_HEALTHCHECK !== "true") return;
+  const timeout = parseBoundedInteger(process.env.SEARXNG_HEALTHCHECK_TIMEOUT_MS, 5000, 1, 2147483647);
+  if (timeout.invalid) {
+    writeDiagnostic("warn", "Ignoring invalid SEARXNG_HEALTHCHECK_TIMEOUT_MS. Using default 5000.");
+  }
+  try {
+    const result = await fetchConfigs(undefined, false, timeout.value);
+    if (result.available) {
+      writeDiagnostic("error", "SearXNG startup check: capabilities loaded and cached.");
+    }
+    if (!result.available || result.failures.length > 0) {
+      writeDiagnostic("warn", "SearXNG startup check: /config unavailable for one or more instances. Check SEARXNG_URL, host reachability, TLS certificates, and valid JSON configuration. For HTTP 403, enable format=json in SearXNG settings.yml and check /config access. Tools remain available.");
+    }
+  } catch {
+    writeDiagnostic("warn", "SearXNG startup check could not complete. Check SEARXNG_URL and capability configuration. Tools remain available.");
+  }
 }
 
 async function getAggregatedCapability(
