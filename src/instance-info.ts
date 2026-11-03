@@ -280,6 +280,14 @@ function safeInstanceLogTarget(base: string): string {
   }
 }
 
+function parseInstanceConfig(text: string): SearXNGConfig {
+  const config = JSON.parse(text) as SearXNGConfig;
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("Expected a SearXNG configuration object");
+  }
+  return config;
+}
+
 async function requestInstanceConfig(mcpServer: McpServer | undefined, base: string, maxResponseBytes: number, timeoutMs: number, signal?: AbortSignal): Promise<ConfigResult> {
   try {
     const parsedBase = new URL(base.endsWith("/") ? base : `${base}/`);
@@ -303,10 +311,7 @@ async function requestInstanceConfig(mcpServer: McpServer | undefined, base: str
     }
 
     const { text } = await readSearxngResponseBody(response, maxResponseBytes, { signal: timeoutSignal });
-    const config = JSON.parse(text) as SearXNGConfig;
-    if (!config || typeof config !== "object" || Array.isArray(config)) {
-      throw new Error("Expected a SearXNG configuration object");
-    }
+    const config = parseInstanceConfig(text);
     return { available: true, config, sourceUrl: base };
   } catch {
     if (mcpServer) {
@@ -392,14 +397,18 @@ async function fetchConfigs(mcpServer: McpServer | undefined, refresh = false, t
   return { available: true, configs, failures };
 }
 
-export async function checkStartupCapabilities(signal?: AbortSignal): Promise<void> {
-  if (process.env.SEARXNG_STARTUP_HEALTHCHECK !== "true") return;
+function resolveStartupTimeout(): number {
   const timeout = parseBoundedInteger(process.env.SEARXNG_HEALTHCHECK_TIMEOUT_MS, 5000, 1, 2147483647);
   if (timeout.invalid) {
     writeDiagnostic("warn", "Ignoring invalid SEARXNG_HEALTHCHECK_TIMEOUT_MS. Using default 5000.");
   }
+  return timeout.value;
+}
+
+export async function checkStartupCapabilities(signal?: AbortSignal): Promise<void> {
+  if (process.env.SEARXNG_STARTUP_HEALTHCHECK !== "true") return;
   try {
-    const result = await fetchConfigs(undefined, false, timeout.value, signal);
+    const result = await fetchConfigs(undefined, false, resolveStartupTimeout(), signal);
     if (signal?.aborted) return;
     if (result.available && result.failures.length === 0) {
       writeDiagnostic("error", "SearXNG startup check (info): capabilities loaded and cached.");
