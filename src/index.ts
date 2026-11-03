@@ -517,8 +517,7 @@ export async function main() {
     throw new Error(browserSolverIssue);
   }
 
-  // Capability warming must not delay either transport or tool registration.
-  void checkStartupCapabilities();
+  const startupCheck = new AbortController();
 
   // Check for HTTP transport mode
   const httpPort = process.env.MCP_HTTP_PORT;
@@ -534,6 +533,8 @@ export async function main() {
     const app = await createHttpServer((modern) => createMcpServer(toolAdmissionController, modern), port);
 
     const httpServer = app.listen(port, host, () => {
+      // Capability warming must not delay either transport or tool registration.
+      void checkStartupCapabilities(startupCheck.signal);
       writeDiagnostic("log", `HTTP server listening on ${host}:${port}`);
       // Health/MCP URLs shown as localhost for developer convenience
       writeDiagnostic("log", `Health check: http://localhost:${port}/health`);
@@ -543,8 +544,9 @@ export async function main() {
     // Handle graceful shutdown
     const shutdown = createHttpShutdown(app, httpServer);
 
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    httpServer.once('close', () => startupCheck.abort());
+    process.on('SIGINT', () => { startupCheck.abort(); void shutdown('SIGINT'); });
+    process.on('SIGTERM', () => { startupCheck.abort(); void shutdown('SIGTERM'); });
   } else {
     // Keep connection setup diagnostics on stderr, including non-TTY clients.
     if (process.stdin.isTTY) {
@@ -571,8 +573,10 @@ export async function main() {
       }
     }
 
+    process.stdin.once('end', () => startupCheck.abort());
     serveStdio((context) => createMcpServer(toolAdmissionController, context.era === "modern"), {
       onerror: (error) => writeDiagnostic("error", sanitizeErrorForTransport(error)),
     });
+    void checkStartupCapabilities(startupCheck.signal);
   }
 }

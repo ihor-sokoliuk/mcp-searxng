@@ -194,7 +194,31 @@ async function runTests() {
     }
   }, results);
 
-  await testFunction('startup timeout covers a stalled body and does not populate successful cache', async () => {
+  await testFunction('partial startup success warns and still warms reachable replica capabilities', async () => {
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const messages: unknown[] = [];
+    console.warn = console.error = (...args: unknown[]) => { messages.push(args); };
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_STARTUP_HEALTHCHECK', 'true');
+    envManager.set('SEARXNG_URL', 'https://one.example.com;https://two.example.com');
+    fetchMocker.mock(async url => url.toString().startsWith('https://one.example.com/')
+      ? configResponse(JSON.stringify(makeConfig())) : configResponse('', { status: 403 }));
+    try {
+      await checkStartupCapabilities();
+      assert.equal(messages.length, 1);
+      assert.match(JSON.stringify(messages), /Tools remain available/);
+      assert.ok(!JSON.stringify(messages).includes('capabilities loaded and cached'));
+      envManager.set('SEARXNG_URL', 'https://one.example.com');
+      fetchMocker.mock(async () => { throw new Error('reachable configuration should be cached'); });
+      assert.equal(JSON.parse(await fetchInstanceInfo(createMockServer() as any)).available, true);
+    } finally {
+      console.warn = originalWarn; console.error = originalError;
+      clearInstanceInfoCacheForTests(); fetchMocker.restore(); envManager.restore();
+    }
+  }, results);
+
+  await testFunction('startup timeout covers stalled bodies without suppressing on-demand retries', async () => {
     const originalWarn = console.warn;
     console.warn = () => {};
     clearInstanceInfoCacheForTests();
@@ -207,8 +231,9 @@ async function runTests() {
     try {
       await checkStartupCapabilities();
       assert.equal(cancelled, true);
+      fetchMocker.mock(createMockFetch({ json: makeConfig() }));
       const payload = JSON.parse(await fetchInstanceInfo(createMockServer() as any));
-      assert.equal(payload.available, false);
+      assert.equal(payload.available, true);
     } finally {
       clearTimeout(keepAlive); console.warn = originalWarn;
       clearInstanceInfoCacheForTests(); fetchMocker.restore(); envManager.restore();

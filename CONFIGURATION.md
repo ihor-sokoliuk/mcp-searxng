@@ -50,7 +50,7 @@ Percent-encode special characters in usernames or passwords before placing them 
 | `FETCH_TIMEOUT_MS` | No | `10000` | Maximum time in milliseconds to wait for a `web_url_read` fetch. The request is aborted and an error is returned if the server does not respond within this window. |
 | `SEARXNG_MAX_RESPONSE_BYTES` | No | `5242880` | Maximum retained bytes read from each SearXNG response: successful search JSON, HTML fallback, `/config`, and `/autocompleter`. It is a per-response admission limit, not an aggregate or concurrency cap. |
 
-`SEARXNG_MAX_RESPONSE_BYTES` accepts only a strict integer after surrounding JavaScript whitespace is trimmed. A leading `+` and leading zeros are accepted; `-0`, other non-positive values, fractions, exponents, suffixes, unsafe integers, and values outside the inclusive `1` through `16777216` range are invalid. Unset or blank uses `5242880` silently. An invalid value uses that default and emits one value-free warning per MCP server.
+`SEARXNG_MAX_RESPONSE_BYTES` accepts only a strict integer after surrounding JavaScript whitespace is trimmed. A leading `+` and leading zeros are accepted; `-0`, other non-positive values, fractions, exponents, suffixes, unsafe integers, and values outside the inclusive `1` through `16777216` range are invalid. Unset or blank uses `5242880` silently. An invalid value uses that default and emits one value-free warning per MCP server (and once during an enabled startup check).
 
 Search JSON and HTML fallback each receive their own full `SEARXNG_TIMEOUT_MS` deadline, so the fallback deadline is separate and additive; replica failover remains per instance and additive as well. On-demand `/config` and `/autocompleter` retain their fixed 5-second deadlines through body consumption. Oversized, stalled, partial, malformed, or read-failed responses do not populate successful caches or health state and follow the existing failure, negative-cache, or empty-array path.
 
@@ -64,9 +64,10 @@ Search JSON and HTML fallback each receive their own full `SEARXNG_TIMEOUT_MS` d
 The enabled check loads the existing categories/engines cache across configured
 replicas. It reports success or an actionable warning without waiting to register
 tools or serve either transport. An unavailable backend never prevents
-`web_url_read` from working. Failed checks use the existing approximately
-60-second capability failure cache; `searxng_instance_info` with `refresh=true`
-can retry immediately. A successful capability check does not guarantee that
+`web_url_read` from working. Startup failures do not enter the on-demand
+capability failure cache, so normal discovery can retry with its own deadline.
+Pending checks are cancelled when STDIO input ends or HTTP shuts down.
+A successful capability check does not guarantee that
 search engines are available. For HTTP 403, enable `format=json` in SearXNG
 `settings.yml` and check access to `/config`; for connection or TLS failures,
 check the configured URL, connectivity, and certificates.

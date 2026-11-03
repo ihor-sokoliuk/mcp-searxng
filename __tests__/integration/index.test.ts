@@ -7,7 +7,8 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { packageVersion } from '../../src/version.js';
@@ -20,6 +21,7 @@ import {
 import { isSearXNGWebSearchArgs } from '../../src/types.js';
 import { createConfigResource, createHelpResource } from '../../src/resources.js';
 import { testFunction, createTestResults, printTestSummary } from '../helpers/test-utils.js';
+import { spawnHttpCli, type SpawnedHttpCli } from '../e2e/helpers/spawn-server.js';
 
 const results = createTestResults();
 
@@ -292,7 +294,7 @@ async function runTests() {
     assert.ok(server.server, 'should expose underlying Server via .server');
   }, results);
 
-  await testFunction('CLI lists URL reader while an enabled startup check is still pending', () => {
+  await testFunction('CLI lists URL reader while startup check is pending and cancels it on EOF', async () => {
     const messages = [
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
         protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'startup-test', version: '1' },
@@ -304,29 +306,56 @@ async function runTests() {
       const { setSearxngFetchForTesting } = await import('./src/proxy.ts');
       let complete = false;
       setSearxngFetchForTesting(async (_url, options) => new Promise((_resolve, reject) => {
-        options.signal.addEventListener('abort', () => { complete = true; reject(options.signal.reason); }, { once: true });
+        options.signal.addEventListener('abort', () => { complete = true; process.stderr.write('check-aborted\\n'); reject(options.signal.reason); }, { once: true });
       }));
       const write = process.stdout.write.bind(process.stdout);
       process.stdout.write = (...args) => {
         if (String(args[0]).includes('web_url_read')) process.stderr.write('tools-before-check:' + !complete + '\\n');
         return write(...args);
       };
-      setTimeout(() => {}, 400);
       await import('./src/cli.ts');
     `;
-    const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
+    const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
       cwd: process.cwd(),
       env: { ...process.env, MCP_HTTP_PORT: '', SEARXNG_URL: 'https://one.example.com',
-        SEARXNG_STARTUP_HEALTHCHECK: 'true', SEARXNG_HEALTHCHECK_TIMEOUT_MS: '150' },
-      input: messages.map(message => JSON.stringify(message)).join('\n') + '\n',
-      encoding: 'utf8', timeout: 10000,
+        SEARXNG_STARTUP_HEALTHCHECK: 'true', SEARXNG_HEALTHCHECK_TIMEOUT_MS: '30000' },
+      windowsHide: true,
     });
-    assert.equal(child.status, 0, child.stderr);
-    const responses = child.stdout.trim().split('\n').map(line => JSON.parse(line));
-    const list = responses.find(response => response.id === 2);
-    assert.ok(list?.result?.tools.some((tool: { name: string }) => tool.name === 'web_url_read'));
-    assert.match(child.stderr, /tools-before-check:true/);
-    assert.match(child.stderr, /Tools remain available/);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', chunk => { stdout += String(chunk); if (stdout.includes('web_url_read')) child.stdin.end(); });
+    child.stderr.on('data', chunk => { stderr += String(chunk); });
+    const watchdog = setTimeout(() => child.kill(), 10000);
+    try {
+      const exited = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+      child.stdin.write(messages.map(message => JSON.stringify(message)).join('\n') + '\n');
+      assert.equal(await exited, 0, stderr);
+      const responses = stdout.trim().split('\n').map(line => JSON.parse(line));
+      const list = responses.find(response => response.id === 2);
+      assert.ok(list?.result?.tools.some((tool: { name: string }) => tool.name === 'web_url_read'));
+      assert.match(stderr, /tools-before-check:true/);
+      assert.match(stderr, /check-aborted/);
+    } finally { clearTimeout(watchdog); child.kill(); }
+  }, results);
+
+  await testFunction('HTTP serves health and lists tools while startup capability request stalls', async () => {
+    let server: SpawnedHttpCli | undefined;
+    const client = new Client({ name: 'startup-http-test', version: '1' });
+    const script = `
+      process.env.SEARXNG_URL = 'https://one.example.com';
+      process.env.SEARXNG_STARTUP_HEALTHCHECK = 'true';
+      process.env.SEARXNG_HEALTHCHECK_TIMEOUT_MS = '30000';
+      const { setSearxngFetchForTesting } = await import('./src/proxy.ts');
+      setSearxngFetchForTesting(async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+      }));
+      await import('./src/cli.ts');
+    `;
+    try {
+      server = await spawnHttpCli({ args: ['--import', 'tsx', '--input-type=module', '-e', script], readyTimeoutMs: 5000 });
+      await client.connect(new StreamableHTTPClientTransport(server.url));
+      assert.ok((await client.listTools()).tools.some(tool => tool.name === 'web_url_read'));
+    } finally { await client.close(); await server?.close(); }
   }, results);
 
   await testFunction('createMcpServer returns independent instances per call', () => {
