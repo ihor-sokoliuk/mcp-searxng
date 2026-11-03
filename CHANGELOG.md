@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.10.0] - 2026-11-03
+
+### Added
+
+- Add an opt-in background SearXNG capability check with `SEARXNG_STARTUP_HEALTHCHECK=true`. The server becomes available without waiting for the check; successful results warm the existing capability cache. Configure its per-instance deadline with `SEARXNG_HEALTHCHECK_TIMEOUT_MS` (default 5000 ms). Startup failures are warning-only and do not populate the normal failure cache. [#351](https://github.com/ihor-sokoliuk/mcp-searxng/pull/351)
+
+### Security and maintenance
+
+- Refresh compatible express-rate-limit, jose, node-html-parser, ESLint and eslint-plugin-security dependencies. Resolve the SDK-supported `@hono/node-server` 2.1.6 adapter in the lockfile. The release production dependency audit is clean; 12 moderate development-only audit entries remain. This result applies to the repository lockfile and builds using it; existing consumers must refresh their own dependency locks. [#352](https://github.com/ihor-sokoliuk/mcp-searxng/pull/352)
+
+### Compatibility
+
+Startup behavior is unchanged unless the new check is explicitly enabled. Ordinary on-demand capability requests retain their existing timeout. Node.js 22 or later remains required, and the Docker runtime remains on Node.js 24.22.1. NPX, Docker, STDIO and HTTP invocation remain supported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, implementation and release verification.
+
 ## [2.9.0] - 2026-10-27
 
 ### Added
