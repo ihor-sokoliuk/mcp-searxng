@@ -585,6 +585,59 @@ async function runTests() {
     }, { post_timeout: 1 });
   }, results);
 
+  await testFunction('shutdown awaits timeout cleanup until settlement or the original hard stop', async () => {
+    envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
+    try {
+      for (const outcome of ['resolve', 'reject', 'hang'] as const) {
+        await withRequestDeadline(async timers => {
+          const closeGate = createDeferred();
+          const entered = createDeferred();
+          let serverCloses = 0;
+          let transportCloses = 0;
+          const { app, transports } = await createIdleHarness(() => {
+            const server = createTestMcpServer();
+            server.close = async () => {
+              serverCloses++;
+              await closeGate.promise;
+              if (outcome === 'reject') throw new Error('expected close rejection');
+            };
+            return server;
+          });
+          const id = (await initializeIdleSession(app)).headers['mcp-session-id'];
+          const originalClose = transports[0].close.bind(transports[0]);
+          transports[0].close = async () => {
+            transportCloses++;
+            await closeGate.promise;
+            await originalClose();
+            if (outcome === 'reject') throw new Error('expected transport rejection');
+          };
+          transports[0].handleRequest = async () => { entered.resolve(); await new Promise(() => {}); };
+          const request = postStatelessMcp(app, { jsonrpc: '2.0', id: 7, method: 'tools/list' })
+            .set('mcp-session-id', id).then(r => r);
+          await entered.promise;
+          const startedAt = performance.now();
+          let finished = false;
+          const shutdown = app.shutdownStateful().then(() => { finished = true; });
+          const keepAlive = setTimeout(() => {}, 6500);
+          try {
+            [...timers.values()][0]();
+            assert.equal((await request).status, 504);
+            await new Promise(resolve => setTimeout(resolve, 30));
+            assert.equal(finished, false, 'cleanup must remain part of shutdown after the response flushes');
+            assert.equal(serverCloses, 1);
+            assert.equal(transportCloses, 1);
+            if (outcome !== 'hang') closeGate.resolve();
+            await shutdown;
+            if (outcome === 'hang') assert.ok(performance.now() - startedAt >= 4900 && performance.now() - startedAt < 6000, 'original hard stop must bound cleanup');
+            assert.equal(serverCloses, 1);
+            assert.equal(transportCloses, 1);
+            assert.equal(timers.size, 0);
+          } finally { closeGate.resolve(); await shutdown; clearTimeout(keepAlive); }
+        });
+      }
+    } finally { envManager.restore(); }
+  }, results);
+
   await testFunction('legacy stateless HTTP retains listener-only shutdown behavior', async () => {
     envManager.set('MCP_HTTP_STATELESS', 'true');
     try {

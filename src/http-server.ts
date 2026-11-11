@@ -52,6 +52,7 @@ function createStatefulFinalizer(
   release: () => void,
   resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer },
   diagnostics: LifecycleDiagnostics,
+  trackClosing: (closing: Promise<void>) => void,
 ): () => Promise<void> {
   let closing: Promise<void> | undefined;
   return () => {
@@ -70,6 +71,7 @@ function createStatefulFinalizer(
           if (outcome.status === "rejected") diagnostics.record("close_failure");
         }
       });
+      trackClosing(closing);
     }
     return closing;
   };
@@ -119,10 +121,14 @@ function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
   const checkComplete = (): void => {
     if (stopped && entries.size === 0 && pending === 0 && responses.size === 0) finish();
   };
+  const trackClosing = (closing: Promise<void>): void => {
+    pending++;
+    void closing.catch(() => diagnostics.record("close_failure"))
+      .finally(() => { pending--; checkComplete(); });
+  };
   const start = (entry: ShutdownSession): void => {
     if (started.has(entry)) return;
     started.add(entry);
-    pending++;
     // Preserve the shutdown response before SDK close can end or destroy it.
     // Active POSTs reach this point only after their drain window expires.
     for (const [res, kind] of entry.work.responses) finishShutdownResponse(res, kind);
@@ -130,8 +136,7 @@ function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
     let closing: Promise<void>;
     try { closing = entry.finalize(); }
     catch (error) { closing = Promise.reject(error); }
-    void closing.catch(() => diagnostics.record("close_failure"))
-      .finally(() => { pending--; checkComplete(); });
+    trackClosing(closing);
   };
   const changed = (): void => {
     if (!stopped || finished) return;
@@ -141,6 +146,7 @@ function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
     queueMicrotask(checkComplete);
   };
   return {
+    trackClosing,
     add: (entry: ShutdownSession) => { entries.add(entry); },
     remove: (entry: ShutdownSession) => {
       entries.delete(entry);
@@ -864,7 +870,7 @@ export async function createHttpServer(
     let transport: NodeStreamableHTTPServerTransport | undefined;
     let mcpServer: McpServer | undefined;
     const resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer } = {};
-    const finalize = createStatefulFinalizer(reservation.release, resources, lifecycleDiagnostics);
+    const finalize = createStatefulFinalizer(reservation.release, resources, lifecycleDiagnostics, statefulShutdown.trackClosing);
     const lifecycle: ShutdownSession = {
       initializing: true, work: { post: 0, get: 0, releases: new Set(), responses: new Map() }, finalize,
     };
