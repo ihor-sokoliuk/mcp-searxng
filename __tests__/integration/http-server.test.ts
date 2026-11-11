@@ -588,8 +588,8 @@ async function runTests() {
   await testFunction('shutdown awaits timeout cleanup until settlement or the original hard stop', async () => {
     envManager.set('MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS', '1234');
     try {
-      for (const outcome of ['resolve', 'reject', 'hang'] as const) {
-        await withRequestDeadline(async timers => {
+      for (const outcome of ['resolve', 'reject', 'hang', 'before-hang'] as const) {
+        await assertLifecycleEvents(() => withRequestDeadline(async timers => {
           const closeGate = createDeferred();
           const entered = createDeferred();
           let serverCloses = 0;
@@ -615,25 +615,30 @@ async function runTests() {
           const request = postStatelessMcp(app, { jsonrpc: '2.0', id: 7, method: 'tools/list' })
             .set('mcp-session-id', id).then(r => r);
           await entered.promise;
+          if (outcome === 'before-hang') {
+            [...timers.values()][0]();
+            await request;
+          }
           const startedAt = performance.now();
           let finished = false;
           const shutdown = app.shutdownStateful().then(() => { finished = true; });
-          const keepAlive = setTimeout(() => {}, 6500);
+          const keepAlive = setTimeout(() => {}, 7500);
           try {
-            [...timers.values()][0]();
+            if (outcome !== 'before-hang') [...timers.values()][0]();
             assert.equal((await request).status, 504);
             await new Promise(resolve => setTimeout(resolve, 30));
             assert.equal(finished, false, 'cleanup must remain part of shutdown after the response flushes');
             assert.equal(serverCloses, 1);
             assert.equal(transportCloses, 1);
-            if (outcome !== 'hang') closeGate.resolve();
+            if (!outcome.endsWith('hang')) closeGate.resolve();
             await shutdown;
-            if (outcome === 'hang') assert.ok(performance.now() - startedAt >= 4900 && performance.now() - startedAt < 6000, 'original hard stop must bound cleanup');
+            const elapsed = performance.now() - startedAt;
+            if (outcome.endsWith('hang')) assert.ok(elapsed >= 4900 && elapsed < 7000, 'original hard stop must bound cleanup');
             assert.equal(serverCloses, 1);
             assert.equal(transportCloses, 1);
             assert.equal(timers.size, 0);
           } finally { closeGate.resolve(); await shutdown; clearTimeout(keepAlive); }
-        });
+        }), { post_timeout: 1, ...(outcome === 'reject' ? { close_failure: 2 } : {}), ...(outcome.endsWith('hang') ? { forced_shutdown: 1 } : {}) });
       }
     } finally { envManager.restore(); }
   }, results);
