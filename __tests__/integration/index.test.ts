@@ -341,6 +341,62 @@ async function runTests() {
     } finally { clearTimeout(watchdog); child.kill(); }
   }, results);
 
+  await testFunction('terminal stdin events cancel a stalled startup request and permit prompt CLI exit', async () => {
+    for (const enabled of [true, false]) {
+      for (const mode of ['end', 'close', 'error-close']) {
+        let ready!: () => void;
+        const started = new Promise<void>(resolve => { ready = resolve; });
+        let requests = 0;
+        let requestClosed = false;
+        const mock = http.createServer((req, res) => {
+          assert.equal(req.url, '/config');
+          requests++;
+          res.once('close', () => { requestClosed = true; });
+          ready();
+        });
+        await new Promise<void>(resolve => mock.listen(0, '127.0.0.1', resolve));
+        const script = `
+          process.once('message', () => {
+            process.stdin.destroy(${mode === 'error-close' ? "new Error('controlled stdin failure')" : ''});
+            process.stdin.destroy();
+            process.disconnect();
+          });
+          process.channel.unref();
+          await import('./src/cli.ts');
+          process.send('ready');
+        `;
+        const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
+          cwd: process.cwd(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+          env: { ...process.env, MCP_HTTP_PORT: '', SEARXNG_URL: `http://127.0.0.1:${(mock.address() as { port: number }).port}`,
+            SEARXNG_STARTUP_HEALTHCHECK: String(enabled), SEARXNG_HEALTHCHECK_TIMEOUT_MS: '30000' },
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', chunk => { stdout += String(chunk); });
+        child.stderr.on('data', chunk => { stderr += String(chunk); });
+        child.once('message', () => { if (!enabled) ready(); });
+        const exited = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
+        let watchdog = setTimeout(() => child.kill(), 10000);
+        try {
+          await Promise.race([started, exited.then(() => { throw new Error(`CLI exited before readiness: ${stderr}`); })]);
+          clearTimeout(watchdog);
+          watchdog = setTimeout(() => child.kill(), 3000);
+          if (mode === 'end') { child.disconnect(); child.stdin.end(); }
+          else child.send('destroy');
+          assert.equal(await exited, 0, `${enabled}/${mode}: ${stderr}`);
+          assert.equal(stdout, '', 'startup diagnostics must not corrupt JSON-RPC stdout');
+          assert.equal(requests, enabled ? 1 : 0);
+          assert.equal(requestClosed, enabled);
+        } finally {
+          clearTimeout(watchdog);
+          child.kill();
+          mock.closeAllConnections();
+          await new Promise<void>(resolve => mock.close(() => resolve()));
+        }
+      }
+    }
+  }, results);
+
   await testFunction('HTTP serves health and lists tools while startup capability request stalls', async () => {
     const scratch = mkdtempSync(path.join(tmpdir(), 'startup-check-test-'));
     const marker = path.join(scratch, 'started');
