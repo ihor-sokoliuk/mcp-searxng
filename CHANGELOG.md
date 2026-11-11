@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.10.1] - 2026-11-11
+
+### Fixed
+
+- Await already-started retained HTTP session cleanup during shutdown, including after a request-timeout response has flushed. Resource closure remains once-only and shares the original five-second shutdown budget. [#356](https://github.com/ihor-sokoliuk/mcp-searxng/pull/356)
+- Cancel the optional startup capability request when stdin closes or errors without a normal EOF, allowing STDIO processes to exit promptly. [#358](https://github.com/ihor-sokoliuk/mcp-searxng/pull/358)
+
+### Maintenance
+
+- Update express-rate-limit to 8.7.4, jose to 6.2.17, node-html-parser to 9.0.7, Undici to 7.30.2, supertest to 7.3.2, and TypeScript ESLint parser/plugin to 8.72.2. The lockfile also refreshes superagent to 10.4.2 and the shared qs parser to 6.17.1. Refresh pinned CodeQL, Docker login, and Cosign installer Actions. [#357](https://github.com/ihor-sokoliuk/mcp-searxng/pull/357)
+- The release production dependency audit is clean. Eleven moderate development-only audit entries remain. Audit results apply to the repository lockfile and builds using it; existing consumers must refresh their own locks.
+
+### Compatibility
+
+Node.js 22 or later remains supported. The Docker base remains on Node.js 24.22.1. NPX, Docker, STDIO and HTTP invocation remain supported, and startup capability checking remains opt-in. Source-level and deep npm imports remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, implementation and release verification.
+
 ## [2.10.0] - 2026-11-03
 
 ### Added
