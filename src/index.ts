@@ -573,7 +573,10 @@ export async function main() {
       }
     }
 
-    process.stdin.once('end', () => startupCheck.abort());
+    const cancelStartupCheck = () => startupCheck.abort();
+    process.stdin.once('end', cancelStartupCheck);
+    process.stdin.once('close', cancelStartupCheck);
+    process.stdin.once('error', cancelStartupCheck);
     serveStdio((context) => createMcpServer(toolAdmissionController, context.era === "modern"), {
       onerror: (error) => writeDiagnostic("error", sanitizeErrorForTransport(error)),
     });
