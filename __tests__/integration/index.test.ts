@@ -29,6 +29,19 @@ import { spawnHttpCli, type SpawnedHttpCli } from '../e2e/helpers/spawn-server.j
 
 const results = createTestResults();
 
+function terminalStdinScript(mode: string) {
+  return `
+    process.once('message', () => {
+      process.stdin.destroy(${mode === 'error-close' ? "new Error('controlled stdin failure')" : ''});
+      process.stdin.destroy();
+      process.disconnect();
+    });
+    process.channel.unref();
+    await import('./src/cli.ts');
+    process.send('ready');
+  `;
+}
+
 async function runTests() {
   console.log('🧪 Integration Testing: index.ts\n');
 
@@ -353,16 +366,7 @@ async function runTests() {
           ready();
         });
         await new Promise<void>(resolve => mock.listen(0, '127.0.0.1', resolve));
-        const script = `
-          process.once('message', () => {
-            process.stdin.destroy(${mode === 'error-close' ? "new Error('controlled stdin failure')" : ''});
-            process.stdin.destroy();
-            process.disconnect();
-          });
-          process.channel.unref();
-          await import('./src/cli.ts');
-          process.send('ready');
-        `;
+        const script = terminalStdinScript(mode);
         const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
           cwd: process.cwd(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
           env: { ...process.env, MCP_HTTP_PORT: '', SEARXNG_URL: `http://127.0.0.1:${(mock.address() as { port: number }).port}`,
