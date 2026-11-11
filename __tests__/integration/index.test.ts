@@ -14,6 +14,7 @@ import { mkdtempSync, readFileSync, unlinkSync, rmdirSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { finished } from 'node:stream/promises';
 import { packageVersion } from '../../src/version.js';
 import {
   isWebUrlReadArgs,
@@ -367,19 +368,27 @@ async function runTests() {
           env: { ...process.env, MCP_HTTP_PORT: '', SEARXNG_URL: `http://127.0.0.1:${(mock.address() as { port: number }).port}`,
             SEARXNG_STARTUP_HEALTHCHECK: String(enabled), SEARXNG_HEALTHCHECK_TIMEOUT_MS: '30000' },
         });
+        let stdout = '';
         let stderr = '';
-        child.stdout.resume();
+        child.stdout.on('data', chunk => { stdout += String(chunk); });
         child.stderr.on('data', chunk => { stderr += String(chunk); });
         child.once('message', () => { if (!enabled) ready(); });
         const exited = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
-        let watchdog = setTimeout(() => child.kill(), 10000);
+        const completed = Promise.all([exited, finished(child.stdout, { writable: false }), finished(child.stderr, { writable: false })]);
+        let expire!: (error: Error) => void;
+        const timeout = new Promise<never>((_, reject) => { expire = reject; });
+        const stop = () => { child.kill(); expire(new Error('CLI did not complete within the test deadline')); };
+        let watchdog = setTimeout(stop, 10000);
         try {
-          await Promise.race([started, exited.then(() => { throw new Error(`CLI exited before readiness: ${stderr}`); })]);
+          await Promise.race([started, completed.then(() => { throw new Error(`CLI exited before readiness: ${stderr}`); }), timeout]);
           clearTimeout(watchdog);
-          watchdog = setTimeout(() => child.kill(), 3000);
+          watchdog = setTimeout(stop, 3000);
           if (mode === 'end') { child.disconnect(); child.stdin.end(); }
           else child.send('destroy');
-          assert.equal(await exited, 0, `${enabled}/${mode}: ${stderr}`);
+          const [code] = await Promise.race([completed, timeout]);
+          assert.equal(code, 0, `${enabled}/${mode}: ${stderr}`);
+          assert.equal(stdout, '', 'terminal events must preserve JSON-RPC stdout');
+          if (mode === 'error-close') assert.match(stderr, /controlled stdin failure/);
           assert.deepEqual(requests, enabled ? ['/config'] : []);
         } finally {
           clearTimeout(watchdog);
