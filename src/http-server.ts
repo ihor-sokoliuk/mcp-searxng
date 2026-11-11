@@ -99,6 +99,7 @@ function finishShutdownResponse(res: express.Response, kind: "post" | "get", har
 function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
   const entries = new Set<ShutdownSession>();
   const started = new Set<ShutdownSession>();
+  const trackedClosings = new WeakSet<Promise<void>>();
   const responses = new Map<express.Response, "post" | "get">();
   let stopped = false;
   let finished = false;
@@ -122,6 +123,8 @@ function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
     if (stopped && entries.size === 0 && pending === 0 && responses.size === 0) finish();
   };
   const trackClosing = (closing: Promise<void>): void => {
+    if (trackedClosings.has(closing)) return;
+    trackedClosings.add(closing);
     pending++;
     void closing.catch(() => diagnostics.record("close_failure"))
       .finally(() => { pending--; checkComplete(); });
