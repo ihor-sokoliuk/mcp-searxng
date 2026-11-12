@@ -124,6 +124,8 @@ Performs web searches using the configured SearXNG instance or replica list, wit
 - \`num_results\` (optional): Maximum result count from 1 to 20
 - \`categories\` (optional): Comma-separated SearXNG categories such as "news" or "it,science"; live \`/config\` values are aggregated across reachable instances and normalized case-insensitively when available
 - \`engines\` (optional): Comma-separated SearXNG engine names such as "google,bing,ddg" or "semantic scholar"; live \`/config\` values are aggregated across reachable instances and normalized case-insensitively when available
+- \`include_domains\` (optional): Comma-separated hostnames such as "github.com,docs.python.org"; keeps only results on those domains or their subdomains
+- \`exclude_domains\` (optional): Comma-separated hostnames; drops results on those domains or their subdomains, and wins over a broader \`include_domains\` entry
 - \`response_format\` (optional): Response format, either \`text\` or \`json\`. Text is formatted for agents; JSON preserves the SearXNG shape and may include a \`warnings\` array for non-fatal issues. If omitted, \`SEARXNG_DEFAULT_RESPONSE_FORMAT\` applies; if unset or invalid, text is used. An explicit \`response_format\` always takes precedence.
 - \`result_detail\` (optional): \`full\` (default) preserves SearXNG metadata, warnings, and research signals; \`compact\` returns only title, URL, and the description/content snippet per result (JSON keys: \`title\`, \`url\`, \`content\`). Use full when answers, infoboxes, corrections, suggestions, or provenance matter.
 

@@ -249,6 +249,8 @@ async function executeWebSearch(mcpServer: McpServer, args: unknown): Promise<To
     args.response_format,
     args.result_detail,
     args.pages,
+    args.include_domains,
+    args.exclude_domains,
   ));
 }
 

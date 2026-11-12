@@ -283,6 +283,16 @@ async function runTests() {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', engines: ['google'] }), false);
   }, results);
 
+  await testFunction('isSearXNGWebSearchArgs accepts string domain filters and rejects other types', () => {
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', include_domains: 'github.com,docs.python.org' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', exclude_domains: 'pinterest.com' }), true);
+    assert.equal(isSearXNGWebSearchArgs({ query: 'test', include_domains: '', exclude_domains: '' }), true);
+    for (const value of [123, ['github.com'], null, { domain: 'github.com' }]) {
+      assert.equal(isSearXNGWebSearchArgs({ query: 'test', include_domains: value }), false);
+      assert.equal(isSearXNGWebSearchArgs({ query: 'test', exclude_domains: value }), false);
+    }
+  }, results);
+
   await testFunction('isSearXNGWebSearchArgs rejects invalid response_format', () => {
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 'xml' }), false);
     assert.equal(isSearXNGWebSearchArgs({ query: 'test', response_format: 123 }), false);

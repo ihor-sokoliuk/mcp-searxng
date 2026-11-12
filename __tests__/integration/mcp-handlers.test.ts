@@ -82,7 +82,7 @@ function wireJson<T>(value: T): T {
 }
 
 const FULL_TOOL_STRUCTURAL_SNAPSHOTS = [
-  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'pages', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'response_format', 'result_detail'], properties: {
+  { name: 'searxng_web_search', annotations: { readOnlyHint: true, openWorldHint: true }, required: ['query'], propertyOrder: ['query', 'pageno', 'pages', 'time_range', 'language', 'safesearch', 'min_score', 'num_results', 'categories', 'engines', 'include_domains', 'exclude_domains', 'response_format', 'result_detail'], properties: {
     query: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     pageno: { type: 'integer', minimum: 1, maximum: undefined, enum: undefined, default: 1 },
     pages: { type: 'integer', minimum: 1, maximum: 5, enum: undefined, default: 1 },
@@ -93,6 +93,8 @@ const FULL_TOOL_STRUCTURAL_SNAPSHOTS = [
     num_results: { type: 'number', minimum: 1, maximum: 20, enum: undefined, default: undefined },
     categories: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     engines: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    include_domains: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
+    exclude_domains: { type: 'string', minimum: undefined, maximum: undefined, enum: undefined, default: undefined },
     response_format: { type: 'string', minimum: undefined, maximum: undefined, enum: ['text', 'json'], default: undefined },
     result_detail: { type: 'string', minimum: undefined, maximum: undefined, enum: ['compact', 'full'], default: undefined },
   } },
@@ -1157,6 +1159,36 @@ async function runTests() {
       assert.deepEqual(JSON.parse((compactJson.content[0] as { text: string }).text), {
         results: [{ title: 'Detail', url: 'https://example.com/detail', content: 'Snippet' }],
       });
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
+  await testFunction('tools/call searxng_web_search applies include_domains and exclude_domains', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8080';
+    fetchMocker.mock(createMockFetch({ body: JSON.stringify({ results: [
+      { title: 'Repo', url: 'https://github.com/org/repo', content: 'Snippet', score: 0.9 },
+      { title: 'Gist', url: 'https://gist.github.com/user/1', content: 'Snippet', score: 0.8 },
+      { title: 'Elsewhere', url: 'https://example.com/page', content: 'Snippet', score: 0.7 },
+    ] }) }));
+    const { client } = await connect();
+    try {
+      const result = await client.callTool({ name: 'searxng_web_search', arguments: {
+        query: 'domain filters over MCP', response_format: 'json', result_detail: 'compact',
+        include_domains: 'github.com', exclude_domains: 'gist.github.com',
+      } });
+      assert.deepEqual(JSON.parse((result.content[0] as { text: string }).text), {
+        results: [{ title: 'Repo', url: 'https://github.com/org/repo', content: 'Snippet' }],
+      });
+
+      const invalid = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'bad domain filter', include_domains: 'https://github.com/org' } });
+      assert.equal(invalid.isError, true);
+      assert.match((invalid.content[0] as { text: string }).text, /Invalid include_domains entry "https:\/\/github\.com\/org"/);
+
+      const wrongType = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'array domain filter', exclude_domains: ['github.com'] } });
+      assert.equal(wrongType.isError, true);
     } finally {
       fetchMocker.restore();
       delete process.env.SEARXNG_URL;

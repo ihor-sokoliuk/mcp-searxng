@@ -3710,6 +3710,182 @@ async function runTests() {
     }
   }, results);
 
+  const DOMAIN_FILTER_RESULTS = [
+    { title: 'GitHub Repo', content: 'Repository', url: 'https://github.com/org/repo', score: 0.95 },
+    { title: 'GitHub Gist', content: 'Gist', url: 'https://gist.github.com/user/1', score: 0.9 },
+    { title: 'Uppercase Docs', content: 'Docs', url: 'https://DOCS.Python.org./3/library/', score: 0.85 },
+    { title: 'Lookalike Prefix', content: 'Not GitHub', url: 'https://notgithub.com/page', score: 0.8 },
+    { title: 'Lookalike Suffix', content: 'Not GitHub', url: 'https://github.com.evil.example/page', score: 0.75 },
+    { title: 'Pinterest Board', content: 'Pins', url: 'https://www.pinterest.com/board', score: 0.7 },
+    { title: 'Broken URL', content: 'No host', url: 'not a url', score: 0.65 },
+    { title: 'Munich Portal', content: 'IDN host', url: 'https://www.münchen.de/', score: 0.6 },
+  ];
+
+  async function runDomainFilterSearch(
+    query: string,
+    include?: string,
+    exclude?: string,
+    options: { numResults?: number; responseFormat?: 'text' | 'json' } = {},
+  ) {
+    const result = await performWebSearch(
+      createMockServer() as any, query, 1, undefined, 'all', undefined, undefined, options.numResults,
+      undefined, undefined, options.responseFormat ?? 'text', 'full', 1, include, exclude,
+    );
+    return result;
+  }
+
+  await testFunction('include_domains keeps exact and subdomain hosts and drops lookalikes and unparseable URLs', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } }));
+    try {
+      const result = await runDomainFilterSearch('include domains', ' GitHub.com , *.python.org,MÜNCHEN.de ');
+      for (const title of ['GitHub Repo', 'GitHub Gist', 'Uppercase Docs', 'Munich Portal']) assert.ok(result.includes(`Title: ${title}`), result);
+      for (const title of ['Lookalike Prefix', 'Lookalike Suffix', 'Pinterest Board', 'Broken URL']) assert.ok(!result.includes(title), result);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('exclude_domains drops matching hosts and keeps unparseable URLs', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } }));
+    try {
+      const result = await runDomainFilterSearch('exclude domains', undefined, 'pinterest.com,.github.com');
+      for (const title of ['GitHub Repo', 'GitHub Gist', 'Pinterest Board']) assert.ok(!result.includes(title), result);
+      for (const title of ['Uppercase Docs', 'Lookalike Prefix', 'Lookalike Suffix', 'Broken URL', 'Munich Portal']) assert.ok(result.includes(`Title: ${title}`), result);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('exclude_domains wins over a broader include_domains entry', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } }));
+    try {
+      const result = await runDomainFilterSearch('include and exclude', 'github.com', 'gist.github.com');
+      assert.ok(result.includes('Title: GitHub Repo'), result);
+      assert.ok(!result.includes('GitHub Gist'), result);
+      assert.equal(result.match(/^Title: /gmu)?.length, 1, result);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('domain filters apply before num_results and to JSON results', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } }));
+    try {
+      const result = await runDomainFilterSearch('domain json', undefined, 'github.com', { numResults: 2, responseFormat: 'json' });
+      const parsed = JSON.parse(result);
+      assert.deepEqual(parsed.results.map((entry: { title: string }) => entry.title), ['Uppercase Docs', 'Lookalike Prefix']);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('domain filters that remove every result return the no-results message', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } }));
+    try {
+      const result = await runDomainFilterSearch('no matching domain', 'example.org');
+      assert.ok(result.includes('No results found'), result);
+      assert.ok(!result.includes('Title:'), result);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('empty domain filters leave results unchanged', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    fetchMocker.mock(createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } }));
+    try {
+      const result = await runDomainFilterSearch('empty domain filters', ' , ', '');
+      assert.equal(result.match(/^Title: /gmu)?.length, DOMAIN_FILTER_RESULTS.length, result);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('invalid domain filter entries are rejected before searching', async () => {
+    searchCache.clear();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } })(url, options);
+    });
+    try {
+      const invalidEntries = ['https://github.com', 'github.com/org', 'github.com:443', 'user@github.com', 'git hub.com', 'github..com', 'github.com?x', '[::1]', '.', 'exa_mple.com', 'a<b.com', 'ex%zzample.com'];
+      for (const entry of invalidEntries) {
+        await assert.rejects(
+          () => runDomainFilterSearch('invalid include', `example.org,${entry}`),
+          (error: Error) => {
+            assert.match(error.message, /^Invalid include_domains entry/u);
+            assert.ok(error.message.includes(entry.trim()), error.message);
+            return true;
+          },
+        );
+      }
+      await assert.rejects(
+        () => runDomainFilterSearch('invalid exclude', undefined, 'http://pinterest.com'),
+        /Invalid exclude_domains entry "http:\/\/pinterest\.com"/u,
+      );
+      assert.equal(fetchCount, 0);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+    }
+  }, results);
+
+  await testFunction('domain filters are part of the normalized search cache key', async () => {
+    searchCache.clear();
+    clearSearxngInstanceStateForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    let fetchCount = 0;
+    fetchMocker.mock(async (url, options) => {
+      fetchCount++;
+      return createMockFetch({ json: { results: DOMAIN_FILTER_RESULTS } })(url, options);
+    });
+    try {
+      const unfiltered = await runDomainFilterSearch('domain cache key');
+      const included = await runDomainFilterSearch('domain cache key', 'github.com');
+      const excluded = await runDomainFilterSearch('domain cache key', undefined, 'github.com');
+      assert.equal(fetchCount, 3);
+      assert.ok(unfiltered.includes('Pinterest Board'));
+      assert.ok(!included.includes('Pinterest Board'));
+      assert.ok(!excluded.includes('GitHub Repo'));
+
+      const equivalent = await runDomainFilterSearch('domain cache key', ' GITHUB.com.,github.com ');
+      assert.equal(fetchCount, 3);
+      assert.ok(equivalent.includes('_Cached result_'), equivalent);
+      assert.ok(!equivalent.includes('Pinterest Board'), equivalent);
+    } finally {
+      fetchMocker.restore();
+      envManager.restore();
+      searchCache.clear();
+      clearSearxngInstanceStateForTests();
+    }
+  }, results);
+
   printTestSummary(results, 'Search Module');
   return results;
 }
