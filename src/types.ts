@@ -51,6 +51,8 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
   engines?: string;
   response_format?: "text" | "json";
   result_detail?: ResultDetail;
+  include_domains?: string;
+  exclude_domains?: string;
 } {
   if (
     typeof args !== "object" ||
@@ -73,6 +75,8 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     engines?: unknown;
     response_format?: unknown;
     result_detail?: unknown;
+    include_domains?: unknown;
+    exclude_domains?: unknown;
   };
 
   if (
@@ -130,6 +134,12 @@ export function isSearXNGWebSearchArgs(args: unknown): args is {
     return false;
   }
   if (searchArgs.engines !== undefined && typeof searchArgs.engines !== "string") {
+    return false;
+  }
+  if (searchArgs.include_domains !== undefined && typeof searchArgs.include_domains !== "string") {
+    return false;
+  }
+  if (searchArgs.exclude_domains !== undefined && typeof searchArgs.exclude_domains !== "string") {
     return false;
   }
   if (
@@ -269,6 +279,16 @@ export const WEB_SEARCH_TOOL: Tool = {
         type: "string",
         description:
           "Comma-separated SearXNG engine names to query (e.g. 'google,bing,ddg'). Live /config capabilities are aggregated across reachable instances; prefer searxng_instance_info engines.common.enabled for consistent multi-instance results. Values in engines.available.enabled are best-effort and may only be honored by some instances. Known values are normalized case-insensitively; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If /config is unavailable, values are forwarded as-is with a warning. If omitted, each instance uses its server-side default.",
+      },
+      include_domains: {
+        type: "string",
+        description:
+          "Comma-separated hostnames (e.g. 'github.com,docs.python.org'). Keep only results whose URL host is one of these domains or a subdomain of one. Applied to returned results before min_score and num_results; it is not sent to SearXNG, so add a site: operator to the query or raise pages when few results match.",
+      },
+      exclude_domains: {
+        type: "string",
+        description:
+          "Comma-separated hostnames (e.g. 'pinterest.com,example.org'). Drop results whose URL host is one of these domains or a subdomain of one. Applied after include_domains, so an exclusion wins over a broader inclusion.",
       },
       response_format: {
         type: "string",

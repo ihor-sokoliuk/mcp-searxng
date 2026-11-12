@@ -5,6 +5,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- **Domain filters for web search:** `searxng_web_search` accepts optional comma-separated `include_domains` and `exclude_domains`. Results are matched by URL host, including subdomains, after SearXNG returns them and before `min_score` and `num_results` apply; exclusions win over a broader inclusion. Invalid entries such as URLs with a scheme or path are rejected with a clear error. Both filters are part of the search cache key.
+
 ## [2.10.1] - 2026-11-11
 
 ### Fixed
