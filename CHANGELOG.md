@@ -186,8 +186,7 @@ This minor release adds retained-stateful HTTP controls. Modern HTTP, legacy sta
 
 - @shauneccles — reported degraded-search behavior in [#262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262).
 - @tdhooghe — contributed a proposed fix and implementation discussion in [#299](https://github.com/ihor-sokoliuk/mcp-searxng/pull/299), which was closed without merging.
-- @ihor-sokoliuk — delivered the degraded-search fix in [#308](https://github.com/ihor-sokoliuk/mcp-searxng/pull/308).
-- @ihor-sokoliuk — implementation, verification, dependency maintenance and release.
+- @ihor-sokoliuk — delivered the degraded-search fix in [#308](https://github.com/ihor-sokoliuk/mcp-searxng/pull/308), plus verification, dependency maintenance and release.
 
 ## [2.4.0] - 2026-09-22
 
