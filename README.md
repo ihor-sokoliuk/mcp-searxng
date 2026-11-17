@@ -64,6 +64,7 @@ test SearXNG connectivity. If the call fails, start with
 ## Features
 
 - Search with pagination, filters, direct answers and full or compact text/JSON output.
+- Find images with `categories="images"` and `result_detail="full"`, including available image URLs, thumbnails and resolution.
 - Read HTML, structured text and bounded PDF text; inspect headings or selected sections.
 - Discover instance capabilities and get query suggestions.
 - Optional replica failover/fan-out, HTML fallback, caching, proxies and browser solvers.
