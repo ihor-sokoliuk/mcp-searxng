@@ -1180,6 +1180,33 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('lite image search forwards categories and returns image metadata', async () => {
+    process.env.SEARXNG_URL = 'http://localhost:8081';
+    process.env.SEARXNG_LITE_TOOLS = 'true';
+    let imageRequests = 0;
+    fetchMocker.mock(async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.endsWith('/config')) return new Response(JSON.stringify({ categories: ['images'], engines: [] }));
+      assert.equal(url.searchParams.get('categories'), 'images');
+      imageRequests++;
+      return new Response(JSON.stringify({ results: [{ title: 'Image', url: 'https://example.com/page', content: '', img_src: 'https://example.com/image.jpg', resolution: '640 × 480' }] }));
+    });
+    const { client } = await connect();
+    try {
+      const result = await client.callTool({ name: 'searxng_web_search', arguments: { query: 'lite image', categories: 'images', result_detail: 'full' } });
+      assert.ok(!result.isError);
+      const text = (result.content[0] as { text: string }).text;
+      assert.ok(text.includes('Image Source: https://example.com/image.jpg'), text);
+      assert.ok(text.includes('Resolution: 640 × 480'), text);
+      assert.equal(imageRequests, 1);
+    } finally {
+      fetchMocker.restore();
+      delete process.env.SEARXNG_LITE_TOOLS;
+      delete process.env.SEARXNG_URL;
+      await client.close();
+    }
+  }, results);
+
   await testFunction('tools/call searxng_search_suggestions returns JSON suggestions', async () => {
     process.env.SEARXNG_URL = 'http://localhost:8080';
     fetchMocker.mock(createMockFetch({ body: JSON.stringify(['type', ['typescript', 'typescript tutorial']]) }));

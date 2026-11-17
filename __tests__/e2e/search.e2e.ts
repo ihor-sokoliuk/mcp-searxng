@@ -114,7 +114,16 @@ async function runTests() {
     return results;
   }
 
-  await testFunction('image search returns image URLs in full JSON', async () => {
+  const imageCapabilities = await spawnWithMessages([
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+      name: 'searxng_instance_info', arguments: { category: 'images', includeEngines: true },
+    } },
+  ]);
+  const imageInfo = JSON.parse(getToolResponseText(imageCapabilities[2]));
+  if (imageInfo.available && imageInfo.engines.available.enabled.length === 0) {
+    console.log('[SKIP] no enabled image engines — skipping live image search');
+  } else await testFunction('image search returns image URLs in full JSON', async () => {
     const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {

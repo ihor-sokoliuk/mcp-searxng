@@ -1667,6 +1667,8 @@ async function runTests() {
       assert.deepEqual(json.results, [image]);
       const compact = JSON.parse(await performWebSearch(mockServer as any, 'aurora', 1, undefined, undefined, undefined, undefined, undefined, 'images', undefined, 'json', 'compact'));
       assert.deepEqual(compact.results, [{ title: image.title, url: image.url, content: image.content }]);
+      const compactText = await performWebSearch(mockServer as any, 'aurora', 1, undefined, undefined, undefined, undefined, undefined, 'images', undefined, 'text', 'compact');
+      assert.equal(compactText, `Title: ${image.title}\nDescription: ${image.content}\nURL: ${image.url}`);
     } finally {
       fetchMocker.restore(); envManager.restore(); searchCache.clear(); clearInstanceInfoCacheForTests();
     }
