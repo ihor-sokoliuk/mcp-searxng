@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.11.0] - 2026-11-17
+
+### Added
+
+- Make image search discoverable through `searxng_web_search` with `categories="images"` and `result_detail="full"`. Full text now includes available resolution alongside image and thumbnail URLs; full JSON preserves image metadata and compact output keeps its existing shape. [#365](https://github.com/ihor-sokoliuk/mcp-searxng/pull/365)
+
+### Fixed
+
+- Correct v2.5.0 changelog credits: @shauneccles reported the degraded-search issue, @tdhooghe contributed an unmerged proposal, and @ihor-sokoliuk delivered the fix in #308. [#363](https://github.com/ihor-sokoliuk/mcp-searxng/pull/363)
+
+### Security and maintenance
+
+- Update Hono to 4.13.18 and refresh ESLint/TypeScript ESLint tooling. The tested dependency graph has no production advisories; four moderate development-only affected-package entries remain in the coverage-tool dependency chain. Audit results apply to the repository lockfile and builds using it; existing consumers must refresh their own locks. The supported Node.js range remains unchanged. [#364](https://github.com/ihor-sokoliuk/mcp-searxng/pull/364)
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, feature delivery, verification and release.
+
 ## [2.10.1] - 2026-11-11
 
 ### Fixed
