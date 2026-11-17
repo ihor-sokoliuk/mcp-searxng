@@ -1160,10 +1160,12 @@ export async function performWebSearch(
       const publishedDate = asTextLineString(r.publishedDate).trim();
       const thumbnail = asTextLineString(r.thumbnail).trim();
       const imageSource = asTextLineString(r.img_src).trim();
+      const resolution = asTextLineString(r.resolution).trim();
       if (category) lines.push(`Category: ${category}`);
       if (publishedDate) lines.push(`Published Date: ${publishedDate}`);
       if (thumbnail) lines.push(`Thumbnail: ${thumbnail}`);
       if (imageSource) lines.push(`Image Source: ${imageSource}`);
+      if (resolution) lines.push(`Resolution: ${resolution}`);
 
       return lines.join("\n");
     })

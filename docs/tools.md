@@ -57,9 +57,23 @@ usable full metadata and clean empty replicas remain successful. See
 
   Compact text has three lines per result and no cache annotation or preamble. An engine-failure note may follow the results. Compact JSON may include a top-level `unresponsive_engines` field; each result still has exactly three keys. Update line parsers that expect relevance scores or search metadata to request `result_detail="full"` (or accept compact's three-line records and optional diagnostic note).
 
-  Compact suppresses configuration warnings and provenance while retaining engine-failure diagnostics. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
+  Compact suppresses configuration warnings and provenance while retaining engine-failure diagnostics. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source, resolution; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
 
   With `SEARXNG_LITE_TOOLS=true`, the Lite schema stays query-only, but explicitly supplied optional overrides such as `response_format` and `result_detail` are still validated and honored.
+
+### Image search
+
+Use the same `searxng_web_search` tool with an image category:
+
+```json
+{"query":"aurora borealis","categories":"images","result_detail":"full"}
+```
+
+Full text includes `Image Source:`, `Thumbnail:` and `Resolution:` when supplied
+by SearXNG. `URL:` remains the source page. Full JSON preserves `img_src`,
+`thumbnail` and `resolution`; compact output omits these fields. Image engines
+must be available on the configured instance. The normal `safesearch` argument
+and `SEARXNG_DEFAULT_SAFESEARCH` also apply to image searches.
 
 ## searxng_search_suggestions
   - Get autocomplete suggestions for refining search queries
