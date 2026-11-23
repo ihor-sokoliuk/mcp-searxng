@@ -74,7 +74,7 @@
         "cross-env": "^10.1.0",
         "eslint": "10.15.0",
         "eslint-plugin-security": "4.2.1",
-        "fast-check": "4.10.2",
+        "fast-check": "4.10.3",
         "supertest": "7.3.2",
         "tsx": "4.23.15",
         "typescript": "6.0.3"
