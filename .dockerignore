@@ -34,6 +34,6 @@ coverage/
 **/.env
 **/.env.*
 **/*.env
-**/*.env.local
+**/*.env.*
 !/.env.e2e.example
 !/docs/examples/search-stack/.env.example
