@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## [2.12.0] - 2026-11-24
+
+### Added
+
+- Search suggestions now try SearXNG replicas in configuration order and stop at the first valid list, including an empty list. Each attempt has a five-second deadline. Autocomplete failures are tracked independently of search health. [#373](https://github.com/ihor-sokoliuk/mcp-searxng/pull/373)
+
+### Fixed
+
+- Instance discovery now honors `enabled: false` in SearXNG's engine configuration and continues to recognize the legacy `disabled` flag. Thanks to @interplanetarychris for the fix and regression tests. [#362](https://github.com/ihor-sokoliuk/mcp-searxng/pull/362)
+- Source-checkout Docker builds exclude root and nested private dotenv files before the builder copies the source. The tracked public templates remain available. [#374](https://github.com/ihor-sokoliuk/mcp-searxng/pull/374)
+
+### Build and dependencies
+
+- Build and run the official container on Node.js 26 LTS. The npm package continues to support Node.js 22 and later. [#367](https://github.com/ihor-sokoliuk/mcp-searxng/pull/367)
+- Update express-rate-limit to 8.7.5, jose to 6.2.18, fast-check to 4.11.0 and the pinned Scorecard Action to 2.6.0. [#372](https://github.com/ihor-sokoliuk/mcp-searxng/pull/372)
+
+Thanks to @ihor-sokoliuk for maintenance, verification and release.
+
 ## [2.11.0] - 2026-11-17
 
 ### Added
