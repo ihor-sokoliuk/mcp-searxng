@@ -14,6 +14,7 @@ import { createMockServer } from '../helpers/mock-server.js';
 import { createMockServerWithTracking } from '../helpers/mock-server.js';
 import { FetchMocker, createMockFetch, createCapturingMockFetch } from '../helpers/mock-fetch.js';
 import { EnvManager } from '../helpers/env-utils.js';
+import { clearSearxngInstanceStateForTests, isSearxngInstanceCooledDown, recordSearxngInstanceFailure, suggestionHealth } from '../../src/searxng-instances.js';
 import { setLogLevel } from '../../src/logging.js';
 
 const results = createTestResults();
@@ -262,7 +263,69 @@ async function runTests() {
     envManager.restore();
   }, results);
 
-  await testFunction('multi-URL SEARXNG_URL uses primary instance only for autocomplete', async () => {
+  await testFunction('tries replicas in order on transport, timeout, HTTP and malformed payload failures', async () => {
+    const first = 'https://first.example';
+    envManager.set('SEARXNG_URL', first + ';https://reader@example.org/base;https://last.example');
+    const server = createMockServer();
+    try {
+      for (const failure of [
+        () => { throw new TypeError('transport'); },
+        () => { throw new DOMException('deadline', 'TimeoutError'); },
+        () => new Response(null, { status: 503 }),
+        () => new Response('{'),
+        () => Response.json(['q', [42]]),
+      ]) {
+        clearSearxngInstanceStateForTests();
+        const hosts: string[] = [];
+        let secondaryAuth: string | null = null;
+        fetchMocker.mock(async (input, options) => {
+          const url = new URL(String(input));
+          hosts.push(url.hostname);
+          if (hosts.length === 1) return failure();
+          assert.equal(url.username, '');
+          secondaryAuth = new Headers(options?.headers).get('authorization');
+          return Response.json(['q', []]);
+        });
+        assert.deepEqual(await performSearchSuggestions(server as any, 'q'), []);
+        assert.deepEqual(hosts, ['first.example', 'example.org']);
+        assert.equal(secondaryAuth, 'Basic ' + Buffer.from('reader:').toString('base64'));
+      }
+    } finally {
+      clearSearxngInstanceStateForTests();
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('search and autocomplete cooldowns are independent', async () => {
+    const first = 'https://first.example';
+    const second = 'https://second.example';
+    envManager.set('SEARXNG_URL', first + ';' + second);
+    const calls: string[] = [];
+    const server = createMockServer();
+    try {
+      for (let i = 0; i < 3; i++) recordSearxngInstanceFailure(second);
+      fetchMocker.mock(async input => {
+        const { origin } = new URL(String(input));
+        calls.push(origin);
+        if (origin === first) return new Response(null, { status: 503 });
+        return Response.json(['q', ['answer']]);
+      });
+      for (let i = 0; i < 4; i++) {
+        assert.deepEqual(await performSearchSuggestions(server as any, 'q'), ['answer']);
+      }
+      assert.deepEqual(calls, [first, second, first, second, first, second, second]);
+      assert.equal(isSearxngInstanceCooledDown(first), false);
+      assert.equal(isSearxngInstanceCooledDown(second), true);
+      assert.equal(suggestionHealth.isCooledDown(first, Date.now() + 60_001), false);
+    } finally {
+      clearSearxngInstanceStateForTests();
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('successful primary autocomplete ends the replica search', async () => {
     envManager.set('SEARXNG_URL', 'https://primary.example.com/base;https://secondary.example.com');
     const mockServer = createMockServer();
     const { mockFetch, getCapturedUrl } = createCapturingMockFetch();

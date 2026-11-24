@@ -6,22 +6,6 @@ type InstanceHealth = {
   cooledUntil: number;
 };
 
-const healthByInstance = new Map<string, InstanceHealth>();
-
-function getActiveHealth(instanceUrl: string, now: number): InstanceHealth | undefined {
-  const state = healthByInstance.get(instanceUrl);
-  if (!state) {
-    return undefined;
-  }
-
-  if (state.cooledUntil > 0 && state.cooledUntil <= now) {
-    healthByInstance.delete(instanceUrl);
-    return undefined;
-  }
-
-  return state;
-}
-
 export function parseSearxngUrls(raw: string | undefined = process.env.SEARXNG_URL): string[] {
   if (raw === undefined) {
     return [];
@@ -123,32 +107,62 @@ export function isSearxngFanoutEnabled(): boolean {
   return process.env.SEARXNG_FANOUT === "true";
 }
 
-export function recordSearxngInstanceFailure(instanceUrl: string, now = Date.now()): void {
-  const current = getActiveHealth(instanceUrl, now) ?? { consecutiveFailures: 0, cooledUntil: 0 };
-  const consecutiveFailures = current.consecutiveFailures + 1;
-  healthByInstance.set(instanceUrl, {
-    consecutiveFailures,
-    cooledUntil: consecutiveFailures >= FAILURE_COOLDOWN_THRESHOLD ? now + FAILURE_COOLDOWN_MS : current.cooledUntil,
-  });
-}
+function createInstanceHealth() {
+  const healthByInstance = new Map<string, InstanceHealth>();
 
-export function recordSearxngInstanceSuccess(instanceUrl: string): void {
-  healthByInstance.delete(instanceUrl);
-}
+  function getActiveHealth(instanceUrl: string, now: number): InstanceHealth | undefined {
+    const state = healthByInstance.get(instanceUrl);
+    if (!state) {
+      return undefined;
+    }
 
-export function isSearxngInstanceCooledDown(instanceUrl: string, now = Date.now()): boolean {
-  const state = getActiveHealth(instanceUrl, now);
-  if (!state) {
-    return false;
+    if (state.cooledUntil > 0 && state.cooledUntil <= now) {
+      healthByInstance.delete(instanceUrl);
+      return undefined;
+    }
+
+    return state;
   }
 
-  return state.cooledUntil > now;
+  function recordFailure(instanceUrl: string, now = Date.now()): void {
+    const current = getActiveHealth(instanceUrl, now) ?? { consecutiveFailures: 0, cooledUntil: 0 };
+    const consecutiveFailures = current.consecutiveFailures + 1;
+    healthByInstance.set(instanceUrl, {
+      consecutiveFailures,
+      cooledUntil: consecutiveFailures >= FAILURE_COOLDOWN_THRESHOLD ? now + FAILURE_COOLDOWN_MS : current.cooledUntil,
+    });
+  }
+
+  function recordSuccess(instanceUrl: string): void {
+    healthByInstance.delete(instanceUrl);
+  }
+
+  function isCooledDown(instanceUrl: string, now = Date.now()): boolean {
+    const state = getActiveHealth(instanceUrl, now);
+    if (!state) {
+      return false;
+    }
+
+    return state.cooledUntil > now;
+  }
+
+  function healthyInstances(instances: string[], now = Date.now()): string[] {
+    return instances.filter((instanceUrl) => !isCooledDown(instanceUrl, now));
+  }
+
+  return { recordFailure, recordSuccess, isCooledDown, healthyInstances, clear: () => healthByInstance.clear() };
 }
 
-export function getHealthySearxngInstances(instances: string[], now = Date.now()): string[] {
-  return instances.filter((instanceUrl) => !isSearxngInstanceCooledDown(instanceUrl, now));
-}
+const searchHealth = createInstanceHealth();
+export const suggestionHealth = createInstanceHealth();
+export const {
+  recordFailure: recordSearxngInstanceFailure,
+  recordSuccess: recordSearxngInstanceSuccess,
+  isCooledDown: isSearxngInstanceCooledDown,
+  healthyInstances: getHealthySearxngInstances,
+} = searchHealth;
 
 export function clearSearxngInstanceStateForTests(): void {
-  healthByInstance.clear();
+  searchHealth.clear();
+  suggestionHealth.clear();
 }

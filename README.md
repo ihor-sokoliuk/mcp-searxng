@@ -126,7 +126,7 @@ the `MCP_HTTP_STATELESS=true` legacy mode are sessionless; see
 | Tool | Use it to |
 |---|---|
 | `searxng_web_search` | Find sources and refine results |
-| `searxng_search_suggestions` | Complete or refine a query |
+| `searxng_search_suggestions` | Complete or refine a query, trying configured replicas in order |
 | `searxng_instance_info` | Inspect categories, engines and defaults |
 | `web_url_read` | Read a known URL as text/Markdown |
 
