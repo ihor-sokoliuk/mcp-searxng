@@ -228,7 +228,6 @@ async function runTests() {
   }, results);
 
   await testFunction('IPv6 byte parser stays private, follows family validation, and fails closed', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- repository source URL is compile-time constant
     const source = readFileSync(new URL('../../src/url-security.ts', import.meta.url), 'utf8');
     assert.match(source, /function parseIpv6Bytes\(/);
     assert.doesNotMatch(source, /export\s+(?:function|const)\s+parseIpv6Bytes/);
@@ -240,9 +239,7 @@ async function runTests() {
   }, results);
 
   await testFunction('security documentation describes embedding limits without overclaiming coverage', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- repository documentation URL is compile-time constant
     const security = readFileSync(new URL('../../SECURITY.md', import.meta.url), 'utf8');
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- repository documentation URL is compile-time constant
     const configuration = readFileSync(new URL('../../CONFIGURATION.md', import.meta.url), 'utf8');
     const requiredTerms = [
       '::/96', '::ffff:0:0/96', '::ffff:0:0:0/96', '2002::/16', '64:ff9b::/96',

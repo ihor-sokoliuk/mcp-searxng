@@ -425,14 +425,11 @@ async function runTests() {
       server = await spawnHttpCli({ args: ['--import', 'tsx', '--input-type=module', '-e', script], readyTimeoutMs: 5000 });
       await client.connect(new StreamableHTTPClientTransport(server.url));
       assert.ok((await client.listTools()).tools.some(tool => tool.name === 'web_url_read'));
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- owned test marker
       assert.equal(readFileSync(marker, 'utf8'), 'started');
       assert.equal((server.health as { status: string }).status, 'healthy');
     } finally {
       await client.close(); await server?.close();
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- owned test marker
       if (existsSync(marker)) unlinkSync(marker);
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- empty owned test directory
       rmdirSync(scratch);
     }
   }, results);

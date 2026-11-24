@@ -243,7 +243,6 @@ export async function publishRegistry(manifest, pkg, options = {}) {
 
 function readReleaseFile(directory, name) {
   // Runner-owned metadata directory and fixed filenames; never loaded as code.
-  // eslint-disable-next-line security/detect-non-literal-fs-filename
   return JSON.parse(readFileSync(join(directory, name), 'utf8'));
 }
 
@@ -255,14 +254,12 @@ async function main() {
   const version = validateVersion(process.env.RELEASE_TAG?.slice(1));
   if (version !== manifest.version) throw new Error('Release tag version does not match release metadata.');
   if (process.argv[2] === '--validate') {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
     validateRelease(event, process.env.GITHUB_REPOSITORY, manifest, pkg);
     return;
   }
   const result = await publishRegistry(manifest, pkg, { releaseVersion: version, manifestPath: join(directory, 'server.json') });
   if (process.env.GITHUB_STEP_SUMMARY) {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Verified MCP Registry version **${manifest.version}** in ${Math.ceil(result.elapsedMs / 1000)} seconds (${result.attempts} publish attempts).\n`);
   }
 }

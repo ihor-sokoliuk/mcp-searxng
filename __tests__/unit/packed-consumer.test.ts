@@ -446,7 +446,6 @@ async function runWorkflowContractTests(): Promise<void> {
   }, results);
 
   await testFunction('the public npm release workflow enforces the packed-consumer gate', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- repository-relative URL is a fixed test input
     const workflow = readFileSync(
       new URL('../../.github/workflows/npm-publish.yml', import.meta.url),
       'utf8',
@@ -473,7 +472,6 @@ async function runOrchestrationTests(): Promise<void> {
       if (args.includes('pack')) {
         const destination = args[args.indexOf('--pack-destination') + 1];
         temporaryRoot = path.dirname(destination);
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- destination is the verifier-created temporary artifact directory
         writeFileSync(path.join(destination, 'mcp-searxng-1.12.0.tgz'), 'fixture');
         return {
           status: 0,
@@ -491,7 +489,6 @@ async function runOrchestrationTests(): Promise<void> {
       }
       if (args.includes('install')) {
         const consumerPackage = JSON.parse(
-          // eslint-disable-next-line security/detect-non-literal-fs-filename -- cwd is the verifier-created temporary consumer directory
           readFileSync(path.join(options.cwd!, 'package.json'), 'utf8'),
         );
         assert.match(
@@ -499,9 +496,7 @@ async function runOrchestrationTests(): Promise<void> {
           /^file:.*mcp-searxng-1\.12\.0\.tgz$/,
         );
         const installedPackageDirectory = path.join(options.cwd!, 'node_modules', 'mcp-searxng');
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
         mkdirSync(installedPackageDirectory, { recursive: true });
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
         writeFileSync(
           path.join(installedPackageDirectory, 'package.json'),
           JSON.stringify({
@@ -566,7 +561,6 @@ async function runOrchestrationTests(): Promise<void> {
     assert.equal(outcome.auditTotal, 0);
     assert.equal(outcome.toolCount, 4);
     assert.equal(outcome.resourceCount, 2);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- unique test output is created under the OS temporary directory
     assert.equal(readFileSync(artifactOutput, 'utf8'), 'fixture');
     assert.deepEqual(
       calls.map(({ args }) => (
@@ -589,7 +583,6 @@ async function runOrchestrationTests(): Promise<void> {
     assert.ok(installCall.options.env?.NPM_CONFIG_CACHE?.startsWith(temporaryRoot));
     assert.ok(installCall.options.env?.NPM_CONFIG_USERCONFIG?.startsWith(temporaryRoot));
     assert.ok(installCall.options.env?.NPM_CONFIG_GLOBALCONFIG?.startsWith(temporaryRoot));
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path was captured from the verifier-created temporary directory
     assert.equal(existsSync(temporaryRoot), false);
     rmSync(artifactOutput, { force: true });
   }, results);
@@ -604,7 +597,6 @@ async function runOrchestrationTests(): Promise<void> {
       if (args.includes('pack')) {
         const destination = args[args.indexOf('--pack-destination') + 1];
         temporaryRoot = path.dirname(destination);
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- destination is the verifier-created temporary artifact directory
         writeFileSync(path.join(destination, 'mcp-searxng-1.12.0.tgz'), 'fixture');
         return {
           status: 0,
@@ -622,9 +614,7 @@ async function runOrchestrationTests(): Promise<void> {
       }
       if (args.includes('install')) {
         const installedPackageDirectory = path.join(_options.cwd!, 'node_modules', 'mcp-searxng');
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
         mkdirSync(installedPackageDirectory, { recursive: true });
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- directory belongs to the verifier-created temporary consumer
         writeFileSync(
           path.join(installedPackageDirectory, 'package.json'),
           JSON.stringify({
@@ -655,7 +645,6 @@ async function runOrchestrationTests(): Promise<void> {
       () => verifyPackedConsumer({ projectRoot: process.cwd(), spawn }),
       /infrastructure:.*status 1/,
     );
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path was captured from the verifier-created temporary directory
     assert.equal(existsSync(temporaryRoot), false);
   }, results);
 }

@@ -51,7 +51,6 @@ export function getSystemCACerts(deps: CACertDeps = {}): string | null {
   const {
     platformName = platform,
     fileExists = existsSync,
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     readFile = (path: string) => readFileSync(path, "utf8"),
     caPaths = CA_BUNDLE_PATHS,
     extraCaPath = process.env.NODE_EXTRA_CA_CERTS,

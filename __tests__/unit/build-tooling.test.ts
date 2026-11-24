@@ -1,4 +1,3 @@
-/* eslint-disable security/detect-non-literal-fs-filename -- paths belong to isolated temporary build fixtures and this repository's fixed inputs */
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';

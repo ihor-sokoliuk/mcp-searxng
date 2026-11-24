@@ -115,7 +115,6 @@ const expectedTools = [
 ];
 
 function readText(url: URL): string {
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- all callers pass compile-time repository URLs
   return readFileSync(url, 'utf-8');
 }
 
@@ -536,7 +535,6 @@ export async function runTests(): Promise<TestResult> {
   }, results);
 
   await testFunction('Docker base updates ship with releases without an independent rebuild schedule', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository workflow path
     assert.ok(!existsSync(new URL('../../.github/workflows/docker-rebuild.yml', import.meta.url)));
     const publish = readText(workflowUrls.dockerPublish);
     assert.match(publish, /tags:\s*\n\s*- 'v\*'/u);
@@ -983,7 +981,6 @@ export async function runTests(): Promise<TestResult> {
         const fragment = decodeURIComponent(target.hash.slice(1));
         target.hash = '';
         // Repository-owned documentation links; no user-supplied filesystem paths.
-        // eslint-disable-next-line security/detect-non-literal-fs-filename
         assert.ok(existsSync(target), file + ': missing target ' + link);
         if (!fragment || !target.pathname.endsWith('.md')) continue;
         const body = readText(target);

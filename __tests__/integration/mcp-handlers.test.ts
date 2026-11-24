@@ -829,11 +829,9 @@ async function runTests() {
   }, results);
 
   await testFunction('active package roots and server source exclude the retired monolithic SDK', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository-local manifest assertion.
     const packageManifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
     assert.equal(packageManifest.dependencies?.['@modelcontextprotocol/sdk'], undefined);
     assert.equal(packageManifest.devDependencies?.['@modelcontextprotocol/sdk'], undefined);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository-local source assertion.
     const serverSource = readFileSync(new URL('../../src/index.ts', import.meta.url), 'utf8');
     assert.doesNotMatch(serverSource, /@modelcontextprotocol\/sdk/);
   }, results);

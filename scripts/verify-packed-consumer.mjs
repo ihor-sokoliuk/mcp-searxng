@@ -109,9 +109,7 @@ function allowlistedProcessEnvironment() {
 function isolatedNpmEnvironment(root) {
   const userConfig = path.join(root, 'user.npmrc');
   const globalConfig = path.join(root, 'global.npmrc');
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- root is created by mkdtempSync for this verifier
   writeFileSync(userConfig, '', 'utf8');
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- root is created by mkdtempSync for this verifier
   writeFileSync(globalConfig, '', 'utf8');
   return {
     ...allowlistedProcessEnvironment(),
@@ -211,7 +209,6 @@ function npmInvocation(args) {
     'bin',
     'npm-cli.js',
   );
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is derived from the trusted Node executable location
   if (!existsSync(bundledNpm)) {
     fail('infrastructure', 'npm CLI entrypoint is unavailable');
   }
@@ -230,9 +227,7 @@ export function verifyPackedConsumer({
   const artifactDirectory = path.join(temporaryRoot, 'artifact');
   const consumerDirectory = path.join(temporaryRoot, 'consumer');
   try {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is under the verifier-created temporary root
     mkdirSync(artifactDirectory);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is under the verifier-created temporary root
     mkdirSync(consumerDirectory);
     const npmEnvironment = isolatedNpmEnvironment(temporaryRoot);
     const packInvocation = npmInvocation([
@@ -266,12 +261,10 @@ export function verifyPackedConsumer({
       fail('infrastructure', 'npm pack did not report exactly one artifact');
     }
     const artifactPath = path.join(artifactDirectory, packedArtifacts[0].filename);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- npm pack reports a file in the verifier-owned artifact directory
     if (!existsSync(artifactPath)) {
       fail('infrastructure', 'npm pack reported an artifact that does not exist');
     }
 
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is under the verifier-created temporary consumer
     writeFileSync(
       path.join(consumerDirectory, 'package.json'),
       `${JSON.stringify({
@@ -312,7 +305,6 @@ export function verifyPackedConsumer({
     );
     let installedPackage;
     try {
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is fixed beneath the verifier-created consumer
       installedPackage = JSON.parse(readFileSync(installedManifestPath, 'utf8'));
     } catch {
       fail('artifact_metadata', 'installed package manifest is unreadable');
@@ -326,7 +318,6 @@ export function verifyPackedConsumer({
       'dist',
       'pdf-worker.js',
     );
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is fixed beneath the verifier-created consumer
     if (!existsSync(installedPdfWorkerPath) && spawn === spawnSync) {
       fail('artifact_metadata', 'installed PDF worker is missing');
     }
@@ -389,7 +380,6 @@ export function verifyPackedConsumer({
       'dist',
       'cli.js',
     );
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is fixed beneath the verifier-created consumer
     if (!existsSync(cliPath) && spawn === spawnSync) {
       fail('infrastructure', 'packed CLI is missing after installation');
     }
