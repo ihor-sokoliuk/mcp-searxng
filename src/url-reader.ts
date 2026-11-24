@@ -522,6 +522,36 @@ async function readResponseBytesWithLimit(
   };
 }
 
+/**
+ * Decode with the charset declared in Content-Type (e.g. windows-1251 or
+ * Shift_JIS pages), falling back to UTF-8 when none is declared or the label
+ * is not supported by this Node.js build. A UTF-8 byte order mark takes
+ * precedence over the declared charset, as in the WHATWG Encoding standard.
+ */
+function createBodyDecoder(contentType: string | null, bytes: Uint8Array): TextDecoder {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8");
+  }
+
+  const charset = contentType
+    ?.split(";")
+    .slice(1)
+    .map((parameter) => parameter.trim())
+    .find((parameter) => parameter.toLowerCase().startsWith("charset="))
+    ?.slice("charset=".length)
+    .trim()
+    .replace(/^"(.*)"$/, "$1");
+
+  if (charset) {
+    try {
+      return new TextDecoder(charset);
+    } catch {
+      // Unknown or unsupported label: UTF-8 is the most useful default.
+    }
+  }
+  return new TextDecoder("utf-8");
+}
+
 async function readResponseBodyWithLimit(
   response: Response,
   maxBytes: number,
@@ -533,7 +563,7 @@ async function readResponseBodyWithLimit(
   }
   return {
     exceeded: false,
-    text: new TextDecoder("utf-8").decode(result.bytes),
+    text: createBodyDecoder(response.headers.get("content-type"), result.bytes).decode(result.bytes),
     bytesRead: result.bytesRead,
     hasNulInPrefix: result.hasNulInPrefix,
   };
