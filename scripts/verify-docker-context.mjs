@@ -21,23 +21,18 @@ try {
     ];
     for (const file of [...privateFiles, ...publicFiles]) {
         const target = join(context, file);
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed fixture name inside the temporary context.
         mkdirSync(dirname(target), { recursive: true });
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed fixture name inside the temporary context.
         writeFileSync(target, 'synthetic fixture');
     }
     copyFileSync(new URL('../.dockerignore', import.meta.url), join(context, '.dockerignore'));
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed fixture name inside the temporary context.
     writeFileSync(join(context, 'Dockerfile'), 'FROM scratch\nCOPY . /app/\n');
     execFileSync('docker', ['buildx', 'build', '--output', 'type=local,dest=../output', '.'], {
         cwd: context, stdio: 'inherit',
     });
     for (const file of privateFiles) {
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect the exported synthetic fixture only.
         assert.equal(existsSync(join(output, 'app', file)), false, file);
     }
     for (const file of publicFiles) {
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect the exported synthetic fixture only.
         assert.equal(readFileSync(join(output, 'app', file), 'utf8'), 'synthetic fixture', file);
     }
 } finally {

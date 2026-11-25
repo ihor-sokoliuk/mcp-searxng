@@ -365,7 +365,7 @@ npm run audit:deps
 # equivalent to: npm audit --audit-level=moderate
 ```
 
-The `npm run security` script combines linting (including `eslint-plugin-security` rules) with the dependency audit.
+The `npm run security` script combines linting (including `eslint-plugin-secure-coding` and `eslint-plugin-node-security` rules) with the dependency audit.
 
 ### Published npm Dependency Verification
 

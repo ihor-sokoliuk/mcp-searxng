@@ -50,13 +50,11 @@ async function runTests() {
 
   await testFunction("production diagnostics cannot bypass sanitizing chokepoints", () => {
     const sourceDirectory = fileURLToPath(new URL("../../src/", import.meta.url));
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed repository src directory
     const files = readdirSync(sourceDirectory)
       .filter((name) => name.endsWith(".ts") && name !== "diagnostic-output.ts");
     const violations: string[] = [];
 
     for (const name of files) {
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- names come from the fixed src directory
       const source = readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8");
       if (/\bconsole\.(?:log|warn|error)\s*\(/u.test(source)) {
         violations.push(`${name}: direct console output`);

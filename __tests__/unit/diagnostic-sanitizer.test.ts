@@ -108,6 +108,7 @@ async function runTests() {
       const basic = Buffer.from(`${username}:${password}`).toString("base64");
       withCredentials(env, () => {
         const cause = new Error(`Basic ${basic}`);
+        // eslint-disable-next-line secure-coding/no-sensitive-data-exposure -- test fixture, redaction is under test
         const error = new Error(`${url} ${password} ${encodedPassword}`, { cause });
         const originalStack = error.stack;
         const safe = sanitizeErrorForTransport(error);

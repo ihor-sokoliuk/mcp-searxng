@@ -147,7 +147,6 @@ function extractParagraphRange(markdownContent: string, range: string): string {
   const paragraphs = markdownContent.split('\n\n').filter(p => p.trim().length > 0);
 
   // Parse range (e.g., "1-5", "3", "10-")
-  // eslint-disable-next-line security/detect-unsafe-regex
   const rangeMatch = range.match(/^(\d+)(?:-(\d*))?$/);
   if (!rangeMatch) {
     return "";

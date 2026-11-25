@@ -124,11 +124,8 @@ export async function runTests(): Promise<TestResult> {
   console.log('🧪 Testing: version.ts\n');
 
   await testFunction('release version surfaces use one exact semver version', () => {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is a compile-time constant, not user input
     const pkgJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is a compile-time constant, not user input
     const packageLock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf-8'));
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is a compile-time constant, not user input
     const manifest = JSON.parse(readFileSync(new URL('../../.mcp/server.json', import.meta.url), 'utf-8'));
     const manifestObject = asObject(manifest, '.mcp/server.json');
     const registryPackages = manifestObject.packages;
@@ -171,7 +168,6 @@ export async function runTests(): Promise<TestResult> {
 
   await testFunction('MCP registry treats credential-bearing SEARXNG_URL as secret', () => {
     const manifest = JSON.parse(
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is a compile-time constant
       readFileSync(new URL('../../.mcp/server.json', import.meta.url), 'utf-8'),
     );
     const variables = manifest.packages

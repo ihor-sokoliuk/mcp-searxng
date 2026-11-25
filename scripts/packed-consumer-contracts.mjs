@@ -29,7 +29,6 @@ function parseStableSemver(value, label = 'runtime dependency') {
   if (value.length > 64) {
     fail('unsafe_dependency_tree', `${label} version is invalid`);
   }
-  // eslint-disable-next-line security/detect-unsafe-regex -- input is capped at 64 characters above
   const match = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
   if (!match) {
     fail('unsafe_dependency_tree', `${label} version is invalid: ${value}`);

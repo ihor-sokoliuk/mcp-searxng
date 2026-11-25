@@ -126,8 +126,6 @@ test('invalid metadata, authentication and unrelated 400 errors do not retry', a
 test('incorrect npm release identity never reaches publisher', async () => {
   for (const field of ['name', 'version', 'mcpName']) {
     const changed = structuredClone(npm);
-    // The keys above are a fixed test fixture list.
-    // eslint-disable-next-line security/detect-object-injection
     changed.data[field] = 'wrong';
     const h = harness({ packages: [changed] });
     await assert.rejects(h.run(), /npm metadata/);
@@ -183,9 +181,7 @@ test('only the successful same-repository tag release is accepted', () => {
 
 test('workflow wiring executes trusted tooling and reads release metadata as data', () => {
   // Both URLs are constant paths relative to this test file.
-  // eslint-disable-next-line security/detect-non-literal-fs-filename
   const source = readFileSync(new URL('../.github/workflows/mcp-registry-publish.yml', import.meta.url), 'utf8');
-  // eslint-disable-next-line security/detect-non-literal-fs-filename
   const upstream = readFileSync(new URL('../.github/workflows/npm-publish.yml', import.meta.url), 'utf8');
   assert.match(source, /workflow_run:\s+workflows: \[Publish NPM Package\]\s+types: \[completed\]/);
   assert.match(upstream, /^name: Publish NPM Package\r?$/m);
@@ -294,12 +290,9 @@ test('command-line validation reads only supplied release metadata and rejects t
   const directory = mkdtempSync(join(tmpdir(), 'registry-validation-'));
   try {
     // All paths are confined to this test-owned temporary directory.
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     writeFileSync(join(directory, 'package.json'), JSON.stringify(pkg));
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     writeFileSync(join(directory, 'server.json'), JSON.stringify(manifest));
     const eventPath = join(directory, 'event.json');
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     writeFileSync(eventPath, JSON.stringify(event));
     const executable = fileURLToPath(new URL('./publish-mcp-registry.mjs', import.meta.url));
     const env = { ...process.env, GITHUB_EVENT_PATH: eventPath, GITHUB_REPOSITORY: 'ihor-sokoliuk/mcp-searxng', RELEASE_TAG: 'v2.5.0', RELEASE_METADATA_DIRECTORY: directory };
@@ -308,7 +301,6 @@ test('command-line validation reads only supplied release metadata and rejects t
     assert.equal(good.status, 0, good.stderr);
     const invalid = structuredClone(event);
     invalid.workflow_run.head_branch = 'v2.4.0';
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     writeFileSync(eventPath, JSON.stringify(invalid));
     const bad = invoke();
     assert.equal(bad.status, 1);
