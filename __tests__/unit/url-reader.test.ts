@@ -1554,6 +1554,75 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('Content-Type charset is used to decode the response body', async () => {
+    const mockServer = createMockServer();
+    const cases = [
+      // "Привет" in windows-1251
+      { charset: 'windows-1251', bytes: [0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2], expected: 'Привет' },
+      // "日本" in Shift_JIS, with a quoted, mixed-case parameter
+      { charset: '"Shift_JIS"', bytes: [0x93, 0xfa, 0x96, 0x7b], expected: '日本' },
+      // "café" in ISO-8859-1
+      { charset: 'ISO-8859-1', bytes: [0x63, 0x61, 0x66, 0xe9], expected: 'café' },
+    ];
+
+    for (const { charset, bytes, expected } of cases) {
+      urlCache.clear();
+      const body = Buffer.concat([
+        Buffer.from('<html><body><h1>', 'ascii'),
+        Buffer.from(bytes),
+        Buffer.from('</h1></body></html>', 'ascii'),
+      ]);
+      const { url, close } = await startTestServer({
+        headers: { 'content-type': `text/html; charset=${charset}` },
+        body,
+      });
+      try {
+        const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+        assert.equal(result, `# ${expected}`, `charset=${charset}`);
+      } finally {
+        await close();
+      }
+    }
+    urlCache.clear();
+  }, results);
+
+  await testFunction('UTF-8 byte order mark takes precedence over the Content-Type charset', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'text/html; charset=windows-1251' },
+      body: Buffer.concat([
+        Buffer.from([0xef, 0xbb, 0xbf]),
+        Buffer.from('<html><body><h1>Привет</h1></body></html>', 'utf-8'),
+      ]),
+    });
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.equal(result, '# Привет');
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
+  await testFunction('Unknown Content-Type charset falls back to UTF-8', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const { url, close } = await startTestServer({
+      headers: { 'content-type': 'text/plain; charset=x-not-a-charset' },
+      body: Buffer.from('naïve', 'utf-8'),
+    });
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url);
+      assert.ok(result.includes('naïve'), `Expected UTF-8 text, got: ${result}`);
+    } finally {
+      await close();
+      urlCache.clear();
+    }
+  }, results);
+
   // ── HTML → Markdown conversion ────────────────────────────────────────────
 
   await testFunction('Successful HTML to Markdown conversion', async () => {
