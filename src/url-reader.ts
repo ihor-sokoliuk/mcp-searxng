@@ -108,33 +108,58 @@ function applyCharacterPagination(content: string, startChar: number = 0, maxLen
   return content.slice(start, end);
 }
 
+/**
+ * Return the ATX heading level of each line, or 0 for a non-heading line.
+ *
+ * Lines inside fenced code blocks are never headings: converted pages often
+ * contain shell or Python snippets whose "# comment" lines would otherwise be
+ * listed by readHeadings or end a section early.
+ */
+function getHeadingLevels(lines: string[]): number[] {
+  let fence: { marker: string; length: number } | null = null;
+
+  return lines.map((line) => {
+    // A backtick fence's info string cannot contain backticks (CommonMark), so
+    // a line starting with an inline code span such as "```` ``` ````" is not a fence.
+    const fenceMatch = line.match(/^ {0,3}(`{3,}(?!.*`)|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      const length = fenceMatch[1].length;
+      if (fence === null) {
+        fence = { marker, length };
+      } else if (marker === fence.marker && length >= fence.length && line.trim() === fenceMatch[1]) {
+        fence = null;
+      }
+      return 0;
+    }
+    if (fence !== null) {
+      return 0;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s/);
+    return headingMatch ? headingMatch[1].length : 0;
+  });
+}
+
 function extractSection(markdownContent: string, sectionHeading: string): string {
   const lines = markdownContent.split('\n');
+  const levels = getHeadingLevels(lines);
   const normalizedHeading = sectionHeading.toLowerCase();
 
-  let startIndex = -1;
-  let currentLevel = 0;
-
   // Find the section start — string match avoids RegExp constructor with user input
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^#{1,6}\s/.test(line) && line.toLowerCase().includes(normalizedHeading)) {
-      startIndex = i;
-      currentLevel = (line.match(/^#+/) || [''])[0].length;
-      break;
-    }
-  }
+  const startIndex = lines.findIndex(
+    (line, i) => levels[i] > 0 && line.toLowerCase().includes(normalizedHeading),
+  );
 
   if (startIndex === -1) {
     return "";
   }
 
   // Find the section end (next heading of same or higher level)
+  const currentLevel = levels[startIndex];
   let endIndex = lines.length;
   for (let i = startIndex + 1; i < lines.length; i++) {
-    const line = lines[i];
-    const match = line.match(/^#+/);
-    if (match && match[0].length <= currentLevel) {
+    if (levels[i] > 0 && levels[i] <= currentLevel) {
       endIndex = i;
       break;
     }
@@ -175,7 +200,8 @@ function extractParagraphRange(markdownContent: string, range: string): string {
 
 function extractHeadings(markdownContent: string): string {
   const lines = markdownContent.split('\n');
-  const headings = lines.filter(line => /^#{1,6}\s/.test(line));
+  const levels = getHeadingLevels(lines);
+  const headings = lines.filter((_, i) => levels[i] > 0);
 
   if (headings.length === 0) {
     return "No headings found in the content.";

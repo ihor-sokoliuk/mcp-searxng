@@ -2984,6 +2984,56 @@ async function runTests() {
     }
   }, results);
 
+  await testFunction('Section extraction - ignores # lines inside fenced code blocks', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h2>Installation</h2>
+        <pre><code># install dependencies
+npm ci
+## build
+npm run build</code></pre>
+        <p>Install steps here.</p>
+        <h2>Usage</h2><p>Usage details here.</p>
+      </body></html>
+    `;
+    const { url, close } = await startTestServer({ body: testHtml });
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        section: 'Installation',
+      });
+      assert.ok(result.includes('npm run build'), `Expected the whole code block, got: ${result}`);
+      assert.ok(result.includes('Install steps here.'), `Expected text after the code block, got: ${result}`);
+      assert.ok(!result.includes('Usage'), `Expected "Usage" NOT in section result: ${result}`);
+    } finally {
+      await close();
+    }
+  }, results);
+
+  await testFunction('Section extraction - "#" text without a space does not end a section', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h2>Usage</h2><p>#hashtag paragraph.</p><p>Usage details here.</p>
+        <h2>License</h2><p>MIT.</p>
+      </body></html>
+    `;
+    const { url, close } = await startTestServer({ body: testHtml });
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        section: 'Usage',
+      });
+      assert.ok(result.includes('Usage details here.'), `Expected full section body, got: ${result}`);
+      assert.ok(!result.includes('MIT.'), `Expected "License" NOT in section result: ${result}`);
+    } finally {
+      await close();
+    }
+  }, results);
+
   // ── paragraph range ───────────────────────────────────────────────────────
 
   await testFunction('Paragraph range - single paragraph', async () => {
@@ -3084,6 +3134,51 @@ async function runTests() {
       assert.ok(result.includes('Main Title'), `Expected Main Title, got: ${result}`);
       assert.ok(result.includes('Chapter One'), `Expected Chapter One, got: ${result}`);
       assert.ok(!result.includes('Some paragraph text'), `Paragraph should be excluded`);
+    } finally {
+      await close();
+    }
+  }, results);
+
+  await testFunction('readHeadings ignores # lines inside fenced code blocks', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h1>Main Title</h1>
+        <pre><code># shell comment
+echo hi</code></pre>
+        <h2>Chapter One</h2>
+      </body></html>
+    `;
+    const { url, close } = await startTestServer({ body: testHtml });
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        readHeadings: true,
+      });
+      assert.equal(result, '# Main Title\n## Chapter One');
+    } finally {
+      await close();
+    }
+  }, results);
+
+  await testFunction('readHeadings does not treat inline code with backticks as a fence', async () => {
+    const mockServer = createMockServer();
+    urlCache.clear();
+
+    const testHtml = `
+      <html><body>
+        <h1>Code blocks</h1>
+        <p><code>\`\`\`</code> starts a fenced block.</p>
+        <h2>Closing</h2>
+      </body></html>
+    `;
+    const { url, close } = await startTestServer({ body: testHtml });
+    try {
+      const result = await fetchAndConvertToMarkdown(mockServer as any, url, 10000, {
+        readHeadings: true,
+      });
+      assert.equal(result, '# Code blocks\n## Closing');
     } finally {
       await close();
     }
