@@ -9,6 +9,42 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 - **Domain filters for web search:** `searxng_web_search` accepts optional comma-separated `include_domains` and `exclude_domains`. Results are matched by URL host, including subdomains, after SearXNG returns them and before `min_score` and `num_results` apply; exclusions win over a broader inclusion. Invalid entries such as URLs with a scheme or path are rejected with a clear error. Both filters are part of the search cache key.
 
+## [2.12.0] - 2026-11-24
+
+### Added
+
+- Search suggestions now try SearXNG replicas in configuration order and stop at the first valid list, including an empty list. Each attempt has a five-second deadline. Autocomplete failures are tracked independently of search health. [#373](https://github.com/ihor-sokoliuk/mcp-searxng/pull/373)
+
+### Fixed
+
+- Instance discovery now honors `enabled: false` in SearXNG's engine configuration and continues to recognize the legacy `disabled` flag. Thanks to @interplanetarychris for the fix and regression tests. [#362](https://github.com/ihor-sokoliuk/mcp-searxng/pull/362)
+- Source-checkout Docker builds exclude root and nested private dotenv files before the builder copies the source. The tracked public templates remain available. [#374](https://github.com/ihor-sokoliuk/mcp-searxng/pull/374)
+
+### Build and dependencies
+
+- Build and run the official container on Node.js 26 LTS. The npm package continues to support Node.js 22 and later. [#367](https://github.com/ihor-sokoliuk/mcp-searxng/pull/367)
+- Update express-rate-limit to 8.7.5, jose to 6.2.18, fast-check to 4.11.0 and the pinned Scorecard Action to 2.6.0. [#372](https://github.com/ihor-sokoliuk/mcp-searxng/pull/372)
+
+Thanks to @ihor-sokoliuk for maintenance, verification and release.
+
+## [2.11.0] - 2026-11-17
+
+### Added
+
+- Make image search discoverable through `searxng_web_search` with `categories="images"` and `result_detail="full"`. Full text now includes available resolution alongside image and thumbnail URLs; full JSON preserves image metadata and compact output keeps its existing shape. [#365](https://github.com/ihor-sokoliuk/mcp-searxng/pull/365)
+
+### Fixed
+
+- Correct v2.5.0 changelog credits: @shauneccles reported the degraded-search issue, @tdhooghe contributed an unmerged proposal, and @ihor-sokoliuk delivered the fix in #308. [#363](https://github.com/ihor-sokoliuk/mcp-searxng/pull/363)
+
+### Security and maintenance
+
+- Update Hono to 4.13.18 and refresh ESLint/TypeScript ESLint tooling. The tested dependency graph has no production advisories; four moderate development-only affected-package entries remain in the coverage-tool dependency chain. Audit results apply to the repository lockfile and builds using it; existing consumers must refresh their own locks. The supported Node.js range remains unchanged. [#364](https://github.com/ihor-sokoliuk/mcp-searxng/pull/364)
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, feature delivery, verification and release.
+
 ## [2.10.1] - 2026-11-11
 
 ### Fixed
@@ -188,8 +224,9 @@ This minor release adds retained-stateful HTTP controls. Modern HTTP, legacy sta
 
 ### Contributors
 
-- @tdhooghe — reported degraded-search behavior and contributed the prior implementation discussion in [#262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262) and [#299](https://github.com/ihor-sokoliuk/mcp-searxng/pull/299).
-- @ihor-sokoliuk — implementation, verification, dependency maintenance and release.
+- @shauneccles — reported degraded-search behavior in [#262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262).
+- @tdhooghe — contributed a proposed fix and implementation discussion in [#299](https://github.com/ihor-sokoliuk/mcp-searxng/pull/299), which was closed without merging.
+- @ihor-sokoliuk — delivered the degraded-search fix in [#308](https://github.com/ihor-sokoliuk/mcp-searxng/pull/308), plus verification, dependency maintenance and release.
 
 ## [2.4.0] - 2026-09-22
 

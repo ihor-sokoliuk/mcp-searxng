@@ -1640,6 +1640,40 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('image search preserves full image metadata and default safesearch', async () => {
+    searchCache.clear();
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    envManager.set('SEARXNG_DEFAULT_SAFESEARCH', '2');
+    const image = {
+      title: 'Aurora', content: 'Night sky', url: 'https://example.com/page',
+      img_src: 'https://example.com/image.jpg', thumbnail: 'https://example.com/thumb.jpg', resolution: '1920 × 1080',
+    };
+    const mockServer = createMockServer();
+    fetchMocker.mock(async (url) => {
+      const request = new URL(url.toString());
+      if (request.pathname.endsWith('/config')) return new Response(JSON.stringify({ categories: ['images'], engines: [] }));
+      assert.equal(request.searchParams.get('categories'), 'images');
+      assert.equal(request.searchParams.get('safesearch'), '2');
+      return new Response(JSON.stringify({ results: [image] }));
+    });
+    try {
+      const text = await performWebSearch(mockServer as any, 'aurora', 1, undefined, undefined, undefined, undefined, undefined, 'images', undefined, 'text', 'full');
+      assert.ok(text.includes(`URL: ${image.url}`), text);
+      assert.ok(text.includes(`Image Source: ${image.img_src}`), text);
+      assert.ok(text.includes(`Thumbnail: ${image.thumbnail}`), text);
+      assert.ok(text.includes(`Resolution: ${image.resolution}`), text);
+      const json = JSON.parse(await performWebSearch(mockServer as any, 'aurora', 1, undefined, undefined, undefined, undefined, undefined, 'images', undefined, 'json', 'full'));
+      assert.deepEqual(json.results, [image]);
+      const compact = JSON.parse(await performWebSearch(mockServer as any, 'aurora', 1, undefined, undefined, undefined, undefined, undefined, 'images', undefined, 'json', 'compact'));
+      assert.deepEqual(compact.results, [{ title: image.title, url: image.url, content: image.content }]);
+      const compactText = await performWebSearch(mockServer as any, 'aurora', 1, undefined, undefined, undefined, undefined, undefined, 'images', undefined, 'text', 'compact');
+      assert.equal(compactText, `Title: ${image.title}\nDescription: ${image.content}\nURL: ${image.url}`);
+    } finally {
+      fetchMocker.restore(); envManager.restore(); searchCache.clear(); clearInstanceInfoCacheForTests();
+    }
+  }, results);
+
   await testFunction('categories="news" adds categories=news to SearXNG request URL', async () => {
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
 
@@ -2877,7 +2911,7 @@ async function runTests() {
     const source = {
       query: 'clone', answers: ['raw answer'], suggestions: ['raw suggestion'],
       results: [
-        { title: 'Raw', content: 'abcdefgh', url: 'https://example.com/raw', score: Number.NaN, engines: ['google', 3] as any, category: 3 as any, publishedDate: '' },
+        { title: 'Raw', content: 'abcdefgh', url: 'https://example.com/raw', score: Number.NaN, engines: ['google', 3] as any, category: 3 as any, resolution: 3 as any, publishedDate: '' },
         { title: 'Missing', url: 'https://example.com/missing' } as any,
         { title: 'Non-string', content: 7, url: 'https://example.com/non-string' } as any,
       ],
@@ -2900,7 +2934,7 @@ async function runTests() {
       assert.equal(uncapped.results[2].content, 7);
 
       const text = await performWebSearch(mockServer as any, 'clone text', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'full');
-      for (const omitted of ['Relevance Score:', 'Engines:', 'Category:', 'Published Date:', 'Thumbnail:', 'Image Source:']) assert.ok(!text.includes(omitted), text);
+      for (const omitted of ['Relevance Score:', 'Engines:', 'Category:', 'Published Date:', 'Thumbnail:', 'Image Source:', 'Resolution:']) assert.ok(!text.includes(omitted), text);
     } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }
   }, results);
 
@@ -2910,7 +2944,7 @@ async function runTests() {
     fetchMocker.mock(createMockFetch({ json: { results: [{
       title: 'Full\rTitle', content: 'Body\nDescription', url: 'https://example.com/full\u2028fake', score: 1,
       engines: ['', ' bing\nfake ', ''], category: 'news\r\nTitle: forged', publishedDate: 'today\u2029tomorrow',
-      thumbnail: 'thumb\nline', img_src: 'image\rline',
+      thumbnail: 'thumb\nline', img_src: 'image\rline', resolution: '1920\nTitle: forged',
     }] } }));
     try {
       const text = await performWebSearch(mockServer as any, 'full line normalization', 1, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'text', 'full');
@@ -2924,6 +2958,7 @@ async function runTests() {
         'Published Date: today tomorrow',
         'Thumbnail: thumb line',
         'Image Source: image line',
+        'Resolution: 1920 Title: forged',
       ].join('\n'));
       assert.ok(!text.includes('\nTitle: forged'), text);
     } finally { fetchMocker.restore(); envManager.restore(); searchCache.clear(); }

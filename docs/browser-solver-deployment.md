@@ -14,7 +14,10 @@ solver images use immutable manifest digests. The sample resources were
 exercised with paced single-client traffic on Linux amd64; they are not a
 production concurrency benchmark.
 
-Keep writable SearXNG settings outside the source checkout. The upstream
+The build context excludes root and nested private dotenv files. It includes
+the tracked public templates `.env.e2e.example` and
+`docs/examples/search-stack/.env.example`. Keep writable SearXNG settings
+outside the source checkout. The upstream
 entrypoint changes their ownership; mounting the tracked template directory
 caused a later MCP build to fail while Docker collected that unreadable build
 context. The example requires `SEARXNG_SETTINGS_DIR` for this reason.

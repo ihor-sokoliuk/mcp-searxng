@@ -64,6 +64,7 @@ test SearXNG connectivity. If the call fails, start with
 ## Features
 
 - Search with pagination, filters, direct answers and full or compact text/JSON output.
+- Find images with `categories="images"` and `result_detail="full"`, including available image URLs, thumbnails and resolution.
 - Read HTML, structured text and bounded PDF text; inspect headings or selected sections.
 - Discover instance capabilities and get query suggestions.
 - Optional replica failover/fan-out, HTML fallback, caching, proxies and browser solvers.
@@ -125,7 +126,7 @@ the `MCP_HTTP_STATELESS=true` legacy mode are sessionless; see
 | Tool | Use it to |
 |---|---|
 | `searxng_web_search` | Find sources and refine results |
-| `searxng_search_suggestions` | Complete or refine a query |
+| `searxng_search_suggestions` | Complete or refine a query, trying configured replicas in order |
 | `searxng_instance_info` | Inspect categories, engines and defaults |
 | `web_url_read` | Read a known URL as text/Markdown |
 

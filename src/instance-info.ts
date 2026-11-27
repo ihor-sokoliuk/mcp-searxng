@@ -118,7 +118,7 @@ function engineSets(config: SearXNGConfig, category?: string) {
         continue;
       }
 
-      if (engine.disabled) {
+      if (engine.enabled === false || engine.disabled) {
         disabled.add(engine.name);
       } else {
         enabled.add(engine.name);

@@ -266,6 +266,61 @@ async function runTests() {
     envManager.restore();
   }, results);
 
+  await testFunction('classifies enabled flags while retaining legacy disabled support', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://test-searx.example.com');
+    const config = makeConfig();
+    config.engines = [
+      { name: 'keenable', categories: ['general'], enabled: true },
+      { name: 'braveapi', categories: ['general'], enabled: false },
+      { name: 'legacy-on', categories: ['books'], disabled: false },
+      { name: 'legacy-off', categories: ['general'], disabled: true },
+      { name: 'implicit-on', categories: ['general'] },
+      { name: 'modern-off', categories: ['general'], enabled: false, disabled: false },
+    ];
+    fetchMocker.mock(createMockFetch({ json: config }));
+    try {
+      for (const includeDisabled of [false, true]) {
+        const payload = JSON.parse(await fetchInstanceInfo(createMockServer() as any, true, includeDisabled));
+        assert.deepEqual(payload.engines.common.enabled, ['implicit-on', 'keenable', 'legacy-on']);
+        assert.deepEqual(payload.engines.available.enabled, payload.engines.common.enabled);
+        assert.deepEqual(payload.engines.common.disabled,
+          includeDisabled ? ['braveapi', 'legacy-off', 'modern-off'] : undefined);
+        assert.deepEqual(payload.engines.available.disabled, payload.engines.common.disabled);
+      }
+      const filtered = JSON.parse(await fetchInstanceInfo(createMockServer() as any, true, true, 'general'));
+      assert.deepEqual(filtered.engines.common.enabled, ['implicit-on', 'keenable']);
+      assert.deepEqual(filtered.engines.common.disabled, ['braveapi', 'legacy-off', 'modern-off']);
+    } finally {
+      clearInstanceInfoCacheForTests();
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
+  await testFunction('aggregates enabled flags across replicas with different engine defaults', async () => {
+    clearInstanceInfoCacheForTests();
+    envManager.set('SEARXNG_URL', 'https://primary.example.com;https://secondary.example.com');
+    fetchMocker.mock(async (url, options) => createMockFetch({ json: {
+      engines: [
+        { name: 'keenable', categories: ['general'], enabled: true },
+        { name: 'braveapi', categories: ['general'], enabled: new URL(url.toString()).hostname === 'secondary.example.com' },
+        { name: 'shared-off', categories: ['general'], enabled: false },
+      ],
+    } })(url, options));
+    try {
+      const payload = JSON.parse(await fetchInstanceInfo(createMockServer() as any, true, true));
+      assert.deepEqual(payload.engines.common.enabled, ['keenable']);
+      assert.deepEqual(payload.engines.available.enabled, ['braveapi', 'keenable']);
+      assert.deepEqual(payload.engines.common.disabled, ['shared-off']);
+      assert.deepEqual(payload.engines.available.disabled, ['braveapi', 'shared-off']);
+    } finally {
+      clearInstanceInfoCacheForTests();
+      fetchMocker.restore();
+      envManager.restore();
+    }
+  }, results);
+
   await testFunction('resolves engine time-range support from cached /config', async () => {
     clearInstanceInfoCacheForTests();
     envManager.set('SEARXNG_URL', 'https://test-searx.example.com');

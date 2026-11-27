@@ -52,6 +52,7 @@ usable full metadata and clean empty replicas remain successful. See
     - `engines` (string, optional): Comma-separated SearXNG engine names (e.g. `"google,bing,ddg"`, `"semantic scholar"`). Live `/config` capabilities are aggregated across reachable instances; prefer `searxng_instance_info` `engines.common.enabled` for consistent multi-instance results. Known values are trimmed and normalized case-insensitively, including engines disabled by default; unknown values are forwarded trimmed so SearXNG can ignore or honor them. If `/config` is unavailable, values are forwarded as-is with a warning, except when combined with `time_range`.
     - `include_domains` (string, optional): Comma-separated hostnames (e.g. `"github.com,docs.python.org"`). Keeps only results whose URL host is one of these domains or a subdomain of one, so `github.com` also matches `gist.github.com`. Entries are trimmed and matched case-insensitively; a leading `*.` or `.` is ignored, and an entry with a scheme, port, or path is rejected. Results without a parseable URL are dropped.
     - `exclude_domains` (string, optional): Comma-separated hostnames, in the same format. Drops results whose URL host is one of these domains or a subdomain of one. It is applied after `include_domains`, so `include_domains="github.com"` with `exclude_domains="gist.github.com"` keeps GitHub results except gists.
+    - `include_domains` and `exclude_domains` apply only to entries in `results`. In full mode, answers and infoboxes can still contain content or links from other domains.
     - Domain filters run on the results SearXNG returns, before `min_score` and `num_results`; they are not sent to SearXNG and do not change the query. When an include filter leaves few results, add a `site:` operator to the query for engines that support it, or raise `pages` to filter a larger candidate set.
     - When `engines` and `time_range` are both provided, every configured SearXNG instance must return `/config` successfully and every selected engine must explicitly report `time_range_support=true`. If any instance is unreachable or any engine is unsupported or unknown, the request fails before `/search` to avoid a misleading empty result. Omit `time_range` or use an engine-specific query filter instead.
     - `response_format` (string, optional): Response format, either `"text"` for formatted agent-readable output or `"json"` for raw SearXNG JSON with filtered/sliced `results`. If omitted, `SEARXNG_DEFAULT_RESPONSE_FORMAT` applies; if unset or invalid, `text` is used. An explicit `response_format` always takes precedence.
@@ -60,9 +61,23 @@ usable full metadata and clean empty replicas remain successful. See
 
   Compact text has three lines per result and no cache annotation or preamble. An engine-failure note may follow the results. Compact JSON may include a top-level `unresponsive_engines` field; each result still has exactly three keys. Update line parsers that expect relevance scores or search metadata to request `result_detail="full"` (or accept compact's three-line records and optional diagnostic note).
 
-  Compact suppresses configuration warnings and provenance while retaining engine-failure diagnostics. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
+  Compact suppresses configuration warnings and provenance while retaining engine-failure diagnostics. Full text may add valid optional lines in fixed order: score, engines, category, published date, thumbnail, image source, resolution; invalid optional metadata is omitted. Text fields are normalized to single lines. `SEARXNG_MAX_RESULT_CHARS` truncates result content in compact and full text/JSON responses, including full JSON for existing users who already set the variable; compact text normalizes line separators before applying the cap, while JSON caps the original string value.
 
   With `SEARXNG_LITE_TOOLS=true`, the Lite schema stays query-only, but explicitly supplied optional overrides such as `response_format` and `result_detail` are still validated and honored.
+
+### Image search
+
+Use the same `searxng_web_search` tool with an image category:
+
+```json
+{"query":"aurora borealis","categories":"images","result_detail":"full"}
+```
+
+Full text includes `Image Source:`, `Thumbnail:` and `Resolution:` when supplied
+by SearXNG. `URL:` remains the source page. Full JSON preserves `img_src`,
+`thumbnail` and `resolution`; compact output omits these fields. Image engines
+must be available on the configured instance. The normal `safesearch` argument
+and `SEARXNG_DEFAULT_SAFESEARCH` also apply to image searches.
 
 ## searxng_search_suggestions
   - Get autocomplete suggestions for refining search queries

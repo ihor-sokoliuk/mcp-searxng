@@ -114,6 +114,30 @@ async function runTests() {
     return results;
   }
 
+  await testFunction('image search returns image URLs in full JSON', async () => {
+    const imageCapabilities = await spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+        name: 'searxng_instance_info', arguments: { category: 'images', includeEngines: true },
+      } },
+    ]);
+    const imageInfo = JSON.parse(getToolResponseText(imageCapabilities[2]));
+    if (!imageInfo.available || imageInfo.engines.available.enabled.length === 0) {
+      console.log('[SKIP] image capabilities unavailable or no enabled image engines');
+      return;
+    }
+    const responses = await spawnWithMessages([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+        name: 'searxng_web_search',
+        arguments: { query: 'aurora borealis', categories: 'images', result_detail: 'full', response_format: 'json' },
+      } },
+    ]);
+    assert.ok(!responses[2]?.result?.isError, getToolResponseText(responses[2]));
+    const data = JSON.parse(getToolResponseText(responses[2]));
+    assert.ok(data.results.some((result: any) => typeof result.img_src === 'string' && /^https?:\/\//.test(result.img_src)), 'live image search should return an image URL');
+  }, results);
+
   await testFunction('basic search returns results with title and URL', async () => {
     const responses = await spawnWithMessages([
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: INIT_PARAMS },

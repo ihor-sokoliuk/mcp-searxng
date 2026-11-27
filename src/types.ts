@@ -11,6 +11,7 @@ export interface SearXNGWebResult {
   publishedDate?: string;
   thumbnail?: string;
   img_src?: string;
+  resolution?: string;
 }
 
 export interface SearXNGWebInfobox {
@@ -209,6 +210,7 @@ export const WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
   description:
     "Searches the web using SearXNG and returns a list of results, each with a title, URL, and content snippet. " +
+    "For image search, use `categories=images` with `result_detail=full` to receive available image/thumbnail URLs and resolution. " +
     "CRITICAL: The required parameter name is exactly `query` (not `prompt`, `q`, or any other name). " +
     "Calls an external SearXNG instance; availability depends on the `SEARXNG_URL` configuration. " +
     "Use `pageno` to paginate results; combine `time_range` and `language` to narrow scope. " +
@@ -368,7 +370,7 @@ export const INSTANCE_INFO_TOOL: Tool = {
 
 export const LITE_WEB_SEARCH_TOOL: Tool = {
   name: "searxng_web_search",
-  description: "Web search. Returns titles, URLs, snippets.",
+  description: "Web search. Returns titles, URLs, snippets. Image search: categories=images with result_detail=full returns available image/thumbnail URLs and resolution.",
   inputSchema: {
     type: "object",
     properties: { query: { type: "string", description: "Search query." } },
