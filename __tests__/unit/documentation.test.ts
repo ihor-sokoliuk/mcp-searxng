@@ -644,7 +644,7 @@ export async function runTests(): Promise<TestResult> {
     const types = readText(new URL('../../src/types.ts', import.meta.url));
     const fullSchemaParameters = [
       'query', 'pageno', 'time_range', 'language', 'safesearch', 'min_score',
-      'num_results', 'categories', 'engines', 'response_format', 'result_detail',
+      'num_results', 'categories', 'engines', 'include_domains', 'exclude_domains', 'response_format', 'result_detail',
       'includeEngines', 'includeDisabled', 'category', 'refresh',
       'url', 'startChar', 'maxLength', 'section', 'paragraphRange', 'readHeadings',
     ];

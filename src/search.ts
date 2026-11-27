@@ -447,6 +447,71 @@ async function normalizeSearchFilters(
   };
 }
 
+type DomainFilters = {
+  include?: string[];
+  exclude?: string[];
+};
+
+function normalizeDomainFilterEntry(entry: string): string | undefined {
+  const candidate = entry.toLowerCase().replace(/^\*?\./u, "").replace(/\.$/u, "");
+  if (candidate === "" || /[\s/\\:?#@[\]]/u.test(candidate)) {
+    return undefined;
+  }
+  try {
+    const hostname = new URL(`http://${candidate}`).hostname;
+    return hostname.split(".").every((label) => /^[a-z0-9-]+$/u.test(label)) ? hostname : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseDomainFilter(name: string, value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const domains: string[] = [];
+  for (const entry of splitCommaSeparated(value)) {
+    const domain = normalizeDomainFilterEntry(entry);
+    if (domain === undefined) {
+      throw new MCPSearXNGError(
+        `Invalid ${name} entry "${sanitizeDiagnosticText(entry)}". ` +
+        "Use comma-separated hostnames such as \"example.com,docs.python.org\" without a scheme, port, or path."
+      );
+    }
+    if (!domains.includes(domain)) domains.push(domain);
+  }
+  return domains.length > 0 ? domains : undefined;
+}
+
+function resultHostname(rawUrl: unknown): string | undefined {
+  if (typeof rawUrl !== "string") return undefined;
+  try {
+    return new URL(rawUrl).hostname.toLowerCase().replace(/\.$/u, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function hostnameMatchesDomain(hostname: string, domains: string[]): boolean {
+  return domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
+/**
+ * Keep results whose URL host is one of the included domains (or a subdomain
+ * of one), then drop results whose host matches an excluded domain. Results
+ * without a parseable URL never match a domain, so an include filter drops
+ * them and an exclude filter keeps them.
+ */
+function applyDomainFilters(results: SearXNGWeb["results"], filters: DomainFilters): SearXNGWeb["results"] {
+  const { include, exclude } = filters;
+  if (!include && !exclude) return results;
+  return results.filter((result) => {
+    const hostname = resultHostname(result.url);
+    if (include && (hostname === undefined || !hostnameMatchesDomain(hostname, include))) return false;
+    return !(exclude && hostname !== undefined && hostnameMatchesDomain(hostname, exclude));
+  });
+}
+
 /**
  * Collapse an untrusted string array into renderable single-line entries.
  *
@@ -992,6 +1057,8 @@ export async function performWebSearch(
   response_format?: ResponseFormat,
   result_detail: ResultDetail = "full",
   pages: number = 1,
+  include_domains?: string,
+  exclude_domains?: string,
 ) {
   // The tool schema rejects out-of-range input; retain a defensive internal cap.
   const pageCount = Number.isInteger(pages) && pages > 0 ? Math.min(pages, 5) : 1;
@@ -1012,6 +1079,10 @@ export async function performWebSearch(
     throw new MCPSearXNGError(validationError);
   }
 
+  const domainFilters: DomainFilters = {
+    include: parseDomainFilter("include_domains", include_domains),
+    exclude: parseDomainFilter("exclude_domains", exclude_domains),
+  };
   const filters = await normalizeSearchFilters(mcpServer, categories, engines);
   await validateTimeRangeSupport(mcpServer, filters.engines, time_range);
 
@@ -1025,6 +1096,8 @@ export async function performWebSearch(
     effectiveMax !== undefined ? `num_results: ${effectiveMax}` : null,
     filters.categories ? `categories: ${filters.categories}` : null,
     filters.engines ? `engines: ${filters.engines}` : null,
+    domainFilters.include ? `include_domains: ${domainFilters.include.join(",")}` : null,
+    domainFilters.exclude ? `exclude_domains: ${domainFilters.exclude.join(",")}` : null,
   ].filter(Boolean).join(", ");
   
   logMessage(mcpServer, "info", `Starting web search: "${query}" (${searchParams})`);
@@ -1052,6 +1125,7 @@ export async function performWebSearch(
     effectiveLanguage,
     effectiveSafesearch,
     filters,
+    domainFilters,
     min_score,
     effectiveMax,
     maxResultChars,
@@ -1081,7 +1155,7 @@ export async function performWebSearch(
   }
   const failureNote = failureDetails ? `⚠️ Some search engines were unavailable: ${failureDetails}. Results may be incomplete.` : "";
 
-  const results = data.results
+  const results = applyDomainFilters(data.results, domainFilters)
     .filter((result) => min_score === undefined || (result.score || 0) >= min_score);
   const slicedResults = effectiveMax !== undefined
     ? results.slice(0, effectiveMax)
@@ -1120,6 +1194,8 @@ export async function performWebSearch(
 
   if (slicedResults.length === 0) {
     const appliedFilters = [
+      domainFilters.include ? `include_domains=${domainFilters.include.join(",")}` : null,
+      domainFilters.exclude ? `exclude_domains=${domainFilters.exclude.join(",")}` : null,
       min_score === undefined ? null : `min_score=${min_score}`,
       effectiveMax === undefined ? null : `num_results=${effectiveMax}`,
     ].filter(Boolean).join(" ");

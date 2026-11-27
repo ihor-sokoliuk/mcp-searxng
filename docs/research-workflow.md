@@ -66,6 +66,7 @@ Call `searxng_web_search` with the required `query`. Full mode also supports:
 - `pageno` for later result pages.
 - `time_range`, `language`, and `safesearch` for scope.
 - `min_score` and `num_results` for result selection.
+- `include_domains` and `exclude_domains` to keep or drop results by host.
 - `categories` and `engines` for instance-supported routing.
 - `response_format` as `text` for normal agent use or `json` for structured
   processing.
